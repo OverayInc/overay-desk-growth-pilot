@@ -1,0 +1,7 @@
+node_modules
+*.log
+.git
+.env
+data/app-data.json
+data/*.local.json
+coverage

@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Launch Pilot Growth Dashboard</title>
+    <link rel="stylesheet" href="/styles.css?v=20260528-settings-width" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">LP</span>
+          <div>
+            <strong>Launch Pilot</strong>
+            <span>Portfolio Growth</span>
+          </div>
+        </div>
+        <nav class="nav" aria-label="Dashboard sections">
+          <a href="#portfolio">Portfolio</a>
+          <a href="#readiness">Ready</a>
+          <a href="#today">Today</a>
+          <a href="#campaigns">Campaigns</a>
+          <a href="#creator-db">Creator DB</a>
+          <a href="#outreach">Outreach</a>
+          <a href="#creators">Creators</a>
+          <a href="#keys">Keys</a>
+          <a href="#sync">Sync</a>
+          <a href="#steam">Steam</a>
+          <a href="#utm">UTM</a>
+          <a href="#settings">Settings</a>
+          <a href="#data">Data</a>
+        </nav>
+        <div class="status-pill" id="apiStatus">API 확인 중</div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="page-title">
+            <p class="eyebrow">Internal Growth Ops</p>
+            <h1>게임 포트폴리오 홍보 운영판</h1>
+            <div class="scope-row">
+              <span class="scope-badge" id="scopeBadge">전체 게임</span>
+              <span class="muted" id="scopeMeta">-</span>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <label class="filter-control">
+              보기
+              <select id="gameFilter">
+                <option value="all">전체 게임</option>
+              </select>
+            </label>
+            <button class="secondary-button" id="refreshButton" type="button">새로고침</button>
+          </div>
+        </header>
+
+        <section class="band" id="portfolio">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Portfolio Overview</p>
+              <h2>게임별 성장 현황</h2>
+            </div>
+            <span class="muted" id="portfolioSummary">-</span>
+          </div>
+          <div class="portfolio-grid" id="portfolioGrid"></div>
+          <details class="action-panel">
+            <summary><span>새 게임</span><span class="summary-icon">+</span></summary>
+            <form class="form-row game-form" id="gameForm">
+              <label>
+                게임명
+                <input name="name" placeholder="New Anomaly Game" required />
+              </label>
+              <label>
+                Steam App ID
+                <input name="steamAppId" placeholder="0" />
+              </label>
+              <label>
+                단계
+                <select name="stage">
+                  <option value="concept">concept</option>
+                  <option value="prototype">prototype</option>
+                  <option value="prelaunch">prelaunch</option>
+                  <option value="launched">launched</option>
+                </select>
+              </label>
+              <label>
+                장르
+                <input name="genre" placeholder="Anomaly exploration" />
+              </label>
+              <button type="submit">게임 추가</button>
+            </form>
+          </details>
+        </section>
+
+        <section class="band" id="readiness">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Integration Readiness</p>
+              <h2>실제 연동 준비 상태</h2>
+            </div>
+            <span class="muted" id="readinessSummary">-</span>
+          </div>
+          <div class="readiness-grid" id="readinessGrid"></div>
+          <details class="action-panel">
+            <summary><span>게임 연동 설정</span><span class="summary-icon">+</span></summary>
+            <form class="form-row integration-form" id="gameSettingsForm">
+              <label>
+                게임
+                <select name="gameId" id="settingsGameSelect"></select>
+              </label>
+              <label>
+                게임명
+                <input name="name" placeholder="Game name" required />
+              </label>
+              <label>
+                Steam App ID
+                <input name="steamAppId" placeholder="0" />
+              </label>
+              <label>
+                Store URL
+                <input name="steamStoreUrl" placeholder="https://store.steampowered.com/app/..." />
+              </label>
+              <label>
+                출시일
+                <input name="launchDate" type="date" />
+              </label>
+              <label>
+                단계
+                <select name="stage">
+                  <option value="concept">concept</option>
+                  <option value="prototype">prototype</option>
+                  <option value="prelaunch">prelaunch</option>
+                  <option value="launched">launched</option>
+                </select>
+              </label>
+              <label>
+                장르
+                <input name="genre" placeholder="Anomaly exploration" />
+              </label>
+              <label>
+                담당
+                <input name="owner" placeholder="Growth" />
+              </label>
+              <button type="submit">설정 저장</button>
+            </form>
+          </details>
+        </section>
+
+        <section class="band" id="today">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Today Dashboard</p>
+              <h2>핵심 지표</h2>
+            </div>
+            <span class="muted" id="latestDate">-</span>
+          </div>
+          <div class="metric-grid" id="metricGrid"></div>
+          <div class="insight-grid">
+            <div class="panel">
+              <div class="panel-title">
+                <h3>캠페인 성과</h3>
+                <span>방문 대비 전환</span>
+              </div>
+              <div id="campaignBars" class="bar-list"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">
+                <h3>연락 우선순위</h3>
+                <span>적합도 기준</span>
+              </div>
+              <div id="contactQueue" class="queue-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="band" id="campaigns">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Campaign Dashboard</p>
+              <h2>캠페인</h2>
+            </div>
+            <span class="muted" id="campaignCount">0 campaigns</span>
+          </div>
+          <details class="action-panel">
+            <summary><span>새 캠페인</span><span class="summary-icon">+</span></summary>
+            <form class="form-row" id="campaignForm">
+              <label>
+                게임
+                <select name="gameId" data-game-select></select>
+              </label>
+              <label>
+                캠페인명
+                <input name="name" placeholder="June Creator Push" required />
+              </label>
+              <label>
+                시작일
+                <input name="startDate" type="date" />
+              </label>
+              <label>
+                채널
+                <input name="channels" placeholder="YouTube, Reddit" />
+              </label>
+              <label>
+                목표
+                <input name="goal" placeholder="위시리스트 전환" />
+              </label>
+              <button type="submit">캠페인 추가</button>
+            </form>
+          </details>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>캠페인</th>
+                  <th>게임</th>
+                  <th>채널</th>
+                  <th>이메일</th>
+                  <th>키</th>
+                  <th>방문</th>
+                  <th>위시리스트</th>
+                  <th>구매</th>
+                  <th>매출</th>
+                </tr>
+              </thead>
+              <tbody id="campaignTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="band" id="creator-db">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Shared Creator Database</p>
+              <h2>공용 크리에이터 DB</h2>
+            </div>
+            <span class="muted" id="creatorProfileCount">0 profiles</span>
+          </div>
+          <details class="action-panel">
+            <summary><span>새 DB 프로필</span><span class="summary-icon">+</span></summary>
+            <form class="form-row creator-db-form" id="creatorProfileForm">
+              <label>
+                채널명
+                <input name="channelName" placeholder="Odd Hallways" required />
+              </label>
+              <label>
+                플랫폼
+                <select name="platform">
+                  <option>YouTube</option>
+                  <option>TikTok</option>
+                  <option>X</option>
+                  <option>Reddit</option>
+                  <option>Discord</option>
+                </select>
+              </label>
+              <label>
+                이메일
+                <input name="email" type="email" placeholder="business@example.com" />
+              </label>
+              <label>
+                국가
+                <input name="country" placeholder="US" />
+              </label>
+              <label>
+                태그
+                <input name="tags" placeholder="anomaly, backrooms" />
+              </label>
+              <label>
+                평균 조회수
+                <input name="averageViews" type="number" min="0" placeholder="18000" />
+              </label>
+              <label>
+                적합도
+                <input name="fitScore" type="number" min="0" max="100" placeholder="85" />
+              </label>
+              <button type="submit">DB 추가</button>
+            </form>
+          </details>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>채널</th>
+                  <th>연락처</th>
+                  <th>태그</th>
+                  <th>조회수</th>
+                  <th>적합도</th>
+                  <th>사용 게임</th>
+                  <th>상태</th>
+                  <th>메일</th>
+                </tr>
+              </thead>
+              <tbody id="creatorProfileTable"></tbody>
+            </table>
+          </div>
+          <div class="result-line" id="emailDraftResult"></div>
+          <details class="action-panel">
+            <summary><span>Creator CSV 가져오기</span><span class="summary-icon">+</span></summary>
+            <form class="stack-form" id="creatorCsvForm">
+              <label>
+                Creator CSV
+                <textarea name="csvText" rows="7" placeholder="channelName,platform,email,country,tags,averageViews,fitScore"></textarea>
+              </label>
+              <div class="button-row">
+                <button class="secondary-button" type="button" id="creatorCsvPreviewButton">미리보기</button>
+                <button type="submit">DB 가져오기</button>
+              </div>
+            </form>
+          </details>
+          <div class="result-line" id="creatorCsvPreviewResult"></div>
+        </section>
+
+        <section class="band" id="outreach">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Email Outreach</p>
+              <h2>메일 발송과 로그</h2>
+            </div>
+            <span class="muted" id="emailStatusLabel">-</span>
+          </div>
+          <div class="sync-grid">
+            <div class="panel">
+              <div class="panel-title">
+                <h3>발송 설정</h3>
+                <span>서버 환경변수 기준</span>
+              </div>
+              <div class="sync-status-grid" id="emailStatusGrid"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">
+                <h3>최근 발송 로그</h3>
+                <span id="outreachLogCount">0 logs</span>
+              </div>
+              <div class="table-wrap compact">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>시간</th>
+                      <th>상태</th>
+                      <th>크리에이터</th>
+                      <th>제목</th>
+                    </tr>
+                  </thead>
+                  <tbody id="outreachLogTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="band" id="creators">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Creator CRM</p>
+              <h2>크리에이터</h2>
+            </div>
+            <span class="muted" id="creatorCount">0 creators</span>
+          </div>
+          <details class="action-panel">
+            <summary><span>새 크리에이터</span><span class="summary-icon">+</span></summary>
+            <form class="form-row creator-form" id="creatorForm">
+              <label>
+                게임
+                <select name="gameId" data-game-select></select>
+              </label>
+              <label>
+                채널명
+                <input name="channelName" placeholder="Odd Hallways" required />
+              </label>
+              <label>
+                플랫폼
+                <select name="platform">
+                  <option>YouTube</option>
+                  <option>TikTok</option>
+                  <option>X</option>
+                  <option>Reddit</option>
+                  <option>Discord</option>
+                </select>
+              </label>
+              <label>
+                이메일
+                <input name="email" type="email" placeholder="business@example.com" />
+              </label>
+              <label>
+                태그
+                <input name="tags" placeholder="anomaly, backrooms" />
+              </label>
+              <label>
+                평균 조회수
+                <input name="averageViews" type="number" min="0" placeholder="18000" />
+              </label>
+              <label>
+                적합도
+                <input name="fitScore" type="number" min="0" max="100" placeholder="85" />
+              </label>
+              <button type="submit">크리에이터 추가</button>
+            </form>
+          </details>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>채널</th>
+                  <th>게임</th>
+                  <th>태그</th>
+                  <th>국가</th>
+                  <th>조회수</th>
+                  <th>적합도</th>
+                  <th>상태</th>
+                  <th>UTM</th>
+                  <th>메일</th>
+                </tr>
+              </thead>
+              <tbody id="creatorTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="band" id="keys">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Key Management</p>
+              <h2>Steam Key 배포</h2>
+            </div>
+            <span class="muted" id="keyCount">0 keys</span>
+          </div>
+          <details class="action-panel">
+            <summary><span>새 키 기록</span><span class="summary-icon">+</span></summary>
+            <form class="form-row key-form" id="keyForm">
+              <label>
+                게임
+                <select name="gameId" data-game-select></select>
+              </label>
+              <label>
+                수신자
+                <input name="recipientName" placeholder="Exit Path TV" required />
+              </label>
+              <label>
+                이메일
+                <input name="recipientEmail" type="email" placeholder="contact@example.com" />
+              </label>
+              <label>
+                Steam Key
+                <input name="steamKey" placeholder="AAAAA-BBBBB-CCCCC" />
+              </label>
+              <label>
+                상태
+                <select name="status">
+                  <option value="reserved">reserved</option>
+                  <option value="sent">sent</option>
+                  <option value="claimed">claimed</option>
+                  <option value="video_uploaded">video_uploaded</option>
+                </select>
+              </label>
+              <button type="submit">키 기록 추가</button>
+            </form>
+          </details>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>수신자</th>
+                  <th>게임</th>
+                  <th>상태</th>
+                  <th>키</th>
+                  <th>캠페인</th>
+                  <th>메모</th>
+                </tr>
+              </thead>
+              <tbody id="keyTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="band" id="sync">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Steam API Sync</p>
+              <h2>Steam 자동 동기화</h2>
+            </div>
+            <span class="muted" id="syncLastRun">-</span>
+          </div>
+          <div class="sync-grid">
+            <div class="panel">
+              <div class="panel-title">
+                <h3>연동 상태</h3>
+                <span id="syncConfigured">확인 중</span>
+              </div>
+              <div class="sync-status-grid" id="syncStatusGrid"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">
+                <h3>수동 실행</h3>
+                <span>서버 키로만 호출</span>
+              </div>
+              <form class="sync-form" id="syncForm">
+                <label>
+                  게임
+                  <select name="gameId">
+                    <option value="all">전체 App ID 게임</option>
+                  </select>
+                </label>
+                <label>
+                  시작일
+                  <input name="startDate" type="date" />
+                </label>
+                <label>
+                  종료일
+                  <input name="endDate" type="date" />
+                </label>
+                <label class="check-row">
+                  <input name="includeWishlist" type="checkbox" checked />
+                  위시리스트 API
+                </label>
+                <label class="check-row">
+                  <input name="includeSales" type="checkbox" />
+                  판매 API
+                </label>
+                <div class="button-row">
+                  <button class="secondary-button" type="submit" name="dryRun" value="true">연동 점검</button>
+                  <button type="submit" name="dryRun" value="false">지금 동기화</button>
+                </div>
+              </form>
+            </div>
+          </div>
+          <details class="action-panel">
+            <summary><span>자동 동기화 스케줄</span><span class="summary-icon">+</span></summary>
+            <form class="form-row schedule-form" id="syncScheduleForm">
+              <label>
+                활성화
+                <select name="enabled">
+                  <option value="false">off</option>
+                  <option value="true">on</option>
+                </select>
+              </label>
+              <label>
+                게임
+                <select name="gameId" id="scheduleGameSelect">
+                  <option value="all">전체 App ID 게임</option>
+                </select>
+              </label>
+              <label>
+                간격
+                <input name="intervalHours" type="number" min="1" max="168" placeholder="24" />
+              </label>
+              <label>
+                조회 일수
+                <input name="lookbackDays" type="number" min="1" max="14" placeholder="1" />
+              </label>
+              <label>
+                지연 일수
+                <input name="startOffsetDays" type="number" min="0" max="30" placeholder="1" />
+              </label>
+              <label class="check-row">
+                <input name="includeWishlist" type="checkbox" checked />
+                위시리스트
+              </label>
+              <label class="check-row">
+                <input name="includeSales" type="checkbox" />
+                판매
+              </label>
+              <div class="button-row">
+                <button class="secondary-button" type="button" id="runScheduleNowButton">스케줄 실행</button>
+                <button type="submit">스케줄 저장</button>
+              </div>
+            </form>
+          </details>
+          <div class="result-line" id="syncScheduleStatus"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>시간</th>
+                  <th>상태</th>
+                  <th>범위</th>
+                  <th>결과</th>
+                  <th>메시지</th>
+                  <th>상세</th>
+                </tr>
+              </thead>
+              <tbody id="syncRunTable"></tbody>
+            </table>
+          </div>
+          <div class="result-line" id="syncRunDetail"></div>
+        </section>
+
+        <section class="band split-band" id="steam">
+          <div>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Steam Metrics</p>
+                <h2>CSV Wizard</h2>
+              </div>
+            </div>
+            <details class="action-panel" open>
+              <summary><span>CSV 가져오기</span><span class="summary-icon">+</span></summary>
+              <form class="stack-form" id="csvForm">
+                <label>
+                  Steamworks CSV
+                  <textarea name="csvText" rows="8" placeholder="date,campaignId,campaignName,country,visits,wishlists,purchases,revenue,activations,refunds"></textarea>
+                </label>
+                <div class="button-row">
+                  <button class="secondary-button" type="button" id="csvPreviewButton">미리보기</button>
+                  <button type="submit">CSV 가져오기</button>
+                </div>
+              </form>
+            </details>
+            <div class="result-line" id="csvPreviewResult"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">
+              <h3>최근 Steam 지표</h3>
+              <span id="metricCount">0 rows</span>
+            </div>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>게임</th>
+                    <th>캠페인</th>
+                    <th>국가</th>
+                    <th>방문</th>
+                    <th>위시</th>
+                    <th>구매</th>
+                  </tr>
+                </thead>
+                <tbody id="metricTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="band" id="utm">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">UTM Builder</p>
+              <h2>Steam 링크 생성</h2>
+            </div>
+          </div>
+          <form class="form-row utm-form" id="utmForm">
+            <label>
+              게임
+              <select name="gameId" data-game-select></select>
+            </label>
+            <label>
+              Base URL
+              <input name="baseUrl" placeholder="비우면 선택한 게임의 Steam URL 사용" />
+            </label>
+            <label>
+              Source
+              <input name="source" placeholder="youtube" />
+            </label>
+            <label>
+              Medium
+              <input name="medium" placeholder="influencer" />
+            </label>
+            <label>
+              Campaign
+              <input name="campaign" placeholder="demo_key_may" />
+            </label>
+            <label>
+              Content
+              <input name="content" placeholder="creator_name" />
+            </label>
+            <button type="submit">UTM 생성</button>
+          </form>
+          <div class="result-line" id="utmResult"></div>
+        </section>
+
+        <section class="band" id="settings">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Settings</p>
+              <h2>API 키와 발송 설정</h2>
+            </div>
+            <span class="muted" id="settingsSummary">-</span>
+          </div>
+          <div class="settings-grid">
+            <form class="settings-panel" id="steamSettingsForm">
+              <div class="settings-panel-head">
+                <div>
+                  <p class="eyebrow">Steamworks</p>
+                  <h3>Steam API</h3>
+                </div>
+                <span class="status-pill" id="steamSettingsStatus">missing</span>
+              </div>
+              <div class="settings-meta" id="steamSettingsMeta">-</div>
+              <div class="settings-fields compact-fields">
+                <label>
+                  Financial API Key
+                  <input name="steamFinancialApiKey" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
+                </label>
+                <label class="check-row">
+                  <input name="clearSteamFinancialApiKey" type="checkbox" />
+                  저장된 키 삭제
+                </label>
+              </div>
+              <div class="settings-actions">
+                <button type="submit">Steam 설정 저장</button>
+              </div>
+            </form>
+
+            <form class="settings-panel email-panel" id="emailSettingsForm">
+              <div class="settings-panel-head">
+                <div>
+                  <p class="eyebrow">Email Sender</p>
+                  <h3>SMTP 발송</h3>
+                </div>
+                <span class="status-pill" id="emailSettingsStatus">missing</span>
+              </div>
+              <div class="settings-meta" id="emailSettingsMeta">-</div>
+              <div class="settings-fields email-settings-fields">
+                <label class="field-host">
+                  Host
+                  <input name="smtpHost" placeholder="smtp.example.com" />
+                </label>
+                <label class="field-port">
+                  Port
+                  <input name="smtpPort" type="number" min="1" max="65535" placeholder="587" />
+                </label>
+                <label class="field-half">
+                  User
+                  <input name="smtpUser" autocomplete="off" />
+                </label>
+                <label class="field-half">
+                  Password
+                  <input name="smtpPass" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
+                </label>
+                <label class="field-half">
+                  From
+                  <input name="emailFrom" placeholder="mailer@example.com" />
+                </label>
+                <label class="field-half">
+                  Reply-To
+                  <input name="emailReplyTo" placeholder="team@example.com" />
+                </label>
+                <label class="field-third">
+                  발송 모드
+                  <select name="emailSendMode">
+                    <option value="smtp">smtp</option>
+                    <option value="log">log</option>
+                  </select>
+                </label>
+                <label class="field-third">
+                  Secure
+                  <select name="smtpSecure">
+                    <option value="false">false</option>
+                    <option value="true">true</option>
+                  </select>
+                </label>
+                <label class="field-third">
+                  STARTTLS
+                  <select name="smtpStarttls">
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label class="check-row">
+                  <input name="clearSmtpPass" type="checkbox" />
+                  저장된 패스워드 삭제
+                </label>
+              </div>
+              <div class="settings-actions">
+                <button type="submit">메일 설정 저장</button>
+              </div>
+            </form>
+
+            <div class="settings-panel settings-security-panel">
+              <div class="settings-panel-head">
+                <div>
+                  <p class="eyebrow">Security</p>
+                  <h3>저장 상태</h3>
+                </div>
+                <span class="status-pill ok">encrypted</span>
+              </div>
+              <div class="settings-state-list" id="settingsResult"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="band" id="data">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Data Tools</p>
+              <h2>백업과 내보내기</h2>
+            </div>
+          </div>
+          <div class="action-row">
+            <button type="button" data-export-type="all">전체 JSON</button>
+            <button class="secondary-button" type="button" data-export-type="creators">Creator DB</button>
+            <button class="secondary-button" type="button" data-export-type="metrics">Steam Metrics</button>
+            <button class="secondary-button" type="button" data-export-type="keys">Key Records</button>
+          </div>
+          <div class="result-line" id="exportResult"></div>
+        </section>
+
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </main>
+    </div>
+    <script type="module" src="/app.js?v=20260528-settings-width"></script>
+  </body>
+</html>

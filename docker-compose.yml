@@ -1,0 +1,32 @@
+services:
+  growth-dashboard:
+    build:
+      context: .
+    container_name: launch-pilot-growth-dashboard
+    ports:
+      - "4173:4173"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4173
+      DATA_FILE: /app/data/app-data.json
+      STEAM_APP_ID: ${STEAM_APP_ID:-0}
+      STEAM_FINANCIAL_API_KEY: ${STEAM_FINANCIAL_API_KEY:-}
+      KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET:-development-only-change-me}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      EMAIL_SEND_MODE: ${EMAIL_SEND_MODE:-smtp}
+      DISABLE_SYNC_SCHEDULER: ${DISABLE_SYNC_SCHEDULER:-false}
+      SYNC_SCHEDULER_INTERVAL_MS: ${SYNC_SCHEDULER_INTERVAL_MS:-60000}
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
