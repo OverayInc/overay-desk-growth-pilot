@@ -14,6 +14,7 @@ const state = {
   emailStatus: null,
   outreachLogs: [],
   readiness: null,
+  youtube: null,
   currentEmailDraft: null,
 };
 
@@ -301,6 +302,9 @@ const ICONS = {
   trend: svgIcon('<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>'),
   key: svgIcon('<circle cx="8" cy="15" r="4"/><path d="m10.85 12.15 8.15-8.15"/><path d="m16 6 3 3"/><path d="m13 9 2 2"/>'),
   games: svgIcon('<line x1="6" x2="10" y1="12" y2="12"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="15" x2="15.01" y1="13" y2="13"/><line x1="18" x2="18.01" y1="11" y2="11"/><rect x="2" y="6" width="20" height="12" rx="2"/>'),
+  subs: svgIcon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  views: svgIcon('<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'),
+  video: svgIcon('<path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/>'),
 };
 
 function renderMetricGrid(dashboard) {
@@ -538,6 +542,147 @@ function renderReadiness() {
       `,
     )
     .join("");
+}
+
+function youtubeSubDelta(channelId) {
+  const snaps = (state.youtube?.snapshots || [])
+    .filter((snap) => snap.channelId === channelId)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (snaps.length < 2) return null;
+  const latest = snaps[snaps.length - 1];
+  const prev = snaps[snaps.length - 2];
+  return { subs: latest.subscribers - prev.subscribers, views: latest.views - prev.views, since: prev.date };
+}
+
+function signedNumber(value) {
+  const n = Number(value || 0);
+  return `${n > 0 ? "+" : ""}${number(n)}`;
+}
+
+function renderYoutubeMetrics(channel) {
+  const grid = $("#youtubeMetricGrid");
+  if (!grid) return;
+  if (!channel) {
+    grid.innerHTML = "";
+    return;
+  }
+  const delta = youtubeSubDelta(channel.channelId);
+  const videos = channel.recentVideos || [];
+  const avgViews = videos.length
+    ? Math.round(videos.reduce((sum, video) => sum + Number(video.views || 0), 0) / videos.length)
+    : 0;
+  const items = [
+    {
+      label: "구독자",
+      value: channel.hiddenSubscriberCount ? "비공개" : number(channel.subscribers),
+      sub: delta ? `직전 대비 ${signedNumber(delta.subs)}` : channel.lastSyncedAt ? "최신 동기화 기준" : "동기화 필요",
+      tone: "teal",
+      icon: ICONS.subs,
+    },
+    {
+      label: "총 조회수",
+      value: number(channel.views),
+      sub: delta ? `직전 대비 ${signedNumber(delta.views)}` : "누적",
+      tone: "blue",
+      icon: ICONS.views,
+    },
+    {
+      label: "영상 수",
+      value: number(channel.videoCount),
+      sub: `최근 ${number(videos.length)}개 표시`,
+      tone: "green",
+      icon: ICONS.video,
+    },
+    {
+      label: "최근 영상 평균 조회",
+      value: number(avgViews),
+      sub: videos.length ? `최근 ${number(videos.length)}개 기준` : "영상 없음",
+      tone: "amber",
+      icon: ICONS.trend,
+    },
+  ];
+  grid.innerHTML = items
+    .map(
+      (item) => `
+        <article class="metric-card ${item.tone}">
+          <div class="metric-head"><span>${item.label}</span><span class="metric-icon">${item.icon}</span></div>
+          <strong>${item.value}</strong>
+          <small>${item.sub}</small>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderYoutubeVideos(channel) {
+  const videos = channel?.recentVideos || [];
+  $("#youtubeVideoCount").textContent = channel
+    ? channel.lastSyncedAt
+      ? `최근 동기화 ${new Date(channel.lastSyncedAt).toLocaleString("ko-KR")}`
+      : "동기화 필요"
+    : "-";
+  if (!videos.length) {
+    $("#youtubeVideoTable").innerHTML = `<tr><td data-label="상태" colspan="5"><span class="empty">${
+      channel ? '영상 데이터가 없습니다. "지금 동기화"를 눌러주세요.' : "채널을 추가하세요."
+    }</span></td></tr>`;
+    return;
+  }
+  $("#youtubeVideoTable").innerHTML = videos
+    .map(
+      (video) => `
+        <tr>
+          <td data-label="영상">
+            <div class="cell-with-thumb">
+              <span class="game-thumb game-thumb--sm">${
+                video.thumbnail ? `<img src="${escapeHtml(video.thumbnail)}" alt="" loading="lazy" />` : ""
+              }</span>
+              <div>
+                <span class="cell-title">${escapeHtml(video.title)}</span>
+                <span class="cell-sub link-cell"><a href="https://youtu.be/${escapeHtml(video.id)}" target="_blank" rel="noreferrer">영상 열기</a></span>
+              </div>
+            </div>
+          </td>
+          <td data-label="게시일">${escapeHtml((video.publishedAt || "").slice(0, 10) || "-")}</td>
+          <td data-label="조회수" class="num">${number(video.views)}</td>
+          <td data-label="좋아요" class="num">${number(video.likes)}</td>
+          <td data-label="댓글" class="num">${number(video.comments)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderYoutube() {
+  const yt = state.youtube;
+  if (!yt) return;
+  const statusEl = $("#youtubeStatus");
+  if (statusEl) {
+    statusEl.textContent = yt.configured ? `API 연결됨 · 채널 ${number(yt.channels.length)}개` : "API 키 미설정";
+  }
+  const configPanel = $("#youtubeConfigPanel");
+  if (configPanel && !yt.configured && !configPanel.dataset.touched) configPanel.setAttribute("open", "");
+
+  if (!yt.selectedChannelId || !yt.channels.some((channel) => channel.id === yt.selectedChannelId)) {
+    yt.selectedChannelId = yt.channels[0]?.id || null;
+  }
+
+  $("#youtubeChannelTabs").innerHTML = yt.channels.length
+    ? yt.channels
+        .map(
+          (channel) => `
+            <button class="yt-tab ${channel.id === yt.selectedChannelId ? "active" : ""}" type="button" data-yt-channel="${escapeHtml(channel.id)}">
+              ${channel.thumbnail ? `<img src="${escapeHtml(channel.thumbnail)}" alt="" />` : ""}
+              <span>${escapeHtml(channel.title || channel.channelId)}</span>
+              <span class="yt-tab__del" data-yt-del="${escapeHtml(channel.id)}" role="button" aria-label="채널 삭제" title="삭제">×</span>
+            </button>
+          `,
+        )
+        .join("")
+    : '<div class="empty">등록된 채널이 없습니다. 위 "YouTube 연동 설정"에서 채널을 추가하세요.</div>';
+
+  const channel = yt.channels.find((item) => item.id === yt.selectedChannelId);
+  renderYoutubeMetrics(channel);
+  renderYoutubeVideos(channel);
 }
 
 function renderCampaignBars(campaigns) {
@@ -1057,6 +1202,7 @@ function renderAll() {
   renderEmailStatus();
   renderSettings();
   renderOutreachLogs();
+  renderYoutube();
 }
 
 async function setGameScope(gameId) {
@@ -1085,6 +1231,7 @@ async function loadAll() {
     settings,
     emailStatus,
     outreachLogs,
+    youtube,
   ] = await Promise.all([
     api("/api/health"),
     api("/api/games"),
@@ -1101,6 +1248,7 @@ async function loadAll() {
     api("/api/settings"),
     api("/api/email/status"),
     api(`/api/outreach-logs?${query}`),
+    api("/api/youtube"),
   ]);
   state.games = games;
   state.storeListings = storeListings;
@@ -1116,6 +1264,8 @@ async function loadAll() {
   state.settings = settings;
   state.emailStatus = emailStatus;
   state.outreachLogs = outreachLogs;
+  const prevSelectedChannel = state.youtube?.selectedChannelId;
+  state.youtube = { ...youtube, selectedChannelId: prevSelectedChannel || youtube.channels[0]?.id || null };
   status.textContent = health.ok ? "API 정상" : "API 응답 확인 필요";
   status.classList.add(health.ok ? "ok" : "fail");
   renderAll();
@@ -1536,6 +1686,87 @@ function initForms() {
     await setGameScope(card.dataset.gameId);
   });
 
+  $("#youtubeConfigPanel")?.addEventListener("toggle", (event) => {
+    event.currentTarget.dataset.touched = "1";
+  });
+
+  $("#youtubeKeyForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitter = form.querySelector("button[type='submit']");
+    submitter.disabled = true;
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: {
+          youtubeApiKey: form.elements.youtubeApiKey.value,
+          clearYoutubeApiKey: form.elements.clearYoutubeApiKey.checked,
+        },
+      });
+      form.elements.youtubeApiKey.value = "";
+      form.elements.clearYoutubeApiKey.checked = false;
+      await loadAll();
+      showToast("YouTube API 키를 저장했습니다.");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      submitter.disabled = false;
+    }
+  });
+
+  $("#youtubeChannelForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitter = form.querySelector("button[type='submit']");
+    submitter.disabled = true;
+    try {
+      const channel = await api("/api/youtube/channels", {
+        method: "POST",
+        body: { channelId: form.elements.channelId.value },
+      });
+      if (state.youtube) state.youtube.selectedChannelId = channel.id;
+      form.reset();
+      await loadAll();
+      showToast(`채널을 추가했습니다: ${channel.title || channel.channelId}`);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      submitter.disabled = false;
+    }
+  });
+
+  $("#youtubeSyncButton").addEventListener("click", async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      const result = await api("/api/youtube/sync", { method: "POST", body: {} });
+      await loadAll();
+      showToast(result.warnings?.length ? result.warnings[0] : `동기화 완료 · 채널 ${result.synced}개`);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      event.currentTarget.disabled = false;
+    }
+  });
+
+  $("#youtubeChannelTabs").addEventListener("click", async (event) => {
+    const del = event.target.closest("[data-yt-del]");
+    if (del) {
+      if (!window.confirm("이 채널을 목록에서 삭제할까요?")) return;
+      try {
+        await api(`/api/youtube/channels/${encodeURIComponent(del.dataset.ytDel)}`, { method: "DELETE" });
+        await loadAll();
+        showToast("채널을 삭제했습니다.");
+      } catch (error) {
+        showToast(error.message);
+      }
+      return;
+    }
+    const tab = event.target.closest("[data-yt-channel]");
+    if (!tab) return;
+    if (state.youtube) state.youtube.selectedChannelId = tab.dataset.ytChannel;
+    renderYoutube();
+  });
+
   $("#refreshButton").addEventListener("click", async () => {
     try {
       await loadAll();
@@ -1546,7 +1777,7 @@ function initForms() {
   });
 }
 
-const VIEWS = ["overview", "campaigns", "creators", "distribution", "datasync", "admin"];
+const VIEWS = ["overview", "campaigns", "creators", "youtube", "distribution", "datasync", "admin"];
 
 const VIEW_OF_SECTION = {
   today: "overview",
@@ -1556,6 +1787,7 @@ const VIEW_OF_SECTION = {
   "creator-db": "creators",
   creators: "creators",
   outreach: "creators",
+  youtube: "youtube",
   keys: "distribution",
   utm: "distribution",
   steam: "datasync",
@@ -1569,6 +1801,7 @@ const VIEW_META = {
   overview: { eyebrow: "Growth Overview", title: "그로스 대시보드" },
   campaigns: { eyebrow: "Campaign Performance", title: "캠페인 성과" },
   creators: { eyebrow: "Creator Relations", title: "크리에이터 & 섭외" },
+  youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },
   datasync: { eyebrow: "Data Pipeline", title: "Steam 데이터 & 동기화" },
   admin: { eyebrow: "Workspace Admin", title: "게임 · 연동 · 설정" },

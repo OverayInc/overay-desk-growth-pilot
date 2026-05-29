@@ -47,6 +47,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               <span>크리에이터</span>
             </a>
+            <a class="nav-item" data-view="youtube" href="#youtube">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+              <span>YouTube</span>
+            </a>
             <a class="nav-item" data-view="distribution" href="#distribution">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 21.7a.5.5 0 0 0 .94-.02l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.02.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></svg>
               <span>배포 · 링크</span>
@@ -393,6 +397,71 @@
                       <tbody id="outreachLogTable"></tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- ============================ YOUTUBE ============================ -->
+          <div class="view" id="view-youtube">
+            <section class="band" id="youtube">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">YouTube Analytics</p>
+                  <h2>유튜브 채널 통계</h2>
+                </div>
+                <div class="button-row">
+                  <span class="muted" id="youtubeStatus">-</span>
+                  <button class="secondary-button" type="button" id="youtubeSyncButton">지금 동기화</button>
+                </div>
+              </div>
+
+              <details class="action-panel" id="youtubeConfigPanel">
+                <summary><span>YouTube 연동 설정</span><span class="summary-icon"></span></summary>
+                <div class="stack-form">
+                  <form class="form-row" id="youtubeKeyForm">
+                    <label class="field-wide">
+                      YouTube Data API Key
+                      <input name="youtubeApiKey" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
+                    </label>
+                    <label class="check-row">
+                      <input name="clearYoutubeApiKey" type="checkbox" />
+                      저장된 키 삭제
+                    </label>
+                    <button type="submit">키 저장</button>
+                  </form>
+                  <form class="form-row" id="youtubeChannelForm">
+                    <label class="field-wide">
+                      채널 추가
+                      <input name="channelId" placeholder="채널 ID(UC...) / @핸들 / youtube.com/@handle" />
+                    </label>
+                    <button type="submit">채널 추가</button>
+                  </form>
+                  <div class="image-picker__hint">Google Cloud Console → YouTube Data API v3 사용 설정 후 API 키 발급</div>
+                </div>
+              </details>
+
+              <div class="yt-channel-tabs" id="youtubeChannelTabs"></div>
+              <div class="metric-grid" id="youtubeMetricGrid"></div>
+
+              <div class="panel">
+                <div class="panel-title">
+                  <h3>최근 영상</h3>
+                  <span id="youtubeVideoCount">-</span>
+                </div>
+                <div class="table-wrap compact metrics-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>영상</th>
+                        <th>게시일</th>
+                        <th class="num">조회수</th>
+                        <th class="num">좋아요</th>
+                        <th class="num">댓글</th>
+                      </tr>
+                    </thead>
+                    <tbody id="youtubeVideoTable"></tbody>
+                  </table>
                 </div>
               </div>
             </section>

@@ -21,6 +21,8 @@ const KEY_SECRET = process.env.KEY_ENCRYPTION_SECRET || "development-only-change
 const DEFAULT_GAME_ID = "";
 const STEAM_FINANCIAL_API_KEY = process.env.STEAM_FINANCIAL_API_KEY || process.env.STEAM_PUBLISHER_WEB_API_KEY || "";
 const STEAM_API_BASE = "https://partner.steam-api.com/IPartnerFinancialsService";
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
+const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || (process.env.SMTP_SECURE === "true" ? 465 : 587));
 const SMTP_USER = process.env.SMTP_USER || "";
@@ -170,6 +172,8 @@ function defaultData() {
     integrationSettings: {
       steamFinancialApiKeyEncrypted: "",
       steamFinancialApiKeyMasked: "",
+      youtubeApiKeyEncrypted: "",
+      youtubeApiKeyMasked: "",
       smtpHost: "",
       smtpPort: 587,
       smtpUser: "",
@@ -198,6 +202,8 @@ function defaultData() {
       lastMessage: "",
     },
     syncRuns: [],
+    youtubeChannels: [],
+    youtubeSnapshots: [],
   };
 }
 
@@ -241,6 +247,8 @@ function normalizeData(data) {
   data.integrationSettings ||= seeded.integrationSettings;
   data.integrationSettings.steamFinancialApiKeyEncrypted ||= "";
   data.integrationSettings.steamFinancialApiKeyMasked ||= "";
+  data.integrationSettings.youtubeApiKeyEncrypted ||= "";
+  data.integrationSettings.youtubeApiKeyMasked ||= "";
   data.integrationSettings.smtpHost ||= "";
   data.integrationSettings.smtpPort = toNumber(data.integrationSettings.smtpPort, 587);
   data.integrationSettings.smtpUser ||= "";
@@ -267,6 +275,8 @@ function normalizeData(data) {
   data.syncSchedule.lastStatus ||= "never_run";
   data.syncSchedule.lastMessage ||= "";
   data.syncRuns ||= [];
+  data.youtubeChannels ||= [];
+  data.youtubeSnapshots ||= [];
 
   for (const game of data.games) {
     game.id ||= makeId("game", game.name || "game");
@@ -951,6 +961,7 @@ function buildEmailDraft(data, input = {}) {
 function effectiveIntegrationConfig(data) {
   const settings = data.integrationSettings || {};
   const storedSteamKey = decryptSecret(settings.steamFinancialApiKeyEncrypted);
+  const storedYoutubeKey = decryptSecret(settings.youtubeApiKeyEncrypted);
   const storedSmtpPass = decryptSecret(settings.smtpPassEncrypted);
   const smtpUser = settings.smtpUser || SMTP_USER;
   return {
@@ -968,6 +979,9 @@ function effectiveIntegrationConfig(data) {
     smtpSource: settings.smtpHost || settings.emailFrom || settings.smtpUser || storedSmtpPass ? "web" : SMTP_HOST || EMAIL_FROM ? "env" : "missing",
     steamKeyMasked: settings.steamFinancialApiKeyMasked || (STEAM_FINANCIAL_API_KEY ? maskSecret(STEAM_FINANCIAL_API_KEY) : ""),
     smtpPassMasked: settings.smtpPassMasked || (SMTP_PASS ? maskSecret(SMTP_PASS) : ""),
+    youtubeApiKey: storedYoutubeKey || YOUTUBE_API_KEY,
+    youtubeKeySource: storedYoutubeKey ? "web" : YOUTUBE_API_KEY ? "env" : "missing",
+    youtubeKeyMasked: settings.youtubeApiKeyMasked || (YOUTUBE_API_KEY ? maskSecret(YOUTUBE_API_KEY) : ""),
   };
 }
 
@@ -979,6 +993,11 @@ function publicSettings(data) {
       configured: Boolean(config.steamFinancialApiKey),
       source: config.steamKeySource,
       keyMasked: config.steamKeyMasked,
+    },
+    youtube: {
+      configured: Boolean(config.youtubeApiKey),
+      source: config.youtubeKeySource,
+      keyMasked: config.youtubeKeyMasked,
     },
     email: buildEmailStatus(data),
     form: {
@@ -1005,6 +1024,14 @@ function updateIntegrationSettings(data, input = {}) {
   } else if (input.steamFinancialApiKey) {
     settings.steamFinancialApiKeyEncrypted = encryptSecret(input.steamFinancialApiKey);
     settings.steamFinancialApiKeyMasked = maskSecret(input.steamFinancialApiKey);
+  }
+
+  if (input.clearYoutubeApiKey) {
+    settings.youtubeApiKeyEncrypted = "";
+    settings.youtubeApiKeyMasked = "";
+  } else if (input.youtubeApiKey) {
+    settings.youtubeApiKeyEncrypted = encryptSecret(input.youtubeApiKey);
+    settings.youtubeApiKeyMasked = maskSecret(input.youtubeApiKey);
   }
 
   if (input.clearSmtpPass) {
@@ -1944,6 +1971,126 @@ function buildReadiness(data) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// YouTube (public stats via YouTube Data API v3)
+// ---------------------------------------------------------------------------
+async function youtubeGet(path, params) {
+  const url = new URL(`${YOUTUBE_API_BASE}/${path}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error?.message || `YouTube API ${path} 호출 실패 (${response.status})`);
+  }
+  return body || {};
+}
+
+function parseChannelRef(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  if (/youtube\.com|youtu\.be/i.test(raw)) {
+    try {
+      const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts[0] === "channel" && parts[1]) return { type: "id", value: parts[1] };
+      if (parts[0] && parts[0].startsWith("@")) return { type: "handle", value: parts[0] };
+      if (parts[0] === "user" && parts[1]) return { type: "username", value: parts[1] };
+      if (parts[0] === "c" && parts[1]) return { type: "handle", value: `@${parts[1]}` };
+    } catch {
+      /* fall through */
+    }
+  }
+  if (/^UC[\w-]{20,}$/.test(raw)) return { type: "id", value: raw };
+  if (raw.startsWith("@")) return { type: "handle", value: raw };
+  return { type: "handle", value: `@${raw}` };
+}
+
+async function fetchYoutubeChannel(apiKey, ref) {
+  const params = { part: "snippet,statistics,contentDetails", key: apiKey, maxResults: 1 };
+  if (ref.type === "id") params.id = ref.value;
+  else if (ref.type === "handle") params.forHandle = ref.value;
+  else if (ref.type === "username") params.forUsername = ref.value;
+  const data = await youtubeGet("channels", params);
+  const item = data.items && data.items[0];
+  if (!item) throw new Error("채널을 찾지 못했습니다. 채널 ID(UC...) 또는 핸들(@name)을 확인하세요.");
+  return item;
+}
+
+async function fetchYoutubeRecentVideos(apiKey, uploadsPlaylistId, max = 8) {
+  if (!uploadsPlaylistId) return [];
+  const playlist = await youtubeGet("playlistItems", {
+    part: "contentDetails",
+    playlistId: uploadsPlaylistId,
+    maxResults: max,
+    key: apiKey,
+  });
+  const ids = (playlist.items || []).map((entry) => entry.contentDetails?.videoId).filter(Boolean);
+  if (!ids.length) return [];
+  const videos = await youtubeGet("videos", { part: "snippet,statistics", id: ids.join(","), key: apiKey });
+  return (videos.items || []).map((video) => ({
+    id: video.id,
+    title: video.snippet?.title || "",
+    publishedAt: video.snippet?.publishedAt || "",
+    thumbnail: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || "",
+    views: toNumber(video.statistics?.viewCount),
+    likes: toNumber(video.statistics?.likeCount),
+    comments: toNumber(video.statistics?.commentCount),
+  }));
+}
+
+function applyYoutubeChannelStats(channel, item) {
+  channel.channelId = item.id || channel.channelId;
+  channel.title = item.snippet?.title || channel.title || "";
+  channel.handle = item.snippet?.customUrl || channel.handle || "";
+  channel.thumbnail =
+    item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || channel.thumbnail || "";
+  channel.uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads || channel.uploadsPlaylistId || "";
+  channel.hiddenSubscriberCount = Boolean(item.statistics?.hiddenSubscriberCount);
+  channel.subscribers = toNumber(item.statistics?.subscriberCount);
+  channel.views = toNumber(item.statistics?.viewCount);
+  channel.videoCount = toNumber(item.statistics?.videoCount);
+  return channel;
+}
+
+function upsertYoutubeSnapshot(data, channel, date) {
+  const snapshot = {
+    channelId: channel.channelId,
+    date,
+    subscribers: channel.subscribers,
+    views: channel.views,
+    videoCount: channel.videoCount,
+  };
+  const index = data.youtubeSnapshots.findIndex((item) => item.channelId === channel.channelId && item.date === date);
+  if (index >= 0) data.youtubeSnapshots[index] = { ...data.youtubeSnapshots[index], ...snapshot };
+  else data.youtubeSnapshots.push(snapshot);
+}
+
+async function syncYoutubeChannels(data, channelId = "all") {
+  const apiKey = effectiveIntegrationConfig(data).youtubeApiKey;
+  if (!apiKey) throw new Error("YouTube API Key가 없습니다. 먼저 키를 저장하세요.");
+  const targets = data.youtubeChannels.filter(
+    (channel) => channelId === "all" || channel.id === channelId || channel.channelId === channelId,
+  );
+  const date = toDateString(new Date());
+  const warnings = [];
+  let synced = 0;
+  for (const channel of targets) {
+    try {
+      const item = await fetchYoutubeChannel(apiKey, { type: "id", value: channel.channelId });
+      applyYoutubeChannelStats(channel, item);
+      channel.recentVideos = await fetchYoutubeRecentVideos(apiKey, channel.uploadsPlaylistId);
+      channel.lastSyncedAt = nowIso();
+      upsertYoutubeSnapshot(data, channel, date);
+      synced += 1;
+    } catch (error) {
+      warnings.push(`${channel.title || channel.channelId}: ${error.message}`);
+    }
+  }
+  return { synced, total: targets.length, warnings };
+}
+
 function safeExportData(data, type = "all") {
   const common = {
     exportedAt: nowIso(),
@@ -2241,6 +2388,70 @@ async function handleApi(req, res, url) {
 
   if (route === "GET /api/readiness") {
     return respondJson(res, 200, buildReadiness(data));
+  }
+
+  if (route === "GET /api/youtube") {
+    const config = effectiveIntegrationConfig(data);
+    return respondJson(res, 200, {
+      configured: Boolean(config.youtubeApiKey),
+      keySource: config.youtubeKeySource,
+      keyMasked: config.youtubeKeyMasked,
+      channels: data.youtubeChannels,
+      snapshots: data.youtubeSnapshots,
+    });
+  }
+
+  if (route === "POST /api/youtube/channels") {
+    const input = await readJson(req);
+    const config = effectiveIntegrationConfig(data);
+    if (!config.youtubeApiKey) return respondError(res, 400, "YouTube API Key를 먼저 저장하세요.");
+    const ref = parseChannelRef(input.channelId || input.url || input.handle);
+    if (!ref) return respondError(res, 400, "채널 ID 또는 핸들(@name)을 입력하세요.");
+    let item;
+    try {
+      item = await fetchYoutubeChannel(config.youtubeApiKey, ref);
+    } catch (error) {
+      return respondError(res, 400, error.message);
+    }
+    const existing = data.youtubeChannels.find((channel) => channel.channelId === item.id);
+    const channel =
+      existing || { id: makeId("yt", item.snippet?.title || item.id), channelId: item.id, createdAt: nowIso(), recentVideos: [] };
+    applyYoutubeChannelStats(channel, item);
+    channel.lastSyncedAt = nowIso();
+    if (!existing) data.youtubeChannels.push(channel);
+    try {
+      channel.recentVideos = await fetchYoutubeRecentVideos(config.youtubeApiKey, channel.uploadsPlaylistId);
+    } catch {
+      /* keep stats even if recent videos fail */
+    }
+    upsertYoutubeSnapshot(data, channel, toDateString(new Date()));
+    await writeData(data);
+    return respondJson(res, existing ? 200 : 201, channel);
+  }
+
+  const youtubeChannelRoute = url.pathname.match(/^\/api\/youtube\/channels\/([^/]+)$/);
+  if (youtubeChannelRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(youtubeChannelRoute[1]);
+    const channel = data.youtubeChannels.find((item) => item.id === id || item.channelId === id);
+    if (!channel) return respondError(res, 404, "채널을 찾지 못했습니다.");
+    data.youtubeChannels = data.youtubeChannels.filter((item) => item !== channel);
+    data.youtubeSnapshots = data.youtubeSnapshots.filter((item) => item.channelId !== channel.channelId);
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, id });
+  }
+
+  if (route === "POST /api/youtube/sync") {
+    const input = await readJson(req);
+    const config = effectiveIntegrationConfig(data);
+    if (!config.youtubeApiKey) return respondError(res, 400, "YouTube API Key를 먼저 저장하세요.");
+    let result;
+    try {
+      result = await syncYoutubeChannels(data, input.channelId || "all");
+    } catch (error) {
+      return respondError(res, 400, error.message);
+    }
+    await writeData(data);
+    return respondJson(res, 200, { ...result, channels: data.youtubeChannels, snapshots: data.youtubeSnapshots });
   }
 
   if (route === "GET /api/settings") {

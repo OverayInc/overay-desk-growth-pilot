@@ -644,6 +644,37 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
 .scope-badge--game::before { display: none; }
 .scope-badge .game-thumb { width: 18px; height: 18px; border-radius: 5px; font-size: 10px; border: 0; }
 
+/* ---- YouTube channel tabs ---- */
+.yt-channel-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.yt-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  padding: 4px 8px 4px 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.yt-tab:hover { background: var(--surface-muted); color: var(--text); }
+.yt-tab img { width: 26px; height: 26px; border-radius: 999px; object-fit: cover; flex: 0 0 auto; }
+.yt-tab > span:not(.yt-tab__del) { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yt-tab.active, .yt-tab.active:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-strong); }
+.yt-tab__del {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.yt-tab__del:hover { background: var(--danger-soft); color: var(--danger-text); }
+
 /* ----------------------------------------------------------------------------
    8. Readiness
 ---------------------------------------------------------------------------- */

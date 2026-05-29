@@ -21,6 +21,8 @@ const COLLECTIONS = [
   "steamDailyMetrics",
   "outreachLogs",
   "syncRuns",
+  "youtubeChannels",
+  "youtubeSnapshots",
 ];
 
 const SINGLETONS = ["meta", "steamSyncState", "integrationSettings", "syncSchedule"];
