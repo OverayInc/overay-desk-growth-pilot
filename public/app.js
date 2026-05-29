@@ -69,6 +69,73 @@ function gameName(gameId) {
   return state.games.find((game) => game.id === gameId)?.name || "Unassigned Game";
 }
 
+function gameById(gameId) {
+  return state.games.find((game) => game.id === gameId);
+}
+
+function gameThumb(game, sizeClass = "") {
+  const label = escapeHtml((game?.name || "게임").trim());
+  if (game?.imageUrl) {
+    return `<span class="game-thumb ${sizeClass}"><img src="${escapeHtml(game.imageUrl)}" alt="${label}" loading="lazy" /></span>`;
+  }
+  const initial = escapeHtml(((game?.name || "?").trim()[0] || "?").toUpperCase());
+  return `<span class="game-thumb game-thumb--ph ${sizeClass}" aria-hidden="true">${initial}</span>`;
+}
+
+function fileToSquareDataUrl(file, size = 256) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("이미지를 읽지 못했습니다."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
+      img.onload = () => {
+        const min = Math.min(img.width, img.height) || 1;
+        const sx = (img.width - min) / 2;
+        const sy = (img.height - min) / 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function setImagePreview(picker, dataUrl) {
+  if (!picker) return;
+  const preview = picker.querySelector("[data-image-preview]");
+  const hidden = picker.querySelector('input[name="imageUrl"]');
+  if (hidden) hidden.value = dataUrl || "";
+  if (preview) {
+    preview.classList.toggle("game-thumb--ph", !dataUrl);
+    preview.innerHTML = dataUrl ? `<img src="${escapeHtml(dataUrl)}" alt="" />` : "";
+  }
+}
+
+function initImagePicker(form) {
+  const picker = form?.querySelector("[data-image-picker]");
+  if (!picker) return;
+  const input = picker.querySelector("[data-image-input]");
+  picker.querySelector("[data-image-pick]")?.addEventListener("click", () => input?.click());
+  picker.querySelector("[data-image-clear]")?.addEventListener("click", () => setImagePreview(picker, ""));
+  input?.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      setImagePreview(picker, await fileToSquareDataUrl(file));
+    } catch (error) {
+      showToast(error.message || "이미지 처리에 실패했습니다.");
+    }
+  });
+  form.addEventListener("reset", () => setImagePreview(picker, ""));
+}
+
 function platformLabel(platform) {
   const labels = {
     steam: "Steam",
@@ -182,9 +249,11 @@ function populateGameSettingsForm(gameId) {
   const form = $("#gameSettingsForm");
   if (!form) return;
   const game = state.games.find((item) => item.id === gameId);
+  const picker = form.querySelector("[data-image-picker]");
   for (const element of form.elements) {
     if (element.name && element.name !== "gameId") element.value = "";
   }
+  setImagePreview(picker, game?.imageUrl || "");
   if (!game) return;
   form.elements.name.value = game.name || "";
   if (form.elements.steamAppId) form.elements.steamAppId.value = game.steamAppId || "0";
@@ -211,7 +280,14 @@ function populateSyncScheduleForm() {
 
 function renderScope() {
   const dashboard = state.dashboard;
-  $("#scopeBadge").textContent = dashboard.selectedGameId === "all" ? "전체 게임" : dashboard.selectedGameName || "전체 게임";
+  const scopeBadge = $("#scopeBadge");
+  if (dashboard.selectedGameId === "all") {
+    scopeBadge.classList.remove("scope-badge--game");
+    scopeBadge.textContent = "전체 게임";
+  } else {
+    scopeBadge.classList.add("scope-badge--game");
+    scopeBadge.innerHTML = `${gameThumb(gameById(dashboard.selectedGameId) || { name: dashboard.selectedGameName })}<span>${escapeHtml(dashboard.selectedGameName || "전체 게임")}</span>`;
+  }
   $("#scopeMeta").textContent = `캠페인 ${number(dashboard.summary.campaigns)}개 · 크리에이터 ${number(dashboard.summary.creators)}명 · 키 ${number(dashboard.summary.keys)}개`;
 }
 
@@ -314,8 +390,13 @@ function renderGameAdmin() {
         return `
           <tr>
             <td data-label="게임">
-              <span class="cell-title">${escapeHtml(game.name)}</span>
-              <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
+              <div class="cell-with-thumb">
+                ${gameThumb(game, "game-thumb--sm")}
+                <div>
+                  <span class="cell-title">${escapeHtml(game.name)}</span>
+                  <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
+                </div>
+              </div>
             </td>
             <td data-label="단계"><span class="status ${escapeHtml(game.stage || "concept")}">${escapeHtml(game.stage || "concept")}</span></td>
             <td data-label="스토어">${renderPlatformChips(listings)}</td>
@@ -392,6 +473,7 @@ function renderPortfolio() {
         return `
         <button class="game-card${active}" type="button" data-game-id="${escapeHtml(game.id)}" aria-pressed="${state.selectedGameId === game.id ? "true" : "false"}">
           <header>
+            ${gameThumb(game, "game-thumb--md")}
             <div>
               <h3>${escapeHtml(game.name)}</h3>
               <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
@@ -431,9 +513,12 @@ function renderReadiness() {
       (game) => `
         <article class="readiness-card">
           <header>
-            <div>
-              <h3>${escapeHtml(game.gameName)}</h3>
-              <span class="cell-sub">${escapeHtml((game.platforms || []).map((platform) => platform.label).join(", ") || "No store")} / ${escapeHtml(game.status)}</span>
+            <div class="cell-with-thumb">
+              ${gameThumb(gameById(game.gameId) || { name: game.gameName }, "game-thumb--md")}
+              <div>
+                <h3>${escapeHtml(game.gameName)}</h3>
+                <span class="cell-sub">${escapeHtml((game.platforms || []).map((platform) => platform.label).join(", ") || "No store")} / ${escapeHtml(game.status)}</span>
+              </div>
             </div>
             <div class="readiness-score" style="--p: ${Math.max(0, Math.min(100, Number(game.score) || 0))}%" data-score="${number(game.score)}%"></div>
           </header>
@@ -1078,6 +1163,9 @@ function initForms() {
       body: data,
     }),
   );
+
+  initImagePicker($("#gameForm"));
+  initImagePicker($("#gameSettingsForm"));
 
   bindForm("#storeListingForm", (data) =>
     api("/api/store-listings", {

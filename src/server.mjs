@@ -131,6 +131,16 @@ function steamStoreUrl(appId, name) {
   return `https://store.steampowered.com/app/${safeAppId}/${encodeURIComponent(slug)}`;
 }
 
+// Game profile image: stored inline as a small square data URL. Validate the
+// shape and cap the size so the data file cannot be bloated with huge payloads.
+function sanitizeGameImage(value) {
+  const str = String(value || "").trim();
+  if (!str) return "";
+  if (!/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(str)) return "";
+  if (str.length > 1_500_000) return "";
+  return str;
+}
+
 function defaultGames() {
   return [];
 }
@@ -269,6 +279,7 @@ function normalizeData(data) {
     game.owner ||= "Growth";
     game.archived = Boolean(game.archived);
     game.status = game.archived ? "archived" : game.status || "active";
+    game.imageUrl = sanitizeGameImage(game.imageUrl || "");
     if (!game.steamStoreUrl && game.steamAppId !== "0") game.steamStoreUrl = steamStoreUrl(game.steamAppId, game.name);
     game.createdAt ||= nowIso();
     game.updatedAt ||= game.createdAt;
@@ -2073,6 +2084,7 @@ async function handleApi(req, res, url) {
       owner: input.owner || "Growth",
       archived: Boolean(input.archived),
       status: Boolean(input.archived) ? "archived" : "active",
+      imageUrl: sanitizeGameImage(input.imageUrl || ""),
       steamStoreUrl: input.steamStoreUrl || (steamAppId !== "0" ? steamStoreUrl(steamAppId, input.name) : ""),
       createdAt: nowIso(),
       updatedAt: nowIso(),
@@ -2104,6 +2116,7 @@ async function handleApi(req, res, url) {
       game.archived = input.archived === true || input.archived === "true" || input.status === "archived";
       game.status = game.archived ? "archived" : "active";
     }
+    if (input.imageUrl !== undefined) game.imageUrl = sanitizeGameImage(input.imageUrl);
     game.updatedAt = nowIso();
     upsertSteamListingFromGame(data, game);
     await writeData(data);

@@ -751,6 +751,19 @@
                         Steam App ID
                         <input name="steamAppId" placeholder="선택 사항" />
                       </label>
+                      <div class="field-wide image-field">
+                        <span class="field-label">프로필 이미지 (정방형)</span>
+                        <div class="image-picker" data-image-picker>
+                          <span class="game-thumb game-thumb--lg" data-image-preview></span>
+                          <div class="image-picker__actions">
+                            <button type="button" class="secondary-button table-button" data-image-pick>이미지 선택</button>
+                            <button type="button" class="secondary-button table-button danger-button" data-image-clear>제거</button>
+                          </div>
+                          <span class="image-picker__hint">정사각형 권장 · 자동 256px로 저장됩니다</span>
+                          <input type="file" accept="image/png,image/jpeg,image/webp" data-image-input hidden />
+                          <input type="hidden" name="imageUrl" />
+                        </div>
+                      </div>
                       <button type="submit">게임 추가</button>
                     </form>
                   </details>
@@ -794,6 +807,19 @@
                           <option value="true">archived</option>
                         </select>
                       </label>
+                      <div class="field-wide image-field">
+                        <span class="field-label">프로필 이미지 (정방형)</span>
+                        <div class="image-picker" data-image-picker>
+                          <span class="game-thumb game-thumb--lg" data-image-preview></span>
+                          <div class="image-picker__actions">
+                            <button type="button" class="secondary-button table-button" data-image-pick>이미지 선택</button>
+                            <button type="button" class="secondary-button table-button danger-button" data-image-clear>제거</button>
+                          </div>
+                          <span class="image-picker__hint">정사각형 권장 · 자동 256px로 저장됩니다</span>
+                          <input type="file" accept="image/png,image/jpeg,image/webp" data-image-input hidden />
+                          <input type="hidden" name="imageUrl" />
+                        </div>
+                      </div>
                       <button type="submit">게임 저장</button>
                     </form>
                   </details>
