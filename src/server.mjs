@@ -32,6 +32,7 @@ const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "";
 const EMAIL_SEND_MODE = process.env.EMAIL_SEND_MODE || "smtp";
 const DISABLE_SYNC_SCHEDULER = process.env.DISABLE_SYNC_SCHEDULER === "true";
 const SYNC_SCHEDULER_INTERVAL_MS = Number(process.env.SYNC_SCHEDULER_INTERVAL_MS || 60_000);
+const DEFAULT_SYNC_LOOKBACK_DAYS = Number(process.env.DEFAULT_SYNC_LOOKBACK_DAYS || 7);
 
 const STATUS_OPTIONS = new Set([
   "uncontacted",
@@ -178,7 +179,7 @@ function defaultData() {
       includeWishlist: true,
       includeSales: false,
       includeViewGrants: false,
-      lookbackDays: 1,
+      lookbackDays: 7,
       startOffsetDays: 1,
       lastRunAt: "",
       nextRunAt: "",
@@ -248,7 +249,7 @@ function normalizeData(data) {
   data.syncSchedule.includeWishlist = data.syncSchedule.includeWishlist !== false;
   data.syncSchedule.includeSales = Boolean(data.syncSchedule.includeSales);
   data.syncSchedule.includeViewGrants = Boolean(data.syncSchedule.includeViewGrants);
-  data.syncSchedule.lookbackDays = Math.max(1, Math.min(14, toNumber(data.syncSchedule.lookbackDays, 1)));
+  data.syncSchedule.lookbackDays = Math.max(1, Math.min(14, toNumber(data.syncSchedule.lookbackDays, DEFAULT_SYNC_LOOKBACK_DAYS)));
   data.syncSchedule.startOffsetDays = Math.max(0, Math.min(30, toNumber(data.syncSchedule.startOffsetDays, 1)));
   data.syncSchedule.lastRunAt ||= "";
   data.syncSchedule.nextRunAt ||= "";
@@ -1570,8 +1571,10 @@ function addDays(dateString, amount) {
 }
 
 function dateRange(startDate, endDate, maxDays = 14) {
-  const start = startDate || addDays(toDateString(new Date()), -1);
-  const end = endDate || start;
+  // Blank dates default to the last DEFAULT_SYNC_LOOKBACK_DAYS days ending yesterday
+  // (a single-day "yesterday only" default was easy to mistake for missing data).
+  const end = endDate || addDays(toDateString(new Date()), -1);
+  const start = startDate || addDays(end, -(DEFAULT_SYNC_LOOKBACK_DAYS - 1));
   const dates = [];
   let cursor = start;
   while (cursor <= end && dates.length < maxDays) {
@@ -1990,7 +1993,7 @@ function updateSyncSchedule(data, input = {}) {
   current.includeWishlist = input.includeWishlist !== false && input.includeWishlist !== "false";
   current.includeSales = input.includeSales === true || input.includeSales === "true" || input.includeSales === "on";
   current.includeViewGrants = input.includeViewGrants === true || input.includeViewGrants === "true" || input.includeViewGrants === "on";
-  current.lookbackDays = Math.max(1, Math.min(14, toNumber(input.lookbackDays, current.lookbackDays || 1)));
+  current.lookbackDays = Math.max(1, Math.min(14, toNumber(input.lookbackDays, current.lookbackDays || DEFAULT_SYNC_LOOKBACK_DAYS)));
   current.startOffsetDays = Math.max(0, Math.min(30, toNumber(input.startOffsetDays, current.startOffsetDays || 1)));
   current.nextRunAt = input.nextRunAt || (current.enabled ? scheduleNextRunAt(current, new Date()) : "");
   return current;

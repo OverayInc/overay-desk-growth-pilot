@@ -795,6 +795,15 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
   box-shadow: var(--shadow-sm);
 }
 .table-wrap.compact { max-height: 430px; overflow: auto; }
+.metrics-table { max-height: 520px; }
+.metrics-table td:nth-child(3) .cell-title {
+  display: inline-block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .compact-admin { max-height: 360px; overflow: auto; }
 
 table { width: 100%; min-width: 760px; border-collapse: collapse; }

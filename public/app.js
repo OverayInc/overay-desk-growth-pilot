@@ -212,7 +212,7 @@ function populateSyncScheduleForm() {
 function renderScope() {
   const dashboard = state.dashboard;
   $("#scopeBadge").textContent = dashboard.selectedGameId === "all" ? "전체 게임" : dashboard.selectedGameName || "전체 게임";
-  $("#scopeMeta").textContent = `${number(dashboard.summary.campaigns)} campaigns / ${number(dashboard.summary.creators)} creators / ${number(dashboard.summary.keys)} keys`;
+  $("#scopeMeta").textContent = `캠페인 ${number(dashboard.summary.campaigns)}개 · 크리에이터 ${number(dashboard.summary.creators)}명 · 키 ${number(dashboard.summary.keys)}개`;
 }
 
 const svgIcon = (inner) =>
@@ -232,42 +232,42 @@ function renderMetricGrid(dashboard) {
     {
       label: "오늘 위시리스트",
       value: number(dashboard.today.wishlists),
-      sub: `${number(dashboard.today.visits)} visits`,
+      sub: `방문 ${number(dashboard.today.visits)}`,
       tone: "teal",
       icon: ICONS.wishlist,
     },
     {
-      label: "오늘 판매량",
+      label: "오늘 판매",
       value: number(dashboard.today.purchases),
-      sub: `${dashboard.today.purchaseRate}% purchase rate`,
+      sub: `구매 전환율 ${dashboard.today.purchaseRate}%`,
       tone: "green",
       icon: ICONS.purchases,
     },
     {
       label: "오늘 매출",
       value: money(dashboard.today.revenue),
-      sub: `${number(dashboard.today.refunds)} refunds`,
+      sub: `환불 ${number(dashboard.today.refunds)}건`,
       tone: "amber",
       icon: ICONS.revenue,
     },
     {
-      label: "최근 7일 위시",
+      label: "최근 7일 위시리스트",
       value: number(dashboard.last7.wishlists),
-      sub: `${dashboard.last7.wishlistRate}% wishlist rate`,
+      sub: `위시 전환율 ${dashboard.last7.wishlistRate}%`,
       tone: "blue",
       icon: ICONS.trend,
     },
     {
-      label: "키 발송",
+      label: "키 배포",
       value: number(dashboard.summary.keysSent),
-      sub: `${number(dashboard.summary.keys)} records`,
+      sub: `누적 ${number(dashboard.summary.keys)}건`,
       tone: "teal",
       icon: ICONS.key,
     },
     {
-      label: "관리 게임",
+      label: "운영 게임",
       value: number(dashboard.summary.games),
-      sub: `${number(dashboard.summary.campaigns)} campaigns`,
+      sub: `캠페인 ${number(dashboard.summary.campaigns)}개`,
       tone: "green",
       icon: ICONS.games,
     },
@@ -303,7 +303,7 @@ function renderPlatformChips(listings) {
 function renderGameAdmin() {
   const activeGames = state.games.filter((game) => !game.archived);
   const activeListings = state.storeListings.filter((listing) => listing.status !== "archived");
-  $("#gameAdminSummary").textContent = `${number(activeGames.length)} active games / ${number(activeListings.length)} store listings`;
+  $("#gameAdminSummary").textContent = `운영 게임 ${number(activeGames.length)}개 · 스토어 리스팅 ${number(activeListings.length)}개`;
 
   if (!state.games.length) {
     $("#gameAdminTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">관리할 게임이 없습니다.</span></td></tr>';
@@ -373,7 +373,7 @@ function renderGameAdmin() {
 function renderPortfolio() {
   const portfolio = (state.dashboard.portfolio || state.games).filter((game) => !game.archived);
   const maxWishlist = Math.max(...portfolio.map((game) => Number(game.wishlists || 0)), 1);
-  $("#portfolioSummary").textContent = `${number(portfolio.length)} active games`;
+  $("#portfolioSummary").textContent = `운영 게임 ${number(portfolio.length)}개`;
   if (!portfolio.length) {
     $("#portfolioGrid").innerHTML = `
       <div class="empty-state">
@@ -416,7 +416,7 @@ function renderPortfolio() {
 function renderReadiness() {
   const readiness = state.readiness;
   if (!readiness) return;
-  $("#readinessSummary").textContent = `${number(readiness.summary.readyGames)} ready / ${number(readiness.summary.games)} games`;
+  $("#readinessSummary").textContent = `준비 완료 ${number(readiness.summary.readyGames)} / 전체 ${number(readiness.summary.games)}`;
   if (!readiness.games.length) {
     $("#readinessGrid").innerHTML = `
       <div class="empty-state">
@@ -447,7 +447,7 @@ function renderReadiness() {
               .join("")}
           </div>
           <div class="cell-sub">
-            ${number(game.counts.campaigns)} campaigns / ${number(game.counts.creators)} creators / ${number(game.counts.metrics)} metric rows
+            캠페인 ${number(game.counts.campaigns)}개 · 크리에이터 ${number(game.counts.creators)}명 · 지표 ${number(game.counts.metrics)}건
           </div>
         </article>
       `,
@@ -470,7 +470,7 @@ function renderCampaignBars(campaigns) {
         <div class="bar-item">
           <div class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
           <div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width:${width}%"></div></div>
-          <div class="bar-meta">${number(campaign.wishlists)} wish / ${number(campaign.purchases)} buy</div>
+          <div class="bar-meta">위시 ${number(campaign.wishlists)} · 구매 ${number(campaign.purchases)}</div>
         </div>
       `;
     })
@@ -512,7 +512,7 @@ function renderDashboard() {
 }
 
 function renderCampaigns() {
-  $("#campaignCount").textContent = `${number(state.campaigns.length)} campaigns`;
+  $("#campaignCount").textContent = `캠페인 ${number(state.campaigns.length)}개`;
   if (!state.campaigns.length) {
     $("#campaignTable").innerHTML = '<tr><td data-label="상태" colspan="9"><span class="empty">캠페인이 없습니다.</span></td></tr>';
     return;
@@ -537,7 +537,7 @@ function renderCampaigns() {
 }
 
 function renderCreatorProfiles() {
-  $("#creatorProfileCount").textContent = `${number(state.creatorProfiles.length)} profiles`;
+  $("#creatorProfileCount").textContent = `프로필 ${number(state.creatorProfiles.length)}개`;
   if (!state.creatorProfiles.length) {
     $("#creatorProfileTable").innerHTML = '<tr><td data-label="상태" colspan="8"><span class="empty">공용 크리에이터 DB가 비어 있습니다.</span></td></tr>';
     return;
@@ -553,7 +553,7 @@ function renderCreatorProfiles() {
           <td data-label="태그"><div class="tag-row">${(profile.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div></td>
           <td data-label="조회수" class="num">${number(profile.averageViews)}</td>
           <td data-label="적합도" class="num">${number(profile.fitScore)}</td>
-          <td data-label="사용 게임">${escapeHtml(games)}<span class="cell-sub">${number(profile.stats?.outreachCount)} outreach</span></td>
+          <td data-label="사용 게임">${escapeHtml(games)}<span class="cell-sub">아웃리치 ${number(profile.stats?.outreachCount)}회</span></td>
           <td data-label="상태"><span class="status ${escapeHtml(profile.status)}">${escapeHtml(profile.status)}</span></td>
           <td data-label="메일"><button class="secondary-button table-button" type="button" data-email-profile-id="${escapeHtml(profile.id)}" ${canDraft}>초안</button></td>
         </tr>
@@ -563,7 +563,7 @@ function renderCreatorProfiles() {
 }
 
 function renderCreators() {
-  $("#creatorCount").textContent = `${number(state.creators.length)} creators`;
+  $("#creatorCount").textContent = `크리에이터 ${number(state.creators.length)}명`;
   if (!state.creators.length) {
     $("#creatorTable").innerHTML = '<tr><td data-label="상태" colspan="9"><span class="empty">크리에이터가 없습니다.</span></td></tr>';
     return;
@@ -588,7 +588,7 @@ function renderCreators() {
 }
 
 function renderKeys() {
-  $("#keyCount").textContent = `${number(state.keys.length)} keys`;
+  $("#keyCount").textContent = `키 ${number(state.keys.length)}개`;
   if (!state.keys.length) {
     $("#keyTable").innerHTML = '<tr><td data-label="상태" colspan="6"><span class="empty">키 배포 기록이 없습니다.</span></td></tr>';
     return;
@@ -610,7 +610,7 @@ function renderKeys() {
 }
 
 function renderMetrics() {
-  $("#metricCount").textContent = `${number(state.metrics.length)} rows`;
+  $("#metricCount").textContent = `${number(state.metrics.length)}건`;
   if (!state.metrics.length) {
     $("#metricTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">Steam 지표가 없습니다.</span></td></tr>';
     return;
@@ -641,10 +641,10 @@ function renderSyncStatus() {
     : '<span class="status concept">missing key</span>';
   $("#syncLastRun").textContent = status.lastRunAt ? `최근 실행 ${new Date(status.lastRunAt).toLocaleString("ko-KR")}` : "아직 실행 없음";
   $("#syncStatusGrid").innerHTML = [
-    ["API Key", status.keyEnv],
-    ["App ID Games", `${number(status.gamesWithAppIds)} / ${number(status.totalGames)}`],
-    ["Sales Watermark", status.salesHighwatermark || "0"],
-    ["Last Status", status.lastStatus || "never_run"],
+    ["API 키", status.keyEnv],
+    ["App ID 게임", `${number(status.gamesWithAppIds)} / ${number(status.totalGames)}`],
+    ["판매 워터마크", status.salesHighwatermark || "0"],
+    ["최근 상태", status.lastStatus || "never_run"],
   ]
     .map(([label, value]) => `<div class="sync-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
@@ -685,12 +685,12 @@ function renderSyncSchedule() {
 function renderEmailStatus() {
   const status = state.emailStatus;
   if (!status) return;
-  $("#emailStatusLabel").textContent = status.configured ? "SMTP configured" : "SMTP missing";
+  $("#emailStatusLabel").textContent = status.configured ? "SMTP 설정됨" : "SMTP 미설정";
   $("#emailStatusGrid").innerHTML = [
-    ["Mode", status.mode],
-    ["SMTP Host", status.host],
-    ["From", status.from],
-    ["Auth", status.auth],
+    ["발송 모드", status.mode],
+    ["SMTP 호스트", status.host],
+    ["발신 주소", status.from],
+    ["인증", status.auth],
   ]
     .map(([label, value]) => `<div class="sync-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
@@ -755,7 +755,7 @@ function renderSettings() {
 }
 
 function renderOutreachLogs() {
-  $("#outreachLogCount").textContent = `${number(state.outreachLogs.length)} logs`;
+  $("#outreachLogCount").textContent = `로그 ${number(state.outreachLogs.length)}개`;
   if (!state.outreachLogs.length) {
     $("#outreachLogTable").innerHTML = '<tr><td data-label="상태" colspan="4"><span class="empty">발송 로그가 없습니다.</span></td></tr>';
     return;
@@ -1478,10 +1478,10 @@ const VIEW_OF_SECTION = {
 };
 
 const VIEW_META = {
-  overview: { eyebrow: "Growth Overview", title: "성장 현황 대시보드" },
-  campaigns: { eyebrow: "Campaign Performance", title: "캠페인 운영" },
-  creators: { eyebrow: "Creator Relations", title: "크리에이터 & 아웃리치" },
-  distribution: { eyebrow: "Distribution", title: "키 배포 & 스토어 링크" },
+  overview: { eyebrow: "Growth Overview", title: "그로스 대시보드" },
+  campaigns: { eyebrow: "Campaign Performance", title: "캠페인 성과" },
+  creators: { eyebrow: "Creator Relations", title: "크리에이터 & 섭외" },
+  distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },
   datasync: { eyebrow: "Data Pipeline", title: "Steam 데이터 & 동기화" },
   admin: { eyebrow: "Workspace Admin", title: "게임 · 연동 · 설정" },
 };

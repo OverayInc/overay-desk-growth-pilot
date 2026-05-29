@@ -119,8 +119,8 @@
                 </div>
                 <div class="panel">
                   <div class="panel-title">
-                    <h3>연락 우선순위</h3>
-                    <span>적합도 기준</span>
+                    <h3>섭외 우선순위</h3>
+                    <span>적합도순</span>
                   </div>
                   <div id="contactQueue" class="queue-list"></div>
                 </div>
@@ -131,7 +131,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Portfolio Overview</p>
-                  <h2>게임별 성장 현황</h2>
+                  <h2>게임별 그로스 현황</h2>
                 </div>
                 <span class="muted" id="portfolioSummary">-</span>
               </div>
@@ -142,7 +142,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Integration Readiness</p>
-                  <h2>실제 연동 준비 상태</h2>
+                  <h2>연동 준비 상태</h2>
                 </div>
                 <span class="muted" id="readinessSummary">-</span>
               </div>
@@ -158,7 +158,7 @@
                   <p class="eyebrow">Campaign Dashboard</p>
                   <h2>캠페인</h2>
                 </div>
-                <span class="muted" id="campaignCount">0 campaigns</span>
+                <span class="muted" id="campaignCount">캠페인 0개</span>
               </div>
               <details class="action-panel">
                 <summary><span>새 캠페인</span><span class="summary-icon"></span></summary>
@@ -215,7 +215,7 @@
                   <p class="eyebrow">Shared Creator Database</p>
                   <h2>공용 크리에이터 DB</h2>
                 </div>
-                <span class="muted" id="creatorProfileCount">0 profiles</span>
+                <span class="muted" id="creatorProfileCount">프로필 0개</span>
               </div>
               <details class="action-panel">
                 <summary><span>새 DB 프로필</span><span class="summary-icon"></span></summary>
@@ -297,7 +297,7 @@
                   <p class="eyebrow">Creator CRM</p>
                   <h2>크리에이터</h2>
                 </div>
-                <span class="muted" id="creatorCount">0 creators</span>
+                <span class="muted" id="creatorCount">크리에이터 0명</span>
               </div>
               <details class="action-panel">
                 <summary><span>새 크리에이터</span><span class="summary-icon"></span></summary>
@@ -363,7 +363,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Email Outreach</p>
-                  <h2>메일 발송과 로그</h2>
+                  <h2>메일 발송 · 로그</h2>
                 </div>
                 <span class="muted" id="emailStatusLabel">-</span>
               </div>
@@ -378,7 +378,7 @@
                 <div class="panel">
                   <div class="panel-title">
                     <h3>최근 발송 로그</h3>
-                    <span id="outreachLogCount">0 logs</span>
+                    <span id="outreachLogCount">로그 0개</span>
                   </div>
                   <div class="table-wrap compact">
                     <table>
@@ -406,7 +406,7 @@
                   <p class="eyebrow">Key Management</p>
                   <h2>Steam Key 배포</h2>
                 </div>
-                <span class="muted" id="keyCount">0 keys</span>
+                <span class="muted" id="keyCount">키 0개</span>
               </div>
               <details class="action-panel">
                 <summary><span>새 키 기록</span><span class="summary-icon"></span></summary>
@@ -460,7 +460,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">UTM Builder</p>
-                  <h2>스토어 링크 생성</h2>
+                  <h2>UTM 링크 만들기</h2>
                 </div>
               </div>
               <div class="panel">
@@ -508,50 +508,43 @@
 
           <!-- ============================ DATA & SYNC ============================ -->
           <div class="view" id="view-datasync">
-            <section class="band split-band" id="steam">
-              <div>
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Steam Metrics</p>
-                    <h2>CSV Wizard</h2>
-                  </div>
+            <section class="band" id="steam">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Steam Metrics</p>
+                  <h2>수집된 Steam 지표</h2>
                 </div>
-                <details class="action-panel" open>
-                  <summary><span>CSV 가져오기</span><span class="summary-icon"></span></summary>
-                  <form class="stack-form" id="csvForm">
-                    <label>
-                      Steamworks CSV
-                      <textarea name="csvText" rows="8" placeholder="date,campaignId,campaignName,country,visits,wishlists,purchases,revenue,activations,refunds"></textarea>
-                    </label>
-                    <div class="button-row">
-                      <button class="secondary-button" type="button" id="csvPreviewButton">미리보기</button>
-                      <button type="submit">CSV 가져오기</button>
-                    </div>
-                  </form>
-                </details>
-                <div class="result-line" id="csvPreviewResult"></div>
+                <span class="muted" id="metricCount">0건</span>
               </div>
-              <div class="panel">
-                <div class="panel-title">
-                  <h3>최근 Steam 지표</h3>
-                  <span id="metricCount">0 rows</span>
-                </div>
-                <div class="table-wrap compact">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>날짜</th>
-                        <th>게임</th>
-                        <th>캠페인</th>
-                        <th>국가</th>
-                        <th>방문</th>
-                        <th>위시</th>
-                        <th>구매</th>
-                      </tr>
-                    </thead>
-                    <tbody id="metricTable"></tbody>
-                  </table>
-                </div>
+              <details class="action-panel">
+                <summary><span>Steamworks CSV 가져오기</span><span class="summary-icon"></span></summary>
+                <form class="stack-form" id="csvForm">
+                  <label>
+                    Steamworks CSV
+                    <textarea name="csvText" rows="8" placeholder="date,campaignId,campaignName,country,visits,wishlists,purchases,revenue,activations,refunds"></textarea>
+                  </label>
+                  <div class="button-row">
+                    <button class="secondary-button" type="button" id="csvPreviewButton">미리보기</button>
+                    <button type="submit">CSV 가져오기</button>
+                  </div>
+                </form>
+              </details>
+              <div class="result-line" id="csvPreviewResult"></div>
+              <div class="table-wrap compact metrics-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>게임</th>
+                      <th>캠페인</th>
+                      <th>국가</th>
+                      <th class="num">방문</th>
+                      <th class="num">위시</th>
+                      <th class="num">구매</th>
+                    </tr>
+                  </thead>
+                  <tbody id="metricTable"></tbody>
+                </table>
               </div>
             </section>
 
@@ -584,7 +577,7 @@
                       </select>
                     </label>
                     <label>
-                      시작일
+                      시작일 (비우면 최근 7일)
                       <input name="startDate" type="date" />
                     </label>
                     <label>
@@ -628,7 +621,7 @@
                   </label>
                   <label>
                     조회 일수
-                    <input name="lookbackDays" type="number" min="1" max="14" placeholder="1" />
+                    <input name="lookbackDays" type="number" min="1" max="14" placeholder="7" />
                   </label>
                   <label>
                     지연 일수
@@ -674,7 +667,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Game Management</p>
-                  <h2>게임과 스토어 리스팅</h2>
+                  <h2>게임 · 스토어 리스팅</h2>
                 </div>
                 <span class="muted" id="gameAdminSummary">-</span>
               </div>
@@ -863,7 +856,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Settings</p>
-                  <h2>API 키와 발송 설정</h2>
+                  <h2>API 키 · 발송 설정</h2>
                 </div>
                 <span class="muted" id="settingsSummary">-</span>
               </div>
@@ -974,7 +967,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Data Tools</p>
-                  <h2>백업과 내보내기</h2>
+                  <h2>백업 · 내보내기</h2>
                 </div>
               </div>
               <div class="panel">
