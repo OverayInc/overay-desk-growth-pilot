@@ -2,6 +2,7 @@ const state = {
   selectedGameId: "all",
   dashboard: null,
   games: [],
+  storeListings: [],
   campaigns: [],
   creatorProfiles: [],
   creators: [],
@@ -66,6 +67,23 @@ function selectedGameForForms() {
 
 function gameName(gameId) {
   return state.games.find((game) => game.id === gameId)?.name || "Unassigned Game";
+}
+
+function platformLabel(platform) {
+  const labels = {
+    steam: "Steam",
+    meta_horizon: "Meta Horizon Store",
+    itch: "itch.io",
+    epic: "Epic Games Store",
+    playstation: "PlayStation Store",
+    quest: "Meta Quest",
+    other: "Other Store",
+  };
+  return labels[platform] || labels.other;
+}
+
+function listingsForGame(gameId) {
+  return state.storeListings.filter((listing) => listing.gameId === gameId && listing.status !== "archived");
 }
 
 async function api(path, options = {}) {
@@ -141,8 +159,18 @@ function renderGameSelectors() {
     populateGameSettingsForm(settingsSelect.value);
   }
 
+  const listingSelect = $("#listingGameSelect");
+  if (listingSelect) {
+    const previous = listingSelect.value || selectedGameForForms();
+    listingSelect.disabled = !state.games.length;
+    listingSelect.innerHTML = state.games.length
+      ? state.games.map((game) => `<option value="${escapeHtml(game.id)}">${escapeHtml(game.name)}</option>`).join("")
+      : '<option value="">게임을 먼저 추가</option>';
+    listingSelect.value = state.games.some((game) => game.id === previous) ? previous : selectedGameForForms();
+  }
+
   const hasGames = state.games.length > 0;
-  for (const formId of ["#campaignForm", "#creatorForm", "#keyForm", "#csvForm", "#utmForm", "#gameSettingsForm"]) {
+  for (const formId of ["#campaignForm", "#creatorForm", "#keyForm", "#csvForm", "#utmForm", "#gameSettingsForm", "#storeListingForm"]) {
     const form = $(formId);
     if (!form) continue;
     form.querySelector("button[type='submit']").disabled = !hasGames;
@@ -159,12 +187,13 @@ function populateGameSettingsForm(gameId) {
   }
   if (!game) return;
   form.elements.name.value = game.name || "";
-  form.elements.steamAppId.value = game.steamAppId || "0";
-  form.elements.steamStoreUrl.value = game.steamStoreUrl || "";
+  if (form.elements.steamAppId) form.elements.steamAppId.value = game.steamAppId || "0";
+  if (form.elements.steamStoreUrl) form.elements.steamStoreUrl.value = game.steamStoreUrl || "";
   form.elements.launchDate.value = game.launchDate || "";
   form.elements.stage.value = game.stage || "concept";
   form.elements.genre.value = game.genre || "";
   form.elements.owner.value = game.owner || "Growth";
+  if (form.elements.archived) form.elements.archived.value = String(Boolean(game.archived));
 }
 
 function populateSyncScheduleForm() {
@@ -239,10 +268,84 @@ function renderMetricGrid(dashboard) {
     .join("");
 }
 
+function renderPlatformChips(listings) {
+  if (!listings.length) return '<span class="cell-sub">리스팅 없음</span>';
+  return `
+    <div class="platform-row">
+      ${listings
+        .map((listing) => `<span class="platform-chip ${escapeHtml(listing.platform)}">${escapeHtml(listing.platformLabel || platformLabel(listing.platform))}</span>`)
+        .join("")}
+    </div>
+  `;
+}
+
+function renderGameAdmin() {
+  const activeGames = state.games.filter((game) => !game.archived);
+  const activeListings = state.storeListings.filter((listing) => listing.status !== "archived");
+  $("#gameAdminSummary").textContent = `${number(activeGames.length)} active games / ${number(activeListings.length)} store listings`;
+
+  if (!state.games.length) {
+    $("#gameAdminTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">관리할 게임이 없습니다.</span></td></tr>';
+  } else {
+    $("#gameAdminTable").innerHTML = state.games
+      .map((game) => {
+        const listings = listingsForGame(game.id);
+        return `
+          <tr>
+            <td data-label="게임">
+              <span class="cell-title">${escapeHtml(game.name)}</span>
+              <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
+            </td>
+            <td data-label="단계"><span class="status ${escapeHtml(game.stage || "concept")}">${escapeHtml(game.stage || "concept")}</span></td>
+            <td data-label="스토어">${renderPlatformChips(listings)}</td>
+            <td data-label="담당">${escapeHtml(game.owner || "Growth")}</td>
+            <td data-label="출시일">${escapeHtml(game.launchDate || "-")}</td>
+            <td data-label="상태"><span class="status ${game.archived ? "archived" : "active"}">${game.archived ? "archived" : "active"}</span></td>
+            <td data-label="작업">
+              <div class="action-row">
+                <button class="table-button secondary-button" type="button" data-edit-game-id="${escapeHtml(game.id)}">수정</button>
+                ${
+                  game.archived
+                    ? ""
+                    : `<button class="table-button secondary-button danger-button" type="button" data-archive-game-id="${escapeHtml(game.id)}">Archive</button>`
+                }
+              </div>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+
+  if (!state.storeListings.length) {
+    $("#storeListingTable").innerHTML = '<tr><td data-label="상태" colspan="6"><span class="empty">연결된 스토어 리스팅이 없습니다.</span></td></tr>';
+    return;
+  }
+
+  $("#storeListingTable").innerHTML = state.storeListings
+    .map(
+      (listing) => `
+        <tr>
+          <td data-label="게임"><span class="cell-title">${escapeHtml(listing.gameName || gameName(listing.gameId))}</span></td>
+          <td data-label="스토어"><span class="platform-chip ${escapeHtml(listing.platform)}">${escapeHtml(listing.platformLabel || platformLabel(listing.platform))}</span></td>
+          <td data-label="ID / Slug">${escapeHtml(listing.externalId || "-")}</td>
+          <td data-label="상태"><span class="status ${escapeHtml(listing.status || "draft")}">${escapeHtml(listing.status || "draft")}</span></td>
+          <td data-label="Store URL" class="link-cell">${
+            listing.storeUrl ? `<a href="${escapeHtml(listing.storeUrl)}" target="_blank" rel="noreferrer">열기</a>` : "-"
+          }</td>
+          <td data-label="Dashboard" class="link-cell">${
+            listing.dashboardUrl ? `<a href="${escapeHtml(listing.dashboardUrl)}" target="_blank" rel="noreferrer">열기</a>` : "-"
+          }</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
 function renderPortfolio() {
-  const portfolio = state.dashboard.portfolio || state.games;
+  const portfolio = (state.dashboard.portfolio || state.games).filter((game) => !game.archived);
   const maxWishlist = Math.max(...portfolio.map((game) => Number(game.wishlists || 0)), 1);
-  $("#portfolioSummary").textContent = `${number(state.games.length)} games`;
+  $("#portfolioSummary").textContent = `${number(portfolio.length)} active games`;
   if (!portfolio.length) {
     $("#portfolioGrid").innerHTML = `
       <div class="empty-state">
@@ -257,12 +360,14 @@ function renderPortfolio() {
       (game) => {
         const active = state.selectedGameId === game.id ? " active" : "";
         const width = Math.max(4, Math.round((Number(game.wishlists || 0) / maxWishlist) * 100));
+        const listings = game.storeListings || listingsForGame(game.id);
         return `
         <button class="game-card${active}" type="button" data-game-id="${escapeHtml(game.id)}" aria-pressed="${state.selectedGameId === game.id ? "true" : "false"}">
           <header>
             <div>
               <h3>${escapeHtml(game.name)}</h3>
               <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
+              ${renderPlatformChips(listings.filter((listing) => listing.status !== "archived"))}
             </div>
             <span class="stage ${escapeHtml(game.stage)}">${escapeHtml(game.stage)}</span>
           </header>
@@ -300,7 +405,7 @@ function renderReadiness() {
           <header>
             <div>
               <h3>${escapeHtml(game.gameName)}</h3>
-              <span class="cell-sub">${escapeHtml(game.steamAppId || "0")} / ${escapeHtml(game.status)}</span>
+              <span class="cell-sub">${escapeHtml((game.platforms || []).map((platform) => platform.label).join(", ") || "No store")} / ${escapeHtml(game.status)}</span>
             </div>
             <div class="readiness-score">${number(game.score)}%</div>
           </header>
@@ -822,6 +927,7 @@ async function createEmailDraft(payload) {
 
 function renderAll() {
   renderGameSelectors();
+  renderGameAdmin();
   renderDashboard();
   renderReadiness();
   renderCampaigns();
@@ -849,6 +955,7 @@ async function loadAll() {
   const [
     health,
     games,
+    storeListings,
     dashboard,
     readiness,
     campaigns,
@@ -864,6 +971,7 @@ async function loadAll() {
   ] = await Promise.all([
     api("/api/health"),
     api("/api/games"),
+    api("/api/store-listings?includeArchived=true"),
     api(`/api/dashboard?${query}`),
     api("/api/readiness"),
     api(`/api/campaigns?${query}`),
@@ -878,6 +986,7 @@ async function loadAll() {
     api(`/api/outreach-logs?${query}`),
   ]);
   state.games = games;
+  state.storeListings = storeListings;
   state.dashboard = dashboard;
   state.readiness = readiness;
   state.campaigns = campaigns;
@@ -934,6 +1043,13 @@ function initForms() {
   bindForm("#gameSettingsForm", (data) =>
     api(`/api/games/${encodeURIComponent(data.gameId)}`, {
       method: "PUT",
+      body: data,
+    }),
+  );
+
+  bindForm("#storeListingForm", (data) =>
+    api("/api/store-listings", {
+      method: "POST",
       body: data,
     }),
   );
@@ -1111,6 +1227,32 @@ function initForms() {
 
   $("#settingsGameSelect").addEventListener("change", (event) => {
     populateGameSettingsForm(event.currentTarget.value);
+  });
+
+  $("#gameAdminTable").addEventListener("click", async (event) => {
+    const editButton = event.target.closest("[data-edit-game-id]");
+    const archiveButton = event.target.closest("[data-archive-game-id]");
+    if (editButton) {
+      const select = $("#settingsGameSelect");
+      select.value = editButton.dataset.editGameId;
+      populateGameSettingsForm(select.value);
+      $("#gameSettingsForm").closest("details")?.setAttribute("open", "");
+      location.hash = "#games";
+      return;
+    }
+    if (!archiveButton) return;
+    archiveButton.disabled = true;
+    try {
+      await api(`/api/games/${encodeURIComponent(archiveButton.dataset.archiveGameId)}`, {
+        method: "DELETE",
+      });
+      await loadAll();
+      showToast("게임을 archive 처리했습니다.");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      archiveButton.disabled = false;
+    }
   });
 
   $("#runScheduleNowButton").addEventListener("click", async (event) => {

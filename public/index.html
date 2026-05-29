@@ -4,20 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Launch Pilot Growth Dashboard</title>
-    <link rel="stylesheet" href="/styles.css?v=20260528-settings-width" />
+    <meta name="theme-color" content="#121316" />
+    <link rel="icon" href="/favicon.svg?v=20260529-overay" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/app-icon.svg?v=20260529-overay" />
+    <link rel="stylesheet" href="/styles.css?v=20260529-store-admin3" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <span class="brand-mark">LP</span>
+          <span class="brand-mark"><img src="/overay-mark.svg?v=20260529-overay" alt="" /></span>
           <div>
-            <strong>Launch Pilot</strong>
-            <span>Portfolio Growth</span>
+            <strong>OVERAY</strong>
+            <span>Growth Console</span>
           </div>
         </div>
         <nav class="nav" aria-label="Dashboard sections">
           <a href="#portfolio">Portfolio</a>
+          <a href="#games">Games</a>
           <a href="#readiness">Ready</a>
           <a href="#today">Today</a>
           <a href="#campaigns">Campaigns</a>
@@ -55,6 +59,194 @@
           </div>
         </header>
 
+        <section class="band" id="games">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Game Management</p>
+              <h2>게임과 스토어 리스팅</h2>
+            </div>
+            <span class="muted" id="gameAdminSummary">-</span>
+          </div>
+          <div class="admin-layout">
+            <div class="admin-main">
+              <div class="panel">
+                <div class="panel-title">
+                  <h3>게임 목록</h3>
+                  <span>archive는 지표를 보존한 채 숨김 처리</span>
+                </div>
+                <div class="table-wrap compact-admin">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>게임</th>
+                        <th>단계</th>
+                        <th>스토어</th>
+                        <th>담당</th>
+                        <th>출시일</th>
+                        <th>상태</th>
+                        <th>작업</th>
+                      </tr>
+                    </thead>
+                    <tbody id="gameAdminTable"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-title">
+                  <h3>스토어 리스팅</h3>
+                  <span>Steam, Meta Horizon, 기타 스토어를 게임에 연결</span>
+                </div>
+                <div class="table-wrap compact-admin">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>게임</th>
+                        <th>스토어</th>
+                        <th>ID / Slug</th>
+                        <th>상태</th>
+                        <th>Store URL</th>
+                        <th>Dashboard</th>
+                      </tr>
+                    </thead>
+                    <tbody id="storeListingTable"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="admin-side">
+              <details class="action-panel" open>
+                <summary><span>게임 추가</span><span class="summary-icon">+</span></summary>
+                <form class="form-row game-form admin-form" id="gameForm">
+                  <label>
+                    게임명
+                    <input name="name" placeholder="New Anomaly Game" required />
+                  </label>
+                  <label>
+                    단계
+                    <select name="stage">
+                      <option value="concept">concept</option>
+                      <option value="prototype">prototype</option>
+                      <option value="prelaunch">prelaunch</option>
+                      <option value="launched">launched</option>
+                    </select>
+                  </label>
+                  <label>
+                    장르
+                    <input name="genre" placeholder="Anomaly exploration" />
+                  </label>
+                  <label>
+                    출시일
+                    <input name="launchDate" type="date" />
+                  </label>
+                  <label>
+                    담당
+                    <input name="owner" placeholder="Growth" />
+                  </label>
+                  <label>
+                    Steam App ID
+                    <input name="steamAppId" placeholder="선택 사항" />
+                  </label>
+                  <button type="submit">게임 추가</button>
+                </form>
+              </details>
+
+              <details class="action-panel">
+                <summary><span>게임 정보 수정</span><span class="summary-icon">+</span></summary>
+                <form class="form-row integration-form admin-form" id="gameSettingsForm">
+                  <label>
+                    게임
+                    <select name="gameId" id="settingsGameSelect"></select>
+                  </label>
+                  <label>
+                    게임명
+                    <input name="name" placeholder="Game name" required />
+                  </label>
+                  <label>
+                    단계
+                    <select name="stage">
+                      <option value="concept">concept</option>
+                      <option value="prototype">prototype</option>
+                      <option value="prelaunch">prelaunch</option>
+                      <option value="launched">launched</option>
+                    </select>
+                  </label>
+                  <label>
+                    장르
+                    <input name="genre" placeholder="Anomaly exploration" />
+                  </label>
+                  <label>
+                    출시일
+                    <input name="launchDate" type="date" />
+                  </label>
+                  <label>
+                    담당
+                    <input name="owner" placeholder="Growth" />
+                  </label>
+                  <label>
+                    운영 상태
+                    <select name="archived">
+                      <option value="false">active</option>
+                      <option value="true">archived</option>
+                    </select>
+                  </label>
+                  <button type="submit">게임 저장</button>
+                </form>
+              </details>
+
+              <details class="action-panel">
+                <summary><span>스토어 리스팅 추가</span><span class="summary-icon">+</span></summary>
+                <form class="form-row store-form admin-form" id="storeListingForm">
+                  <label>
+                    게임
+                    <select name="gameId" id="listingGameSelect"></select>
+                  </label>
+                  <label>
+                    스토어
+                    <select name="platform">
+                      <option value="steam">Steam</option>
+                      <option value="meta_horizon">Meta Horizon Store</option>
+                      <option value="itch">itch.io</option>
+                      <option value="epic">Epic Games Store</option>
+                      <option value="other">Other Store</option>
+                    </select>
+                  </label>
+                  <label>
+                    ID / Slug
+                    <input name="externalId" placeholder="Steam App ID 또는 Meta slug" />
+                  </label>
+                  <label>
+                    상태
+                    <select name="status">
+                      <option value="draft">draft</option>
+                      <option value="submitted">submitted</option>
+                      <option value="live">live</option>
+                      <option value="planned">planned</option>
+                      <option value="paused">paused</option>
+                    </select>
+                  </label>
+                  <label class="field-wide">
+                    Store URL
+                    <input name="storeUrl" placeholder="https://store.steampowered.com/app/... 또는 Meta Horizon URL" />
+                  </label>
+                  <label class="field-wide">
+                    Dashboard URL
+                    <input name="dashboardUrl" placeholder="내부 관리 콘솔 URL" />
+                  </label>
+                  <label>
+                    출시일
+                    <input name="launchDate" type="date" />
+                  </label>
+                  <label class="field-wide">
+                    메모
+                    <textarea name="notes" rows="3" placeholder="심사 상태, 계정, 체크할 이슈"></textarea>
+                  </label>
+                  <button type="submit">리스팅 저장</button>
+                </form>
+              </details>
+            </div>
+          </div>
+        </section>
+
         <section class="band" id="portfolio">
           <div class="section-heading">
             <div>
@@ -64,33 +256,6 @@
             <span class="muted" id="portfolioSummary">-</span>
           </div>
           <div class="portfolio-grid" id="portfolioGrid"></div>
-          <details class="action-panel">
-            <summary><span>새 게임</span><span class="summary-icon">+</span></summary>
-            <form class="form-row game-form" id="gameForm">
-              <label>
-                게임명
-                <input name="name" placeholder="New Anomaly Game" required />
-              </label>
-              <label>
-                Steam App ID
-                <input name="steamAppId" placeholder="0" />
-              </label>
-              <label>
-                단계
-                <select name="stage">
-                  <option value="concept">concept</option>
-                  <option value="prototype">prototype</option>
-                  <option value="prelaunch">prelaunch</option>
-                  <option value="launched">launched</option>
-                </select>
-              </label>
-              <label>
-                장르
-                <input name="genre" placeholder="Anomaly exploration" />
-              </label>
-              <button type="submit">게임 추가</button>
-            </form>
-          </details>
         </section>
 
         <section class="band" id="readiness">
@@ -102,49 +267,6 @@
             <span class="muted" id="readinessSummary">-</span>
           </div>
           <div class="readiness-grid" id="readinessGrid"></div>
-          <details class="action-panel">
-            <summary><span>게임 연동 설정</span><span class="summary-icon">+</span></summary>
-            <form class="form-row integration-form" id="gameSettingsForm">
-              <label>
-                게임
-                <select name="gameId" id="settingsGameSelect"></select>
-              </label>
-              <label>
-                게임명
-                <input name="name" placeholder="Game name" required />
-              </label>
-              <label>
-                Steam App ID
-                <input name="steamAppId" placeholder="0" />
-              </label>
-              <label>
-                Store URL
-                <input name="steamStoreUrl" placeholder="https://store.steampowered.com/app/..." />
-              </label>
-              <label>
-                출시일
-                <input name="launchDate" type="date" />
-              </label>
-              <label>
-                단계
-                <select name="stage">
-                  <option value="concept">concept</option>
-                  <option value="prototype">prototype</option>
-                  <option value="prelaunch">prelaunch</option>
-                  <option value="launched">launched</option>
-                </select>
-              </label>
-              <label>
-                장르
-                <input name="genre" placeholder="Anomaly exploration" />
-              </label>
-              <label>
-                담당
-                <input name="owner" placeholder="Growth" />
-              </label>
-              <button type="submit">설정 저장</button>
-            </form>
-          </details>
         </section>
 
         <section class="band" id="today">
@@ -635,7 +757,7 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">UTM Builder</p>
-              <h2>Steam 링크 생성</h2>
+              <h2>스토어 링크 생성</h2>
             </div>
           </div>
           <form class="form-row utm-form" id="utmForm">
@@ -644,8 +766,18 @@
               <select name="gameId" data-game-select></select>
             </label>
             <label>
+              스토어
+              <select name="platform">
+                <option value="steam">Steam</option>
+                <option value="meta_horizon">Meta Horizon Store</option>
+                <option value="itch">itch.io</option>
+                <option value="epic">Epic Games Store</option>
+                <option value="other">Other Store</option>
+              </select>
+            </label>
+            <label>
               Base URL
-              <input name="baseUrl" placeholder="비우면 선택한 게임의 Steam URL 사용" />
+              <input name="baseUrl" placeholder="비우면 선택한 게임의 스토어 URL 사용" />
             </label>
             <label>
               Source
@@ -798,6 +930,6 @@
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </main>
     </div>
-    <script type="module" src="/app.js?v=20260528-settings-width"></script>
+    <script type="module" src="/app.js?v=20260528-layout-pro2"></script>
   </body>
 </html>

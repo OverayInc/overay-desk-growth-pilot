@@ -102,7 +102,7 @@ test('returns dashboard and list resources', async () => {
   assertObject(dashboard, 'GET /api/dashboard');
   assertArray(dashboard.portfolio, 'GET /api/dashboard portfolio');
 
-  for (const path of ['/api/games', '/api/creator-profiles', '/api/creators', '/api/campaigns', '/api/keys', '/api/steam-metrics', '/api/outreach-logs']) {
+  for (const path of ['/api/games', '/api/store-listings', '/api/creator-profiles', '/api/creators', '/api/campaigns', '/api/keys', '/api/steam-metrics', '/api/outreach-logs']) {
     const body = await requestOk(path);
     assertArray(body, `GET ${path}`);
   }
@@ -245,6 +245,25 @@ test('creates growth records and exposes them through list APIs', async () => {
   assertObject(updatedGame, 'PUT /api/games/:id');
   assert(updatedGame.name.endsWith('Updated'), 'PUT /api/games/:id should update the game name.');
   assert(containsDeep(updatedGame, 'QA_Game'), 'PUT /api/games/:id should update Steam Store URL.');
+
+  const metaListing = await requestOk('/api/store-listings', {
+    method: 'POST',
+    body: {
+      gameId: game.id,
+      platform: 'meta_horizon',
+      externalId: `qa-meta-${RUN_ID}`,
+      storeUrl: `https://www.meta.com/experiences/qa-meta-${RUN_ID}/`,
+      dashboardUrl: `https://developers.meta.com/horizon/manage/qa-meta-${RUN_ID}/`,
+      status: 'live',
+      notes: 'Created by API smoke test',
+    },
+  });
+  assertObject(metaListing, 'POST /api/store-listings');
+  assert(metaListing.platform === 'meta_horizon', `Store listing should preserve Meta Horizon platform. Got: ${preview(metaListing)}`);
+
+  const storeListings = await requestOk(`/api/store-listings?gameId=${encodeURIComponent(game.id)}`);
+  assertArray(storeListings, 'GET /api/store-listings?gameId= after create');
+  assert(containsDeep(storeListings, 'Meta Horizon Store'), 'Created Meta Horizon listing should be visible.');
 
   const creatorPayload = {
     gameId: game.id,

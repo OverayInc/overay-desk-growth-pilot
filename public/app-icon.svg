@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OVERAY app icon">
+  <rect width="512" height="512" rx="112" fill="#121316" />
+  <defs>
+    <linearGradient id="overayBlue" x1="256" y1="72" x2="256" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5b99ff" />
+      <stop offset="0.58" stop-color="#2f75f0" />
+      <stop offset="1" stop-color="#1760d8" />
+    </linearGradient>
+    <radialGradient id="overayOrb" cx="39%" cy="32%" r="74%">
+      <stop offset="0" stop-color="#6fadff" />
+      <stop offset="0.62" stop-color="#2f79f3" />
+      <stop offset="1" stop-color="#1760d8" />
+    </radialGradient>
+  </defs>
+  <g transform="translate(68 60) scale(3.92)">
+    <path fill="url(#overayBlue)" d="M17.2 13.8c-4.8-1.7-9.6 2.2-9 7.3l3.9 36.9c.7 6.9 8 10.9 14.2 7.8l7.4-3.7c5-2.5 7.9-7.9 7.2-13.5l-.3-2.6c-.8-6.4 2.8-12.6 8.7-15.1 2.8-1.2 2.7-5.3-.1-6.4L17.2 13.8Z" />
+    <path fill="url(#overayBlue)" d="M78.8 13.8c4.8-1.7 9.6 2.2 9 7.3l-3.9 36.9c-.7 6.9-8 10.9-14.2 7.8l-7.4-3.7c-5-2.5-7.9-7.9-7.2-13.5l.3-2.6c.8-6.4-2.8-12.6-8.7-15.1-2.8-1.2-2.7-5.3.1-6.4l32-10.7Z" />
+    <circle cx="48" cy="61" r="17.8" fill="url(#overayOrb)" />
+  </g>
+</svg>

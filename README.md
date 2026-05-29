@@ -1,8 +1,17 @@
 # Launch Pilot Growth Dashboard
 
-여러 소형 Steam 게임의 홍보 활동을 관리하는 초경량 내부 웹툴입니다.
+여러 소형 게임의 홍보 활동을 관리하는 초경량 내부 웹툴입니다.
 
-1차 MVP는 게임 포트폴리오, 연동 준비 체크리스트, 공용 Creator DB, Creator CSV Import, Campaign 관리, Steam Key 배포 기록, UTM 링크 생성, 이메일 초안/SMTP 발송 로그, Steamworks CSV Wizard, 웹 Settings 기반 API/SMTP 설정, 자동 동기화 스케줄, 동기화 로그, 데이터 내보내기에 집중합니다.
+1차 MVP는 게임 포트폴리오, 게임/스토어 리스팅 관리, 연동 준비 체크리스트, 공용 Creator DB, Creator CSV Import, Campaign 관리, Steam Key 배포 기록, UTM 링크 생성, 이메일 초안/SMTP 발송 로그, Steamworks CSV Wizard, 웹 Settings 기반 API/SMTP 설정, 자동 동기화 스케줄, 동기화 로그, 데이터 내보내기에 집중합니다.
+
+## 게임과 스토어 관리
+
+`Games` 화면에서 게임 자체와 스토어 리스팅을 분리해 관리합니다.
+
+- 게임: 이름, 단계, 장르, 출시일, 담당자, archive 상태
+- 스토어 리스팅: Steam, Meta Horizon Store, itch.io, Epic, 기타 스토어 URL과 관리 콘솔 URL
+- Steam 리스팅에 App ID를 넣으면 기존 Steam CSV/API/UTM 흐름과 자동으로 연결됩니다.
+- Meta Horizon Store는 우선 URL/상태/관리 콘솔/메모를 같은 게임 아래에 묶어 관리하고, 캠페인 추적은 UTM 또는 별도 리다이렉트 링크 방식으로 확장할 수 있습니다.
 
 ## 빠른 시작
 

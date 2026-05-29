@@ -43,6 +43,18 @@ const STATUS_OPTIONS = new Set([
 
 const KEY_STATUS_OPTIONS = new Set(["reserved", "sent", "claimed", "video_uploaded", "revoked"]);
 
+const STORE_PLATFORM_LABELS = {
+  steam: "Steam",
+  meta_horizon: "Meta Horizon Store",
+  itch: "itch.io",
+  epic: "Epic Games Store",
+  playstation: "PlayStation Store",
+  quest: "Meta Quest",
+  other: "Other Store",
+};
+
+const STORE_STATUS_OPTIONS = new Set(["planned", "draft", "submitted", "live", "paused", "archived"]);
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -88,6 +100,28 @@ function slugify(value, fallback = "item") {
   );
 }
 
+function normalizeStorePlatform(value = "steam") {
+  const raw = String(value || "steam")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (raw === "meta" || raw === "meta_store" || raw === "horizon" || raw === "horizon_store" || raw === "quest_store") {
+    return "meta_horizon";
+  }
+  if (raw === "epic_games") return "epic";
+  if (raw === "itchio" || raw === "itch_io") return "itch";
+  return Object.hasOwn(STORE_PLATFORM_LABELS, raw) ? raw : "other";
+}
+
+function storePlatformLabel(platform) {
+  return STORE_PLATFORM_LABELS[normalizeStorePlatform(platform)] || STORE_PLATFORM_LABELS.other;
+}
+
+function normalizeListingStatus(value = "draft") {
+  const status = String(value || "draft").trim().toLowerCase();
+  return STORE_STATUS_OPTIONS.has(status) ? status : "draft";
+}
+
 function steamStoreUrl(appId, name) {
   const safeAppId = String(appId || "0");
   const slug = String(name || "Game").trim().replace(/\s+/g, "_");
@@ -107,6 +141,7 @@ function defaultData() {
       createdAt: nowIso(),
     },
     games,
+    storeListings: [],
     campaigns: [],
     creatorProfiles: [],
     creators: [],
@@ -173,6 +208,7 @@ function normalizeData(data) {
   data.meta ||= seeded.meta;
   data.meta.portfolioName ||= "Launch Pilot Growth Dashboard";
   data.games ||= [];
+  data.storeListings ||= [];
   if (data.meta.primaryGameId && !data.games.some((game) => game.id === data.meta.primaryGameId)) {
     data.meta.primaryGameId = data.games[0]?.id || "";
   }
@@ -227,9 +263,23 @@ function normalizeData(data) {
     game.genre ||= "";
     game.launchDate ||= "";
     game.owner ||= "Growth";
-    game.steamStoreUrl ||= steamStoreUrl(game.steamAppId, game.name);
+    game.archived = Boolean(game.archived);
+    game.status = game.archived ? "archived" : game.status || "active";
+    if (!game.steamStoreUrl && game.steamAppId !== "0") game.steamStoreUrl = steamStoreUrl(game.steamAppId, game.name);
     game.createdAt ||= nowIso();
     game.updatedAt ||= game.createdAt;
+  }
+
+  for (const listing of data.storeListings) {
+    normalizeStoreListing(data, listing);
+  }
+
+  for (const game of data.games) {
+    upsertSteamListingFromGame(data, game);
+  }
+
+  for (const listing of data.storeListings) {
+    normalizeStoreListing(data, listing);
   }
 
   for (const profile of data.creatorProfiles) {
@@ -308,6 +358,119 @@ function sanitizeKey(record) {
   return safe;
 }
 
+function activeGames(data) {
+  return data.games.filter((game) => !game.archived);
+}
+
+function storeListingsForGame(data, gameId, options = {}) {
+  return data.storeListings.filter((listing) => {
+    if (listing.gameId !== gameId) return false;
+    return options.includeArchived || listing.status !== "archived";
+  });
+}
+
+function primaryStoreListing(data, gameId, platform = "steam") {
+  const normalizedPlatform = normalizeStorePlatform(platform);
+  return storeListingsForGame(data, gameId, { includeArchived: true }).find(
+    (listing) => listing.platform === normalizedPlatform && listing.status !== "archived",
+  );
+}
+
+function steamAppIdForGame(data, game) {
+  const steamListing = primaryStoreListing(data, game.id, "steam");
+  return String(steamListing?.externalId || game.steamAppId || "0");
+}
+
+function storeUrlForPlatform(data, gameId, platform = "steam") {
+  const normalizedPlatform = normalizeStorePlatform(platform);
+  const listing = primaryStoreListing(data, gameId, normalizedPlatform);
+  if (listing?.storeUrl) return listing.storeUrl;
+  const game = data.games.find((item) => item.id === gameId);
+  if (normalizedPlatform === "steam" && game?.steamStoreUrl) return game.steamStoreUrl;
+  return "";
+}
+
+function sanitizeStoreListing(data, listing) {
+  return {
+    ...listing,
+    platformLabel: storePlatformLabel(listing.platform),
+    gameName: gameNameFor(data, listing.gameId),
+  };
+}
+
+function normalizeStoreListing(data, listing) {
+  listing.id ||= makeId("listing", `${listing.gameId || "game"}_${listing.platform || "store"}`);
+  listing.gameId ||= data.meta.primaryGameId || data.games[0]?.id || "";
+  listing.platform = normalizeStorePlatform(listing.platform || listing.store || listing.channel || "steam");
+  listing.platformLabel = storePlatformLabel(listing.platform);
+  listing.externalId = String(
+    listing.externalId || listing.appId || listing.appid || listing.steamAppId || listing.storeAppId || "",
+  );
+  listing.storeUrl = listing.storeUrl || listing.url || "";
+  listing.dashboardUrl = listing.dashboardUrl || listing.adminUrl || "";
+  listing.status = normalizeListingStatus(listing.status || (listing.archived ? "archived" : "draft"));
+  listing.launchDate ||= "";
+  listing.region ||= "global";
+  listing.price ||= "";
+  listing.currency ||= "";
+  listing.notes = listing.notes || listing.note || "";
+  listing.isPrimary = Boolean(listing.isPrimary);
+  listing.createdAt ||= nowIso();
+  listing.updatedAt ||= listing.createdAt;
+
+  const game = data.games.find((item) => item.id === listing.gameId);
+  if (listing.platform === "steam") {
+    if (!listing.storeUrl && listing.externalId) listing.storeUrl = steamStoreUrl(listing.externalId, game?.name || "Game");
+    if (game) {
+      game.steamAppId = String(listing.externalId || game.steamAppId || "0");
+      game.steamStoreUrl = listing.storeUrl || game.steamStoreUrl || steamStoreUrl(game.steamAppId, game.name);
+    }
+  }
+  return listing;
+}
+
+function upsertSteamListingFromGame(data, game) {
+  const appId = String(game.steamAppId || "0");
+  const hasSteamSignal = (appId && appId !== "0") || validStoreUrl(game.steamStoreUrl || "");
+  if (!hasSteamSignal) return null;
+  let listing = data.storeListings.find((item) => item.gameId === game.id && normalizeStorePlatform(item.platform) === "steam");
+  if (!listing) {
+    listing = {
+      id: makeId("listing", `${game.id}_steam`),
+      gameId: game.id,
+      platform: "steam",
+      createdAt: game.createdAt || nowIso(),
+    };
+    data.storeListings.push(listing);
+  }
+  listing.externalId = appId;
+  listing.storeUrl = game.steamStoreUrl || listing.storeUrl || steamStoreUrl(appId, game.name);
+  listing.status = game.archived ? "archived" : listing.status || (game.stage === "launched" ? "live" : "draft");
+  listing.launchDate = game.launchDate || listing.launchDate || "";
+  listing.updatedAt = game.updatedAt || nowIso();
+  return normalizeStoreListing(data, listing);
+}
+
+function updateStoreListingFromInput(data, listing, input) {
+  if (input.gameId !== undefined) listing.gameId = String(input.gameId);
+  if (input.platform !== undefined) listing.platform = normalizeStorePlatform(input.platform);
+  if (input.externalId !== undefined || input.appId !== undefined || input.steamAppId !== undefined) {
+    listing.externalId = String(input.externalId || input.appId || input.steamAppId || "");
+  }
+  if (input.storeUrl !== undefined || input.url !== undefined) listing.storeUrl = input.storeUrl || input.url || "";
+  if (input.dashboardUrl !== undefined || input.adminUrl !== undefined) listing.dashboardUrl = input.dashboardUrl || input.adminUrl || "";
+  if (input.status !== undefined) listing.status = normalizeListingStatus(input.status);
+  if (input.launchDate !== undefined) listing.launchDate = input.launchDate || "";
+  if (input.region !== undefined) listing.region = input.region || "global";
+  if (input.price !== undefined) listing.price = input.price || "";
+  if (input.currency !== undefined) listing.currency = input.currency || "";
+  if (input.notes !== undefined || input.note !== undefined) listing.notes = input.notes || input.note || "";
+  if (input.isPrimary !== undefined) listing.isPrimary = Boolean(input.isPrimary);
+  listing.updatedAt = nowIso();
+  normalizeStoreListing(data, listing);
+  return listing;
+}
+
 function respondJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
@@ -339,8 +502,15 @@ async function readJson(req) {
 
 function buildUtmLink(data, input) {
   const game = gameFor(data, input.gameId || data.meta.primaryGameId || DEFAULT_GAME_ID);
-  const appId = String(input.appId || game?.steamAppId || STEAM_APP_ID || "0");
-  const baseUrl = input.baseUrl || game?.steamStoreUrl || steamStoreUrl(appId, game?.name || "Game");
+  const platform = normalizeStorePlatform(input.platform || input.storePlatform || "steam");
+  const listing = game ? primaryStoreListing(data, game.id, platform) || primaryStoreListing(data, game.id, "steam") : null;
+  const appId = String(input.appId || listing?.externalId || game?.steamAppId || STEAM_APP_ID || "0");
+  const baseUrl =
+    input.baseUrl ||
+    listing?.storeUrl ||
+    (game ? storeUrlForPlatform(data, game.id, platform) : "") ||
+    game?.steamStoreUrl ||
+    steamStoreUrl(appId, game?.name || "Game");
   const url = new URL(baseUrl);
   const params = {
     utm_source: input.source || input.utm_source || "manual",
@@ -422,11 +592,19 @@ function buildPortfolio(data) {
       const campaigns = scopedItems(data.campaigns, game.id);
       const creators = scopedItems(data.creators, game.id);
       const keys = scopedItems(data.influencerKeys, game.id);
+      const listings = storeListingsForGame(data, game.id, { includeArchived: true }).map((listing) =>
+        sanitizeStoreListing(data, listing),
+      );
       const totals = aggregateMetrics(metrics);
       const latestDate = latestMetricDate(metrics);
       const last7 = aggregateMetrics(metrics.filter((metric) => withinLastDays(metric.date, latestDate, 7)));
       return {
         ...game,
+        storeListings: listings,
+        activeStoreListings: listings.filter((listing) => listing.status !== "archived").length,
+        platforms: listings
+          .filter((listing) => listing.status !== "archived")
+          .map((listing) => ({ key: listing.platform, label: listing.platformLabel, status: listing.status })),
         campaigns: campaigns.length,
         creators: creators.length,
         keys: keys.length,
@@ -440,7 +618,7 @@ function buildPortfolio(data) {
         purchaseRate: rate(totals.purchases, totals.visits),
       };
     })
-    .sort((a, b) => b.wishlists - a.wishlists || b.purchases - a.purchases || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(a.archived) - Number(b.archived) || b.wishlists - a.wishlists || b.purchases - a.purchases || a.name.localeCompare(b.name));
 }
 
 function buildDashboard(data, gameId = "all") {
@@ -515,7 +693,7 @@ function buildDashboard(data, gameId = "all") {
     topCampaigns,
     contactQueue,
     summary: {
-      games: data.games.length,
+      games: activeGames(data).length,
       campaigns: campaigns.length,
       creators: creators.length,
       keys: keys.length,
@@ -1387,7 +1565,10 @@ function dateRange(startDate, endDate, maxDays = 14) {
 }
 
 function gamesForSync(data, gameId) {
-  const games = scopedItems(data.games, gameId || "all").filter((game) => game.steamAppId && game.steamAppId !== "0");
+  const games = scopedItems(data.games, gameId || "all").filter((game) => {
+    const appId = steamAppIdForGame(data, game);
+    return !game.archived && appId && appId !== "0";
+  });
   return games;
 }
 
@@ -1632,14 +1813,14 @@ async function runSteamSync(data, input) {
 }
 
 function buildSteamSyncStatus(data) {
-  const gamesWithAppIds = data.games.filter((game) => game.steamAppId && game.steamAppId !== "0");
+  const gamesWithAppIds = data.games.filter((game) => !game.archived && steamAppIdForGame(data, game) !== "0");
   const config = effectiveIntegrationConfig(data);
   return {
     configured: Boolean(config.steamFinancialApiKey),
     keyEnv: config.steamKeySource === "missing" ? "missing" : config.steamKeySource,
     keyMasked: config.steamKeyMasked,
     gamesWithAppIds: gamesWithAppIds.length,
-    totalGames: data.games.length,
+    totalGames: activeGames(data).length,
     salesHighwatermark: data.steamSyncState.salesHighwatermark || "0",
     lastRunAt: data.steamSyncState.lastRunAt || "",
     lastStatus: data.steamSyncState.lastStatus || "never_run",
@@ -1672,10 +1853,14 @@ function gameReadiness(data, game) {
   const creators = scopedItems(data.creators, game.id);
   const keys = scopedItems(data.influencerKeys, game.id);
   const latestSync = latestSyncRunForGame(data, game.id);
+  const listings = storeListingsForGame(data, game.id);
+  const steamListing = primaryStoreListing(data, game.id, "steam");
+  const steamExpected = Boolean(steamListing || (game.steamAppId && game.steamAppId !== "0"));
+  const hasStoreUrl = listings.some((listing) => validStoreUrl(listing.storeUrl));
   const checks = [
-    { key: "appId", label: "Steam App ID", ok: Boolean(game.steamAppId && game.steamAppId !== "0") },
-    { key: "storeUrl", label: "Store URL", ok: validStoreUrl(game.steamStoreUrl) },
-    { key: "apiKey", label: "API Key", ok: Boolean(config.steamFinancialApiKey) },
+    { key: "storeListing", label: "Store Listing", ok: hasStoreUrl },
+    { key: "appId", label: "Steam App ID", ok: !steamExpected || Boolean(steamAppIdForGame(data, game) !== "0") },
+    { key: "apiKey", label: "Steam API Key", ok: !steamExpected || Boolean(config.steamFinancialApiKey) },
     { key: "campaign", label: "Campaign", ok: campaigns.length > 0 },
     { key: "creator", label: "Creator", ok: creators.length > 0 },
     { key: "utm", label: "UTM", ok: creators.some((creator) => creator.utmLink) || metrics.some((metric) => metric.campaignId && !metric.campaignId.startsWith("steam_api_")) },
@@ -1687,8 +1872,11 @@ function gameReadiness(data, game) {
     gameId: game.id,
     gameName: game.name,
     stage: game.stage,
-    steamAppId: game.steamAppId,
+    archived: Boolean(game.archived),
+    steamAppId: steamAppIdForGame(data, game),
     steamStoreUrl: game.steamStoreUrl,
+    storeListings: listings.map((listing) => sanitizeStoreListing(data, listing)),
+    platforms: listings.map((listing) => ({ key: listing.platform, label: listing.platformLabel, status: listing.status })),
     readyCount,
     totalChecks: checks.length,
     score: Math.round((readyCount / checks.length) * 100),
@@ -1707,14 +1895,14 @@ function gameReadiness(data, game) {
 
 function buildReadiness(data) {
   const config = effectiveIntegrationConfig(data);
-  const games = data.games.map((game) => gameReadiness(data, game));
+  const games = activeGames(data).map((game) => gameReadiness(data, game));
   const readyGames = games.filter((game) => game.status === "ready").length;
   return {
     generatedAt: nowIso(),
     apiKeyConfigured: Boolean(config.steamFinancialApiKey),
     games,
     summary: {
-      games: data.games.length,
+      games: games.length,
       readyGames,
       partialGames: games.filter((game) => game.status === "partial").length,
       setupGames: games.filter((game) => game.status === "setup").length,
@@ -1730,6 +1918,7 @@ function safeExportData(data, type = "all") {
   };
   const collections = {
     games: data.games,
+    storeListings: data.storeListings.map((listing) => sanitizeStoreListing(data, listing)),
     campaigns: data.campaigns,
     creatorProfiles: data.creatorProfiles,
     creators: data.creators,
@@ -1744,7 +1933,7 @@ function safeExportData(data, type = "all") {
   if (type === "campaigns") return { ...common, campaigns: collections.campaigns };
   if (type === "keys") return { ...common, keys: collections.keys };
   if (type === "metrics") return { ...common, metrics: collections.metrics };
-  if (type === "games") return { ...common, games: collections.games };
+  if (type === "games") return { ...common, games: collections.games, storeListings: collections.storeListings };
   if (type === "outreach") return { ...common, outreachLogs: collections.outreachLogs };
   return { ...common, ...collections };
 }
@@ -1839,7 +2028,7 @@ async function handleApi(req, res, url) {
   }
 
   if (route === "GET /api/meta") {
-    return respondJson(res, 200, { ...data.meta, games: data.games });
+    return respondJson(res, 200, { ...data.meta, games: data.games, storeListings: data.storeListings.map((listing) => sanitizeStoreListing(data, listing)) });
   }
 
   if (route === "GET /api/games") {
@@ -1849,22 +2038,26 @@ async function handleApi(req, res, url) {
   if (route === "POST /api/games") {
     const input = await readJson(req);
     if (!input.name || !String(input.name).trim()) return respondError(res, 400, "Game name is required.");
+    const steamAppId = String(input.steamAppId || input.appId || "0");
     const game = {
       id: input.id || makeId("game", input.name),
       name: String(input.name).trim(),
       shortName: input.shortName || String(input.name).trim().slice(0, 2).toUpperCase(),
-      steamAppId: String(input.steamAppId || input.appId || "0"),
+      steamAppId,
       stage: input.stage || "concept",
       genre: input.genre || "",
       launchDate: input.launchDate || "",
       owner: input.owner || "Growth",
-      steamStoreUrl: input.steamStoreUrl || steamStoreUrl(input.steamAppId || input.appId || "0", input.name),
+      archived: Boolean(input.archived),
+      status: Boolean(input.archived) ? "archived" : "active",
+      steamStoreUrl: input.steamStoreUrl || (steamAppId !== "0" ? steamStoreUrl(steamAppId, input.name) : ""),
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
     data.games.push(game);
+    upsertSteamListingFromGame(data, game);
     await writeData(data);
-    return respondJson(res, 201, game);
+    return respondJson(res, 201, { ...game, storeListings: storeListingsForGame(data, game.id, { includeArchived: true }).map((listing) => sanitizeStoreListing(data, listing)) });
   }
 
   const gameRoute = url.pathname.match(/^\/api\/games\/([^/]+)$/);
@@ -1883,10 +2076,89 @@ async function handleApi(req, res, url) {
     game.genre = input.genre !== undefined ? input.genre : game.genre || "";
     game.launchDate = input.launchDate !== undefined ? input.launchDate : game.launchDate || "";
     game.owner = input.owner !== undefined ? input.owner : game.owner || "Growth";
-    game.steamStoreUrl = input.steamStoreUrl || game.steamStoreUrl || steamStoreUrl(nextAppId, nextName);
+    game.steamStoreUrl = input.steamStoreUrl || game.steamStoreUrl || (nextAppId !== "0" ? steamStoreUrl(nextAppId, nextName) : "");
+    if (input.archived !== undefined || input.status !== undefined) {
+      game.archived = input.archived === true || input.archived === "true" || input.status === "archived";
+      game.status = game.archived ? "archived" : "active";
+    }
     game.updatedAt = nowIso();
+    upsertSteamListingFromGame(data, game);
     await writeData(data);
-    return respondJson(res, 200, game);
+    return respondJson(res, 200, { ...game, storeListings: storeListingsForGame(data, game.id, { includeArchived: true }).map((listing) => sanitizeStoreListing(data, listing)) });
+  }
+
+  if (gameRoute && req.method === "DELETE") {
+    const gameId = decodeURIComponent(gameRoute[1]);
+    const game = data.games.find((item) => item.id === gameId);
+    if (!game) return respondError(res, 404, "Game not found.");
+    game.archived = true;
+    game.status = "archived";
+    game.updatedAt = nowIso();
+    for (const listing of storeListingsForGame(data, game.id, { includeArchived: true })) {
+      listing.status = "archived";
+      listing.updatedAt = nowIso();
+    }
+    await writeData(data);
+    return respondJson(res, 200, { ...game, storeListings: storeListingsForGame(data, game.id, { includeArchived: true }).map((listing) => sanitizeStoreListing(data, listing)) });
+  }
+
+  if (route === "GET /api/store-listings") {
+    const gameId = requestedGameId(url);
+    const platform = url.searchParams.get("platform");
+    const includeArchived = url.searchParams.get("includeArchived") === "true";
+    const listings = scopedItems(data.storeListings, gameId)
+      .filter((listing) => includeArchived || listing.status !== "archived")
+      .filter((listing) => !platform || listing.platform === normalizeStorePlatform(platform))
+      .map((listing) => sanitizeStoreListing(data, listing))
+      .sort((a, b) => a.gameName.localeCompare(b.gameName) || a.platformLabel.localeCompare(b.platformLabel));
+    return respondJson(res, 200, listings);
+  }
+
+  if (route === "POST /api/store-listings") {
+    const input = await readJson(req);
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    const gameError = requireGame(data, gameId);
+    if (gameError) return respondError(res, 400, gameError);
+    const platform = normalizeStorePlatform(input.platform || "steam");
+    let listing = data.storeListings.find((item) => item.gameId === gameId && item.platform === platform);
+    const isNew = !listing;
+    if (!listing) {
+      listing = {
+        id: input.id || makeId("listing", `${gameId}_${platform}`),
+        gameId,
+        platform,
+        createdAt: nowIso(),
+      };
+      data.storeListings.push(listing);
+    }
+    updateStoreListingFromInput(data, listing, { ...input, gameId, platform });
+    await writeData(data);
+    return respondJson(res, isNew ? 201 : 200, sanitizeStoreListing(data, listing));
+  }
+
+  const storeListingRoute = url.pathname.match(/^\/api\/store-listings\/([^/]+)$/);
+  if (storeListingRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const listingId = decodeURIComponent(storeListingRoute[1]);
+    const listing = data.storeListings.find((item) => item.id === listingId);
+    if (!listing) return respondError(res, 404, "Store listing not found.");
+    const input = await readJson(req);
+    if (input.gameId !== undefined) {
+      const gameError = requireGame(data, String(input.gameId));
+      if (gameError) return respondError(res, 400, gameError);
+    }
+    updateStoreListingFromInput(data, listing, input);
+    await writeData(data);
+    return respondJson(res, 200, sanitizeStoreListing(data, listing));
+  }
+
+  if (storeListingRoute && req.method === "DELETE") {
+    const listingId = decodeURIComponent(storeListingRoute[1]);
+    const listing = data.storeListings.find((item) => item.id === listingId);
+    if (!listing) return respondError(res, 404, "Store listing not found.");
+    listing.status = "archived";
+    listing.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, sanitizeStoreListing(data, listing));
   }
 
   if (route === "GET /api/dashboard") {
