@@ -9,6 +9,7 @@ services:
       HOST: 0.0.0.0
       PORT: 4173
       DATA_FILE: /app/data/app-data.json
+      DATA_DB: /app/data/app.db
       STEAM_APP_ID: ${STEAM_APP_ID:-0}
       STEAM_FINANCIAL_API_KEY: ${STEAM_FINANCIAL_API_KEY:-}
       KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET:-development-only-change-me}
@@ -25,6 +26,10 @@ services:
       SYNC_SCHEDULER_INTERVAL_MS: ${SYNC_SCHEDULER_INTERVAL_MS:-60000}
     volumes:
       - ./data:/app/data
+      # public/ and src/ are bind-mounted so code changes apply without an image rebuild
+      # (public: refresh the page; src: `docker compose restart`). Remove for a self-contained prod image.
+      - ./public:/app/public:ro
+      - ./src:/app/src:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s

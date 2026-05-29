@@ -215,6 +215,18 @@ function renderScope() {
   $("#scopeMeta").textContent = `${number(dashboard.summary.campaigns)} campaigns / ${number(dashboard.summary.creators)} creators / ${number(dashboard.summary.keys)} keys`;
 }
 
+const svgIcon = (inner) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+
+const ICONS = {
+  wishlist: svgIcon('<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/>'),
+  purchases: svgIcon('<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>'),
+  revenue: svgIcon('<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'),
+  trend: svgIcon('<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>'),
+  key: svgIcon('<circle cx="8" cy="15" r="4"/><path d="m10.85 12.15 8.15-8.15"/><path d="m16 6 3 3"/><path d="m13 9 2 2"/>'),
+  games: svgIcon('<line x1="6" x2="10" y1="12" y2="12"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="15" x2="15.01" y1="13" y2="13"/><line x1="18" x2="18.01" y1="11" y2="11"/><rect x="2" y="6" width="20" height="12" rx="2"/>'),
+};
+
 function renderMetricGrid(dashboard) {
   const items = [
     {
@@ -222,36 +234,42 @@ function renderMetricGrid(dashboard) {
       value: number(dashboard.today.wishlists),
       sub: `${number(dashboard.today.visits)} visits`,
       tone: "teal",
+      icon: ICONS.wishlist,
     },
     {
       label: "오늘 판매량",
       value: number(dashboard.today.purchases),
       sub: `${dashboard.today.purchaseRate}% purchase rate`,
       tone: "green",
+      icon: ICONS.purchases,
     },
     {
       label: "오늘 매출",
       value: money(dashboard.today.revenue),
       sub: `${number(dashboard.today.refunds)} refunds`,
       tone: "amber",
+      icon: ICONS.revenue,
     },
     {
       label: "최근 7일 위시",
       value: number(dashboard.last7.wishlists),
       sub: `${dashboard.last7.wishlistRate}% wishlist rate`,
       tone: "blue",
+      icon: ICONS.trend,
     },
     {
       label: "키 발송",
       value: number(dashboard.summary.keysSent),
       sub: `${number(dashboard.summary.keys)} records`,
       tone: "teal",
+      icon: ICONS.key,
     },
     {
       label: "관리 게임",
       value: number(dashboard.summary.games),
       sub: `${number(dashboard.summary.campaigns)} campaigns`,
       tone: "green",
+      icon: ICONS.games,
     },
   ];
 
@@ -259,7 +277,10 @@ function renderMetricGrid(dashboard) {
     .map(
       (item) => `
         <article class="metric-card ${item.tone}">
-          <span>${item.label}</span>
+          <div class="metric-head">
+            <span>${item.label}</span>
+            <span class="metric-icon">${item.icon}</span>
+          </div>
           <strong>${item.value}</strong>
           <small>${item.sub}</small>
         </article>
@@ -306,9 +327,10 @@ function renderGameAdmin() {
                 <button class="table-button secondary-button" type="button" data-edit-game-id="${escapeHtml(game.id)}">수정</button>
                 ${
                   game.archived
-                    ? ""
-                    : `<button class="table-button secondary-button danger-button" type="button" data-archive-game-id="${escapeHtml(game.id)}">Archive</button>`
+                    ? `<button class="table-button secondary-button" type="button" data-restore-game-id="${escapeHtml(game.id)}">복구</button>`
+                    : `<button class="table-button secondary-button" type="button" data-archive-game-id="${escapeHtml(game.id)}">보관</button>`
                 }
+                <button class="table-button secondary-button danger-button" type="button" data-purge-game-id="${escapeHtml(game.id)}" data-game-name="${escapeHtml(game.name)}">삭제</button>
               </div>
             </td>
           </tr>
@@ -317,12 +339,13 @@ function renderGameAdmin() {
       .join("");
   }
 
-  if (!state.storeListings.length) {
-    $("#storeListingTable").innerHTML = '<tr><td data-label="상태" colspan="6"><span class="empty">연결된 스토어 리스팅이 없습니다.</span></td></tr>';
+  const visibleListings = state.storeListings.filter((listing) => listing.status !== "archived");
+  if (!visibleListings.length) {
+    $("#storeListingTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">연결된 스토어 리스팅이 없습니다.</span></td></tr>';
     return;
   }
 
-  $("#storeListingTable").innerHTML = state.storeListings
+  $("#storeListingTable").innerHTML = visibleListings
     .map(
       (listing) => `
         <tr>
@@ -336,6 +359,11 @@ function renderGameAdmin() {
           <td data-label="Dashboard" class="link-cell">${
             listing.dashboardUrl ? `<a href="${escapeHtml(listing.dashboardUrl)}" target="_blank" rel="noreferrer">열기</a>` : "-"
           }</td>
+          <td data-label="작업">
+            <button class="table-button secondary-button danger-button" type="button" data-archive-listing-id="${escapeHtml(listing.id)}"${
+              listing.platform === "steam" ? ' data-listing-steam="1"' : ""
+            }>삭제</button>
+          </td>
         </tr>
       `,
     )
@@ -407,11 +435,15 @@ function renderReadiness() {
               <h3>${escapeHtml(game.gameName)}</h3>
               <span class="cell-sub">${escapeHtml((game.platforms || []).map((platform) => platform.label).join(", ") || "No store")} / ${escapeHtml(game.status)}</span>
             </div>
-            <div class="readiness-score">${number(game.score)}%</div>
+            <div class="readiness-score" style="--p: ${Math.max(0, Math.min(100, Number(game.score) || 0))}%" data-score="${number(game.score)}%"></div>
           </header>
           <div class="check-grid">
             ${game.checks
-              .map((check) => `<span class="check-chip ${check.ok ? "ok" : ""}">${check.ok ? "OK" : "Need"} ${escapeHtml(check.label)}</span>`)
+              .map((check) =>
+                check.applicable === false
+                  ? `<span class="check-chip na">해당 없음 ${escapeHtml(check.label)}</span>`
+                  : `<span class="check-chip ${check.ok ? "ok" : ""}">${check.ok ? "OK" : "Need"} ${escapeHtml(check.label)}</span>`,
+              )
               .join("")}
           </div>
           <div class="cell-sub">
@@ -1232,12 +1264,54 @@ function initForms() {
   $("#gameAdminTable").addEventListener("click", async (event) => {
     const editButton = event.target.closest("[data-edit-game-id]");
     const archiveButton = event.target.closest("[data-archive-game-id]");
+    const restoreButton = event.target.closest("[data-restore-game-id]");
+    const purgeButton = event.target.closest("[data-purge-game-id]");
     if (editButton) {
       const select = $("#settingsGameSelect");
       select.value = editButton.dataset.editGameId;
       populateGameSettingsForm(select.value);
       $("#gameSettingsForm").closest("details")?.setAttribute("open", "");
       location.hash = "#games";
+      return;
+    }
+    if (restoreButton) {
+      restoreButton.disabled = true;
+      try {
+        await api(`/api/games/${encodeURIComponent(restoreButton.dataset.restoreGameId)}`, {
+          method: "PUT",
+          body: { archived: false },
+        });
+        await loadAll();
+        renderGameSelectors();
+        showToast("게임을 복구했습니다.");
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        restoreButton.disabled = false;
+      }
+      return;
+    }
+    if (purgeButton) {
+      const name = purgeButton.dataset.gameName || "이 게임";
+      if (!window.confirm(`'${name}' 게임과 연결된 모든 캠페인·크리에이터·키·지표·스토어 리스팅이 영구 삭제됩니다. 되돌릴 수 없습니다. 삭제할까요?`)) {
+        return;
+      }
+      purgeButton.disabled = true;
+      try {
+        await api(`/api/games/${encodeURIComponent(purgeButton.dataset.purgeGameId)}?purge=true`, {
+          method: "DELETE",
+        });
+        if (state.selectedGameId === purgeButton.dataset.purgeGameId) {
+          state.selectedGameId = "all";
+        }
+        await loadAll();
+        renderGameSelectors();
+        showToast("게임을 영구 삭제했습니다.");
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        purgeButton.disabled = false;
+      }
       return;
     }
     if (!archiveButton) return;
@@ -1247,11 +1321,31 @@ function initForms() {
         method: "DELETE",
       });
       await loadAll();
-      showToast("게임을 archive 처리했습니다.");
+      showToast("게임을 보관 처리했습니다.");
     } catch (error) {
       showToast(error.message);
     } finally {
       archiveButton.disabled = false;
+    }
+  });
+
+  $("#storeListingTable").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-archive-listing-id]");
+    if (!button) return;
+    if (button.dataset.listingSteam === "1" && !window.confirm("이 Steam 리스팅을 삭제하면 게임의 Steam App ID 연결도 해제됩니다. 계속할까요?")) {
+      return;
+    }
+    button.disabled = true;
+    try {
+      await api(`/api/store-listings/${encodeURIComponent(button.dataset.archiveListingId)}`, {
+        method: "DELETE",
+      });
+      await loadAll();
+      showToast("스토어 리스팅을 삭제했습니다.");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      button.disabled = false;
     }
   });
 
@@ -1364,7 +1458,95 @@ function initForms() {
   });
 }
 
+const VIEWS = ["overview", "campaigns", "creators", "distribution", "datasync", "admin"];
+
+const VIEW_OF_SECTION = {
+  today: "overview",
+  portfolio: "overview",
+  readiness: "overview",
+  campaigns: "campaigns",
+  "creator-db": "creators",
+  creators: "creators",
+  outreach: "creators",
+  keys: "distribution",
+  utm: "distribution",
+  steam: "datasync",
+  sync: "datasync",
+  games: "admin",
+  settings: "admin",
+  data: "admin",
+};
+
+const VIEW_META = {
+  overview: { eyebrow: "Growth Overview", title: "성장 현황 대시보드" },
+  campaigns: { eyebrow: "Campaign Performance", title: "캠페인 운영" },
+  creators: { eyebrow: "Creator Relations", title: "크리에이터 & 아웃리치" },
+  distribution: { eyebrow: "Distribution", title: "키 배포 & 스토어 링크" },
+  datasync: { eyebrow: "Data Pipeline", title: "Steam 데이터 & 동기화" },
+  admin: { eyebrow: "Workspace Admin", title: "게임 · 연동 · 설정" },
+};
+
+function showView(view, sectionId) {
+  if (!VIEWS.includes(view)) view = "overview";
+  for (const el of document.querySelectorAll(".view")) {
+    el.classList.toggle("active", el.id === `view-${view}`);
+  }
+  for (const link of document.querySelectorAll(".nav-item")) {
+    const on = link.dataset.view === view;
+    link.classList.toggle("active", on);
+    if (on) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  const meta = VIEW_META[view];
+  if (meta) {
+    $("#viewEyebrow").textContent = meta.eyebrow;
+    $("#viewTitle").textContent = meta.title;
+  }
+  requestAnimationFrame(() => {
+    const target = sectionId ? document.getElementById(sectionId) : null;
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    else window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+}
+
+function routeFromHash() {
+  const raw = (location.hash || "").replace(/^#\/?/, "").trim();
+  if (VIEWS.includes(raw)) {
+    showView(raw);
+    return;
+  }
+  if (VIEW_OF_SECTION[raw]) {
+    showView(VIEW_OF_SECTION[raw], raw);
+    return;
+  }
+  showView("overview");
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  try {
+    localStorage.setItem("overay-theme", theme);
+  } catch (error) {
+    /* ignore storage failures */
+  }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", theme === "dark" ? "#090b12" : "#0e1626");
+}
+
+function setupShell() {
+  window.addEventListener("hashchange", routeFromHash);
+  routeFromHash();
+  const toggle = $("#themeToggle");
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      applyTheme(next);
+    });
+  }
+}
+
 initForms();
+setupShell();
 loadAll().catch((error) => {
   const status = $("#apiStatus");
   status.textContent = error.message;

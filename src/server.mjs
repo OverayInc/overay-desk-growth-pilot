@@ -6,12 +6,14 @@ import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { initDb, loadData, persistData, migrateFromJson } from "./db.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const DATA_FILE = process.env.DATA_FILE || path.join(ROOT_DIR, "data", "app-data.json");
+const DATA_DB = process.env.DATA_DB || path.join(ROOT_DIR, "data", "app.db");
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
 const STEAM_APP_ID = String(process.env.STEAM_APP_ID || "0");
@@ -188,17 +190,18 @@ function defaultData() {
   };
 }
 
-async function ensureDataFile() {
-  await mkdir(path.dirname(DATA_FILE), { recursive: true });
-  if (!existsSync(DATA_FILE)) {
-    await writeFile(DATA_FILE, JSON.stringify(defaultData(), null, 2), "utf8");
-  }
+let dbReady = false;
+function ensureDb() {
+  if (dbReady) return;
+  initDb(DATA_DB);
+  // First run: import the legacy app-data.json if present, otherwise seed defaults.
+  migrateFromJson(DATA_FILE, defaultData);
+  dbReady = true;
 }
 
 async function readData() {
-  await ensureDataFile();
-  const raw = await readFile(DATA_FILE, "utf8");
-  const data = JSON.parse(raw);
+  ensureDb();
+  const data = loadData();
   normalizeData(data);
   return data;
 }
@@ -300,9 +303,8 @@ function normalizeData(data) {
 }
 
 async function writeData(data) {
-  const tempFile = `${DATA_FILE}.${process.pid}.tmp`;
-  await writeFile(tempFile, JSON.stringify(data, null, 2), "utf8");
-  await rename(tempFile, DATA_FILE);
+  ensureDb();
+  persistData(data);
 }
 
 function encryptionKey() {
@@ -432,8 +434,18 @@ function normalizeStoreListing(data, listing) {
 function upsertSteamListingFromGame(data, game) {
   const appId = String(game.steamAppId || "0");
   const hasSteamSignal = (appId && appId !== "0") || validStoreUrl(game.steamStoreUrl || "");
-  if (!hasSteamSignal) return null;
-  let listing = data.storeListings.find((item) => item.gameId === game.id && normalizeStorePlatform(item.platform) === "steam");
+  const existing = data.storeListings.find(
+    (item) => item.gameId === game.id && normalizeStorePlatform(item.platform) === "steam",
+  );
+  if (!hasSteamSignal) {
+    // Game has no Steam App ID / URL → keep tags consistent by archiving any stale Steam listing.
+    if (existing && existing.status !== "archived") {
+      existing.status = "archived";
+      existing.updatedAt = nowIso();
+    }
+    return existing || null;
+  }
+  let listing = existing;
   if (!listing) {
     listing = {
       id: makeId("listing", `${game.id}_steam`),
@@ -445,7 +457,12 @@ function upsertSteamListingFromGame(data, game) {
   }
   listing.externalId = appId;
   listing.storeUrl = game.steamStoreUrl || listing.storeUrl || steamStoreUrl(appId, game.name);
-  listing.status = game.archived ? "archived" : listing.status || (game.stage === "launched" ? "live" : "draft");
+  if (game.archived) {
+    listing.status = "archived";
+  } else if (!listing.status || listing.status === "archived") {
+    // An active game with a Steam signal must surface an active listing (revive if archived).
+    listing.status = game.stage === "launched" ? "live" : "draft";
+  }
   listing.launchDate = game.launchDate || listing.launchDate || "";
   listing.updatedAt = game.updatedAt || nowIso();
   return normalizeStoreListing(data, listing);
@@ -1859,15 +1876,18 @@ function gameReadiness(data, game) {
   const hasStoreUrl = listings.some((listing) => validStoreUrl(listing.storeUrl));
   const checks = [
     { key: "storeListing", label: "Store Listing", ok: hasStoreUrl },
-    { key: "appId", label: "Steam App ID", ok: !steamExpected || Boolean(steamAppIdForGame(data, game) !== "0") },
-    { key: "apiKey", label: "Steam API Key", ok: !steamExpected || Boolean(config.steamFinancialApiKey) },
+    // Steam-specific checks only apply when the game actually targets Steam (has an App ID / Steam listing).
+    { key: "appId", label: "Steam App ID", ok: steamAppIdForGame(data, game) !== "0", applicable: steamExpected },
+    { key: "apiKey", label: "Steam API Key", ok: Boolean(config.steamFinancialApiKey), applicable: steamExpected },
     { key: "campaign", label: "Campaign", ok: campaigns.length > 0 },
     { key: "creator", label: "Creator", ok: creators.length > 0 },
     { key: "utm", label: "UTM", ok: creators.some((creator) => creator.utmLink) || metrics.some((metric) => metric.campaignId && !metric.campaignId.startsWith("steam_api_")) },
     { key: "metrics", label: "Metrics", ok: metrics.length > 0 },
     { key: "keys", label: "Key Records", ok: keys.length > 0 },
   ];
-  const readyCount = checks.filter((check) => check.ok).length;
+  const applicableChecks = checks.filter((check) => check.applicable !== false);
+  const readyCount = applicableChecks.filter((check) => check.ok).length;
+  const score = applicableChecks.length ? Math.round((readyCount / applicableChecks.length) * 100) : 0;
   return {
     gameId: game.id,
     gameName: game.name,
@@ -1878,9 +1898,9 @@ function gameReadiness(data, game) {
     storeListings: listings.map((listing) => sanitizeStoreListing(data, listing)),
     platforms: listings.map((listing) => ({ key: listing.platform, label: listing.platformLabel, status: listing.status })),
     readyCount,
-    totalChecks: checks.length,
-    score: Math.round((readyCount / checks.length) * 100),
-    status: readyCount === checks.length ? "ready" : readyCount >= 5 ? "partial" : "setup",
+    totalChecks: applicableChecks.length,
+    score,
+    status: score === 100 ? "ready" : score >= 60 ? "partial" : "setup",
     checks,
     counts: {
       campaigns: campaigns.length,
@@ -2091,6 +2111,34 @@ async function handleApi(req, res, url) {
     const gameId = decodeURIComponent(gameRoute[1]);
     const game = data.games.find((item) => item.id === gameId);
     if (!game) return respondError(res, 404, "Game not found.");
+    // ?purge=true → permanent delete: remove the game and every record linked to it.
+    if (url.searchParams.get("purge") === "true") {
+      const keep = (item) => item.gameId !== gameId;
+      const removed = {
+        storeListings: data.storeListings.length,
+        campaigns: data.campaigns.length,
+        creators: data.creators.length,
+        keys: data.influencerKeys.length,
+        metrics: data.steamDailyMetrics.length,
+      };
+      data.games = data.games.filter((item) => item.id !== gameId);
+      data.storeListings = data.storeListings.filter(keep);
+      data.campaigns = data.campaigns.filter(keep);
+      data.creators = data.creators.filter(keep);
+      data.influencerKeys = data.influencerKeys.filter(keep);
+      data.steamDailyMetrics = data.steamDailyMetrics.filter(keep);
+      data.outreachLogs = data.outreachLogs.filter(keep);
+      data.syncRuns = (data.syncRuns || []).filter((run) => run.gameId !== gameId);
+      if (data.meta.primaryGameId === gameId) data.meta.primaryGameId = data.games[0]?.id || "";
+      if (data.syncSchedule && data.syncSchedule.gameId === gameId) data.syncSchedule.gameId = "all";
+      removed.storeListings -= data.storeListings.length;
+      removed.campaigns -= data.campaigns.length;
+      removed.creators -= data.creators.length;
+      removed.keys -= data.influencerKeys.length;
+      removed.metrics -= data.steamDailyMetrics.length;
+      await writeData(data);
+      return respondJson(res, 200, { ok: true, purged: true, id: gameId, removed });
+    }
     game.archived = true;
     game.status = "archived";
     game.updatedAt = nowIso();
@@ -2157,6 +2205,16 @@ async function handleApi(req, res, url) {
     if (!listing) return respondError(res, 404, "Store listing not found.");
     listing.status = "archived";
     listing.updatedAt = nowIso();
+    // The Steam listing mirrors the game's Steam App ID — clear it so the deleted listing
+    // is not auto-recreated from the game's Steam signal on the next sync.
+    if (normalizeStorePlatform(listing.platform) === "steam") {
+      const game = data.games.find((item) => item.id === listing.gameId);
+      if (game) {
+        game.steamAppId = "0";
+        game.steamStoreUrl = "";
+        game.updatedAt = nowIso();
+      }
+    }
     await writeData(data);
     return respondJson(res, 200, sanitizeStoreListing(data, listing));
   }
@@ -2584,7 +2642,7 @@ async function handleRequest(req, res) {
   }
 }
 
-await ensureDataFile();
+ensureDb();
 
 createServer(handleRequest).listen(PORT, HOST, () => {
   console.log(`Launch Pilot Growth Dashboard running at http://${HOST}:${PORT}`);

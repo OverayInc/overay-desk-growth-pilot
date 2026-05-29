@@ -5,4 +5,9 @@ npm-debug.log*
 *.log
 data/app-data.json
 data/*.local.json
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+data/*.bak
 coverage/
