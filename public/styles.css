@@ -675,6 +675,29 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
 }
 .yt-tab__del:hover { background: var(--danger-soft); color: var(--danger-text); }
 
+/* ---- YouTube Analytics ---- */
+.yt-oauth-status code { word-break: break-all; color: var(--brand-strong); font-size: 12px; font-weight: 600; }
+.yt-analytics { display: grid; gap: 16px; margin-top: 18px; }
+.yt-analytics > .metric-grid { margin-bottom: 0; }
+.yt-analytics-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.yt-analytics-head h3 { margin: 0; font-size: 16px; font-weight: 750; }
+.yt-range-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.yt-range {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.yt-range:hover { background: var(--surface-muted); color: var(--text); }
+.yt-range.active, .yt-range.active:hover { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-strong); }
+.yt-spark { display: flex; align-items: flex-end; gap: 2px; height: 96px; padding-top: 6px; }
+.yt-spark-bar { flex: 1 1 0; min-width: 2px; border-radius: 3px 3px 0 0; background: linear-gradient(180deg, var(--brand), var(--brand-strong)); }
+.yt-spark-bar:hover { opacity: 0.78; }
+
 /* ----------------------------------------------------------------------------
    8. Readiness
 ---------------------------------------------------------------------------- */
@@ -849,7 +872,8 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
 .status.concept, .status.uncontacted, .status.blocked, .status.paused, .status.archived, .status.revoked {
   background: var(--surface-inset); color: var(--text-muted);
 }
-.status.failed { background: var(--danger-soft); color: var(--danger-text); }
+.status.failed, .status.removed { background: var(--danger-soft); color: var(--danger-text); }
+.status.posted { background: var(--success-soft); color: var(--success-text); }
 
 /* ----------------------------------------------------------------------------
    11. Tables

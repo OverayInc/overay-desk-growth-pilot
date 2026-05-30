@@ -22,7 +22,14 @@ const DEFAULT_GAME_ID = "";
 const STEAM_FINANCIAL_API_KEY = process.env.STEAM_FINANCIAL_API_KEY || process.env.STEAM_PUBLISHER_WEB_API_KEY || "";
 const STEAM_API_BASE = "https://partner.steam-api.com/IPartnerFinancialsService";
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
+const REDDIT_USER_AGENT =
+  process.env.REDDIT_USER_AGENT || "web:launch-pilot-growth-console:1.0 (internal marketing dashboard)";
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
+const YOUTUBE_ANALYTICS_BASE = "https://youtubeanalytics.googleapis.com/v2/reports";
+const GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const YOUTUBE_OAUTH_SCOPE =
+  "https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/youtube.readonly";
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || (process.env.SMTP_SECURE === "true" ? 465 : 587));
 const SMTP_USER = process.env.SMTP_USER || "";
@@ -184,6 +191,14 @@ function defaultData() {
       emailFrom: "",
       emailReplyTo: "",
       emailSendMode: "smtp",
+      youtubeClientId: "",
+      youtubeClientSecretEncrypted: "",
+      youtubeClientSecretMasked: "",
+      youtubeRefreshTokenEncrypted: "",
+      youtubeAccessToken: "",
+      youtubeAccessTokenExpiry: 0,
+      youtubeOAuthConnectedAt: "",
+      youtubeOAuthState: "",
       updatedAt: "",
     },
     syncSchedule: {
@@ -204,6 +219,7 @@ function defaultData() {
     syncRuns: [],
     youtubeChannels: [],
     youtubeSnapshots: [],
+    redditPosts: [],
   };
 }
 
@@ -249,6 +265,14 @@ function normalizeData(data) {
   data.integrationSettings.steamFinancialApiKeyMasked ||= "";
   data.integrationSettings.youtubeApiKeyEncrypted ||= "";
   data.integrationSettings.youtubeApiKeyMasked ||= "";
+  data.integrationSettings.youtubeClientId ||= "";
+  data.integrationSettings.youtubeClientSecretEncrypted ||= "";
+  data.integrationSettings.youtubeClientSecretMasked ||= "";
+  data.integrationSettings.youtubeRefreshTokenEncrypted ||= "";
+  data.integrationSettings.youtubeAccessToken ||= "";
+  data.integrationSettings.youtubeAccessTokenExpiry ||= 0;
+  data.integrationSettings.youtubeOAuthConnectedAt ||= "";
+  data.integrationSettings.youtubeOAuthState ||= "";
   data.integrationSettings.smtpHost ||= "";
   data.integrationSettings.smtpPort = toNumber(data.integrationSettings.smtpPort, 587);
   data.integrationSettings.smtpUser ||= "";
@@ -277,6 +301,8 @@ function normalizeData(data) {
   data.syncRuns ||= [];
   data.youtubeChannels ||= [];
   data.youtubeSnapshots ||= [];
+  data.redditPosts ||= [];
+  for (const post of data.redditPosts) normalizeRedditPost(post);
 
   for (const game of data.games) {
     game.id ||= makeId("game", game.name || "game");
@@ -962,6 +988,8 @@ function effectiveIntegrationConfig(data) {
   const settings = data.integrationSettings || {};
   const storedSteamKey = decryptSecret(settings.steamFinancialApiKeyEncrypted);
   const storedYoutubeKey = decryptSecret(settings.youtubeApiKeyEncrypted);
+  const storedYoutubeSecret = decryptSecret(settings.youtubeClientSecretEncrypted);
+  const storedYoutubeRefresh = decryptSecret(settings.youtubeRefreshTokenEncrypted);
   const storedSmtpPass = decryptSecret(settings.smtpPassEncrypted);
   const smtpUser = settings.smtpUser || SMTP_USER;
   return {
@@ -982,6 +1010,10 @@ function effectiveIntegrationConfig(data) {
     youtubeApiKey: storedYoutubeKey || YOUTUBE_API_KEY,
     youtubeKeySource: storedYoutubeKey ? "web" : YOUTUBE_API_KEY ? "env" : "missing",
     youtubeKeyMasked: settings.youtubeApiKeyMasked || (YOUTUBE_API_KEY ? maskSecret(YOUTUBE_API_KEY) : ""),
+    youtubeClientId: settings.youtubeClientId || "",
+    youtubeClientSecret: storedYoutubeSecret,
+    youtubeRefreshToken: storedYoutubeRefresh,
+    youtubeOAuthConnected: Boolean(storedYoutubeRefresh),
   };
 }
 
@@ -1032,6 +1064,15 @@ function updateIntegrationSettings(data, input = {}) {
   } else if (input.youtubeApiKey) {
     settings.youtubeApiKeyEncrypted = encryptSecret(input.youtubeApiKey);
     settings.youtubeApiKeyMasked = maskSecret(input.youtubeApiKey);
+  }
+
+  if (input.youtubeClientId !== undefined) settings.youtubeClientId = String(input.youtubeClientId).trim();
+  if (input.clearYoutubeClientSecret) {
+    settings.youtubeClientSecretEncrypted = "";
+    settings.youtubeClientSecretMasked = "";
+  } else if (input.youtubeClientSecret) {
+    settings.youtubeClientSecretEncrypted = encryptSecret(input.youtubeClientSecret);
+    settings.youtubeClientSecretMasked = maskSecret(input.youtubeClientSecret);
   }
 
   if (input.clearSmtpPass) {
@@ -2091,6 +2132,242 @@ async function syncYoutubeChannels(data, channelId = "all") {
   return { synced, total: targets.length, warnings };
 }
 
+// ---- YouTube Analytics (OAuth-protected, owner-only metrics) ----
+function youtubeOAuthRedirectUri(url) {
+  return `${url.protocol}//${url.host}/api/youtube/oauth/callback`;
+}
+
+function buildGoogleAuthUrl(clientId, redirectUri, state) {
+  const authUrl = new URL(GOOGLE_OAUTH_AUTH_URL);
+  authUrl.searchParams.set("client_id", clientId);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", YOUTUBE_OAUTH_SCOPE);
+  authUrl.searchParams.set("access_type", "offline");
+  authUrl.searchParams.set("prompt", "consent");
+  authUrl.searchParams.set("include_granted_scopes", "true");
+  authUrl.searchParams.set("state", state);
+  return authUrl.toString();
+}
+
+async function googleTokenRequest(params) {
+  const response = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error_description || body?.error || `Google OAuth 토큰 요청 실패 (${response.status})`);
+  }
+  return body;
+}
+
+async function ensureYoutubeAccessToken(data) {
+  const settings = data.integrationSettings;
+  const config = effectiveIntegrationConfig(data);
+  if (!config.youtubeOAuthConnected) throw new Error("Google 계정이 연결되지 않았습니다.");
+  if (settings.youtubeAccessToken && settings.youtubeAccessTokenExpiry && Date.now() < settings.youtubeAccessTokenExpiry - 60000) {
+    return settings.youtubeAccessToken;
+  }
+  const refreshed = await googleTokenRequest({
+    client_id: config.youtubeClientId,
+    client_secret: config.youtubeClientSecret,
+    refresh_token: config.youtubeRefreshToken,
+    grant_type: "refresh_token",
+  });
+  settings.youtubeAccessToken = refreshed.access_token || "";
+  settings.youtubeAccessTokenExpiry = Date.now() + toNumber(refreshed.expires_in, 3600) * 1000;
+  return settings.youtubeAccessToken;
+}
+
+async function youtubeAnalyticsQuery(token, channelId, params) {
+  const url = new URL(YOUTUBE_ANALYTICS_BASE);
+  url.searchParams.set("ids", `channel==${channelId}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.error?.message || `YouTube Analytics 호출 실패 (${response.status})`);
+  }
+  return body;
+}
+
+function analyticsRows(report) {
+  const headers = (report.columnHeaders || []).map((header) => header.name);
+  return (report.rows || []).map((row) => {
+    const obj = {};
+    headers.forEach((name, index) => {
+      obj[name] = row[index];
+    });
+    return obj;
+  });
+}
+
+async function buildYoutubeAnalytics(data, channelId, days = 28) {
+  const token = await ensureYoutubeAccessToken(data);
+  const span = Math.max(1, Math.min(365, toNumber(days, 28)));
+  const endDate = addDays(toDateString(new Date()), -1);
+  const startDate = addDays(endDate, -(span - 1));
+  const range = { startDate, endDate };
+
+  const daily = analyticsRows(
+    await youtubeAnalyticsQuery(token, channelId, {
+      ...range,
+      dimensions: "day",
+      metrics: "views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost",
+      sort: "day",
+    }),
+  );
+  const countries = analyticsRows(
+    await youtubeAnalyticsQuery(token, channelId, {
+      ...range,
+      dimensions: "country",
+      metrics: "views,estimatedMinutesWatched",
+      sort: "-views",
+      maxResults: 10,
+    }),
+  );
+  const trafficSources = analyticsRows(
+    await youtubeAnalyticsQuery(token, channelId, {
+      ...range,
+      dimensions: "insightTrafficSourceType",
+      metrics: "views,estimatedMinutesWatched",
+      sort: "-views",
+    }),
+  );
+  const topVideos = analyticsRows(
+    await youtubeAnalyticsQuery(token, channelId, {
+      ...range,
+      dimensions: "video",
+      metrics: "views,estimatedMinutesWatched,averageViewPercentage",
+      sort: "-views",
+      maxResults: 10,
+    }),
+  );
+
+  const apiKey = effectiveIntegrationConfig(data).youtubeApiKey;
+  if (apiKey && topVideos.length) {
+    try {
+      const ids = topVideos.map((video) => video.video).filter(Boolean).join(",");
+      const meta = await youtubeGet("videos", { part: "snippet", id: ids, key: apiKey });
+      const titles = Object.fromEntries((meta.items || []).map((item) => [item.id, item.snippet?.title || item.id]));
+      for (const video of topVideos) video.title = titles[video.video] || video.video;
+    } catch {
+      for (const video of topVideos) video.title = video.video;
+    }
+  } else {
+    for (const video of topVideos) video.title = video.video;
+  }
+
+  const totals = daily.reduce(
+    (acc, row) => {
+      acc.views += Number(row.views || 0);
+      acc.minutes += Number(row.estimatedMinutesWatched || 0);
+      acc.gained += Number(row.subscribersGained || 0);
+      acc.lost += Number(row.subscribersLost || 0);
+      return acc;
+    },
+    { views: 0, minutes: 0, gained: 0, lost: 0 },
+  );
+  totals.netSubs = totals.gained - totals.lost;
+  totals.avgViewDuration = daily.length
+    ? Math.round(daily.reduce((sum, row) => sum + Number(row.averageViewDuration || 0), 0) / daily.length)
+    : 0;
+
+  return { range, days: span, totals, daily, countries, trafficSources, topVideos };
+}
+
+// ---------------------------------------------------------------------------
+// Reddit post log (manual record + clever batched public-JSON stat fetch)
+// ---------------------------------------------------------------------------
+function parseRedditPostId(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  let match = raw.match(/redd\.it\/([a-z0-9]+)/i);
+  if (match) return match[1].toLowerCase();
+  match = raw.match(/comments\/([a-z0-9]+)/i);
+  if (match) return match[1].toLowerCase();
+  match = raw.match(/^(?:t3_)?([a-z0-9]{4,10})$/i);
+  if (match) return match[1].toLowerCase();
+  return "";
+}
+
+// Fetch many posts in a SINGLE request via Reddit's by_id endpoint (1 call for
+// the whole log) — fast and far less likely to be rate-limited than per-post.
+async function redditFetchByIds(ids) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return { byId: {}, warning: "" };
+  const names = unique.map((id) => `t3_${id}`).join(",");
+  try {
+    const response = await fetch(`https://www.reddit.com/by_id/${names}.json?raw_json=1`, {
+      headers: { "User-Agent": REDDIT_USER_AGENT, Accept: "application/json" },
+    });
+    if (!response.ok) return { byId: {}, warning: `Reddit 응답 ${response.status} (차단/제한일 수 있음)` };
+    const body = await response.json().catch(() => null);
+    const children = body?.data?.children || [];
+    const byId = {};
+    for (const child of children) {
+      const d = child.data || {};
+      if (!d.id) continue;
+      byId[d.id] = {
+        title: d.title || "",
+        subreddit: d.subreddit ? `r/${d.subreddit}` : "",
+        upvotes: toNumber(d.score),
+        comments: toNumber(d.num_comments),
+        upvoteRatio: Number(d.upvote_ratio || 0),
+        author: d.author || "",
+        flair: d.link_flair_text || "",
+        permalink: d.permalink ? `https://www.reddit.com${d.permalink}` : "",
+        createdUtc: d.created_utc || 0,
+        removed: Boolean(d.removed_by_category) || Boolean(d.removed),
+      };
+    }
+    return { byId, warning: "" };
+  } catch (error) {
+    return { byId: {}, warning: `Reddit 호출 실패: ${error.message}` };
+  }
+}
+
+function applyRedditStats(post, stats) {
+  if (!stats) return post;
+  post.upvotes = stats.upvotes;
+  post.comments = stats.comments;
+  post.upvoteRatio = stats.upvoteRatio;
+  if (!post.title && stats.title) post.title = stats.title;
+  if (!post.subreddit && stats.subreddit) post.subreddit = stats.subreddit;
+  if (!post.author && stats.author) post.author = stats.author;
+  if (!post.flair && stats.flair) post.flair = stats.flair;
+  if (!post.permalink && stats.permalink) post.permalink = stats.permalink;
+  if (stats.removed) post.status = "removed";
+  post.lastFetchedAt = nowIso();
+  return post;
+}
+
+function normalizeRedditPost(post) {
+  post.id ||= makeId("reddit", post.title || post.postId || "post");
+  post.gameId ||= "";
+  post.url ||= "";
+  post.postId ||= parseRedditPostId(post.url);
+  post.subreddit ||= "";
+  post.title ||= "";
+  post.permalink ||= "";
+  post.author ||= "";
+  post.flair ||= "";
+  post.status = ["draft", "posted", "removed"].includes(post.status) ? post.status : "posted";
+  post.postedAt ||= "";
+  post.upvotes = toNumber(post.upvotes);
+  post.comments = toNumber(post.comments);
+  post.upvoteRatio = Number(post.upvoteRatio || 0);
+  post.notes ||= "";
+  post.lastFetchedAt ||= "";
+  post.createdAt ||= nowIso();
+  post.updatedAt ||= post.createdAt;
+  return post;
+}
+
 function safeExportData(data, type = "all") {
   const common = {
     exportedAt: nowIso(),
@@ -2396,9 +2673,186 @@ async function handleApi(req, res, url) {
       configured: Boolean(config.youtubeApiKey),
       keySource: config.youtubeKeySource,
       keyMasked: config.youtubeKeyMasked,
+      oauth: {
+        clientConfigured: Boolean(config.youtubeClientId && config.youtubeClientSecret),
+        connected: config.youtubeOAuthConnected,
+        connectedAt: data.integrationSettings.youtubeOAuthConnectedAt || "",
+        clientId: config.youtubeClientId,
+        redirectUri: youtubeOAuthRedirectUri(url),
+      },
       channels: data.youtubeChannels,
       snapshots: data.youtubeSnapshots,
     });
+  }
+
+  if (route === "GET /api/youtube/oauth/start") {
+    const config = effectiveIntegrationConfig(data);
+    if (!config.youtubeClientId || !config.youtubeClientSecret) {
+      return respondError(res, 400, "OAuth Client ID / Secret을 먼저 저장하세요.");
+    }
+    const state = randomBytes(16).toString("hex");
+    data.integrationSettings.youtubeOAuthState = state;
+    await writeData(data);
+    res.writeHead(302, { Location: buildGoogleAuthUrl(config.youtubeClientId, youtubeOAuthRedirectUri(url), state) });
+    return res.end();
+  }
+
+  if (route === "GET /api/youtube/oauth/callback") {
+    const settings = data.integrationSettings;
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const errParam = url.searchParams.get("error");
+    if (errParam) {
+      res.writeHead(302, { Location: `/?ytauth=error&msg=${encodeURIComponent(errParam)}#youtube` });
+      return res.end();
+    }
+    if (!code || !state || state !== settings.youtubeOAuthState) {
+      res.writeHead(302, { Location: "/?ytauth=error&msg=invalid_state#youtube" });
+      return res.end();
+    }
+    settings.youtubeOAuthState = "";
+    try {
+      const config = effectiveIntegrationConfig(data);
+      const tokens = await googleTokenRequest({
+        code,
+        client_id: config.youtubeClientId,
+        client_secret: config.youtubeClientSecret,
+        redirect_uri: youtubeOAuthRedirectUri(url),
+        grant_type: "authorization_code",
+      });
+      if (tokens.refresh_token) settings.youtubeRefreshTokenEncrypted = encryptSecret(tokens.refresh_token);
+      settings.youtubeAccessToken = tokens.access_token || "";
+      settings.youtubeAccessTokenExpiry = Date.now() + toNumber(tokens.expires_in, 3600) * 1000;
+      settings.youtubeOAuthConnectedAt = nowIso();
+      await writeData(data);
+      res.writeHead(302, { Location: "/?ytauth=ok#youtube" });
+      return res.end();
+    } catch (error) {
+      res.writeHead(302, { Location: `/?ytauth=error&msg=${encodeURIComponent(error.message)}#youtube` });
+      return res.end();
+    }
+  }
+
+  if (route === "POST /api/youtube/oauth/disconnect") {
+    const settings = data.integrationSettings;
+    settings.youtubeRefreshTokenEncrypted = "";
+    settings.youtubeAccessToken = "";
+    settings.youtubeAccessTokenExpiry = 0;
+    settings.youtubeOAuthConnectedAt = "";
+    settings.youtubeOAuthState = "";
+    await writeData(data);
+    return respondJson(res, 200, { ok: true });
+  }
+
+  if (route === "GET /api/youtube/analytics") {
+    const config = effectiveIntegrationConfig(data);
+    if (!config.youtubeOAuthConnected) return respondError(res, 400, "Google 계정을 먼저 연결하세요.");
+    const channelId = url.searchParams.get("channelId");
+    const channel =
+      data.youtubeChannels.find((item) => item.id === channelId || item.channelId === channelId) || data.youtubeChannels[0];
+    if (!channel) return respondError(res, 400, "분석할 채널이 없습니다. 채널을 먼저 추가하세요.");
+    let analytics;
+    try {
+      analytics = await buildYoutubeAnalytics(data, channel.channelId, toNumber(url.searchParams.get("days"), 28));
+    } catch (error) {
+      return respondError(res, 400, error.message);
+    }
+    await writeData(data);
+    return respondJson(res, 200, { channelId: channel.id, channelTitle: channel.title, ...analytics });
+  }
+
+  if (route === "GET /api/reddit-posts") {
+    const gameId = requestedGameId(url);
+    const posts = scopedItems(data.redditPosts, gameId)
+      .map((post) => ({ ...post, gameName: post.gameId ? gameNameFor(data, post.gameId) : "" }))
+      .sort((a, b) => String(b.postedAt || b.createdAt).localeCompare(String(a.postedAt || a.createdAt)));
+    return respondJson(res, 200, posts);
+  }
+
+  if (route === "POST /api/reddit-posts") {
+    const input = await readJson(req);
+    if (input.gameId) {
+      const gameError = requireGame(data, String(input.gameId));
+      if (gameError) return respondError(res, 400, gameError);
+    }
+    const postUrl = String(input.url || "").trim();
+    const postId = parseRedditPostId(postUrl || input.postId || "");
+    const post = normalizeRedditPost({
+      gameId: input.gameId || "",
+      url: postUrl,
+      postId,
+      subreddit: input.subreddit || "",
+      title: input.title || "",
+      status: input.status || "posted",
+      postedAt: input.postedAt || "",
+      notes: input.notes || "",
+    });
+    if (postId) {
+      const { byId } = await redditFetchByIds([postId]);
+      const stats = byId[postId];
+      if (stats) {
+        applyRedditStats(post, stats);
+        if (!post.postedAt && stats.createdUtc) post.postedAt = toDateString(new Date(stats.createdUtc * 1000));
+        if (!post.url && stats.permalink) post.url = stats.permalink;
+      }
+    }
+    data.redditPosts.push(post);
+    await writeData(data);
+    return respondJson(res, 201, post);
+  }
+
+  if (route === "POST /api/reddit-posts/refresh") {
+    const targets = data.redditPosts.filter((post) => post.postId);
+    if (!targets.length) return respondJson(res, 200, { updated: 0, total: 0, warning: "갱신할 글이 없습니다." });
+    const { byId, warning } = await redditFetchByIds(targets.map((post) => post.postId));
+    let updated = 0;
+    for (const post of targets) {
+      if (byId[post.postId]) {
+        applyRedditStats(post, byId[post.postId]);
+        post.updatedAt = nowIso();
+        updated += 1;
+      }
+    }
+    await writeData(data);
+    return respondJson(res, 200, { updated, total: targets.length, warning });
+  }
+
+  const redditPostRoute = url.pathname.match(/^\/api\/reddit-posts\/([^/]+)$/);
+  if (redditPostRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const id = decodeURIComponent(redditPostRoute[1]);
+    const post = data.redditPosts.find((item) => item.id === id);
+    if (!post) return respondError(res, 404, "글을 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.gameId !== undefined) {
+      if (input.gameId) {
+        const gameError = requireGame(data, String(input.gameId));
+        if (gameError) return respondError(res, 400, gameError);
+      }
+      post.gameId = String(input.gameId || "");
+    }
+    if (input.url !== undefined) {
+      post.url = String(input.url).trim();
+      post.postId = parseRedditPostId(post.url) || post.postId;
+    }
+    if (input.subreddit !== undefined) post.subreddit = String(input.subreddit).trim();
+    if (input.title !== undefined) post.title = String(input.title).trim();
+    if (input.status !== undefined && ["draft", "posted", "removed"].includes(input.status)) post.status = input.status;
+    if (input.postedAt !== undefined) post.postedAt = input.postedAt || "";
+    if (input.notes !== undefined) post.notes = String(input.notes);
+    if (input.upvotes !== undefined) post.upvotes = toNumber(input.upvotes);
+    if (input.comments !== undefined) post.comments = toNumber(input.comments);
+    post.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, post);
+  }
+
+  if (redditPostRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(redditPostRoute[1]);
+    const before = data.redditPosts.length;
+    data.redditPosts = data.redditPosts.filter((item) => item.id !== id);
+    if (data.redditPosts.length === before) return respondError(res, 404, "글을 찾지 못했습니다.");
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, id });
   }
 
   if (route === "POST /api/youtube/channels") {

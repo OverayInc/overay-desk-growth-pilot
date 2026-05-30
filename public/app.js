@@ -15,6 +15,7 @@ const state = {
   outreachLogs: [],
   readiness: null,
   youtube: null,
+  redditPosts: [],
   currentEmailDraft: null,
 };
 
@@ -235,6 +236,16 @@ function renderGameSelectors() {
       ? state.games.map((game) => `<option value="${escapeHtml(game.id)}">${escapeHtml(game.name)}</option>`).join("")
       : '<option value="">게임을 먼저 추가</option>';
     listingSelect.value = state.games.some((game) => game.id === previous) ? previous : selectedGameForForms();
+  }
+
+  const redditSelect = $("#redditGameSelect");
+  if (redditSelect) {
+    const previous = redditSelect.value || "";
+    redditSelect.innerHTML = [
+      '<option value="">(게임 미지정)</option>',
+      ...state.games.map((game) => `<option value="${escapeHtml(game.id)}">${escapeHtml(game.name)}</option>`),
+    ].join("");
+    redditSelect.value = state.games.some((game) => game.id === previous) ? previous : "";
   }
 
   const hasGames = state.games.length > 0;
@@ -683,6 +694,262 @@ function renderYoutube() {
   const channel = yt.channels.find((item) => item.id === yt.selectedChannelId);
   renderYoutubeMetrics(channel);
   renderYoutubeVideos(channel);
+
+  const oauthForm = $("#youtubeOAuthForm");
+  if (oauthForm && document.activeElement !== oauthForm.elements.youtubeClientId) {
+    oauthForm.elements.youtubeClientId.value = yt.oauth?.clientId || "";
+  }
+  renderYoutubeOAuth(yt);
+  renderYoutubeAnalytics();
+  maybeLoadYoutubeAnalytics();
+}
+
+function renderYoutubeOAuth(yt) {
+  const el = $("#youtubeOAuthStatus");
+  if (!el) return;
+  const oauth = yt.oauth || {};
+  el.innerHTML = `
+    <div class="settings-meta">리디렉션 URI (Google 콘솔에 그대로 등록): <code>${escapeHtml(oauth.redirectUri || "")}</code></div>
+    <div class="button-row" style="margin-top: 10px;">
+      ${
+        oauth.connected
+          ? `<span class="status-pill ok">Google 연결됨${oauth.connectedAt ? ` · ${new Date(oauth.connectedAt).toLocaleDateString("ko-KR")}` : ""}</span>
+             <button class="secondary-button danger-button" type="button" id="youtubeDisconnectButton">연결 해제</button>`
+          : `<button type="button" id="youtubeConnectButton"${oauth.clientConfigured ? "" : " disabled"}>Google 계정 연결</button>
+             ${oauth.clientConfigured ? "" : '<span class="muted">먼저 Client ID/Secret을 저장하세요</span>'}`
+      }
+    </div>`;
+}
+
+function maybeLoadYoutubeAnalytics() {
+  const yt = state.youtube;
+  if (!yt || !yt.oauth?.connected || yt.analyticsLoading) return;
+  const channel = yt.channels.find((item) => item.id === yt.selectedChannelId);
+  if (!channel) return;
+  const key = `${channel.id}:${yt.selectedDays}`;
+  if (yt.analyticsKey === key) return;
+  loadYoutubeAnalytics(channel, yt.selectedDays, key);
+}
+
+async function loadYoutubeAnalytics(channel, days, key) {
+  const yt = state.youtube;
+  yt.analyticsLoading = true;
+  yt.analyticsError = "";
+  renderYoutubeAnalytics();
+  try {
+    const result = await api(`/api/youtube/analytics?channelId=${encodeURIComponent(channel.id)}&days=${days}`);
+    yt.analytics = result;
+    yt.analyticsKey = key;
+  } catch (error) {
+    yt.analytics = null;
+    yt.analyticsKey = key;
+    yt.analyticsError = error.message;
+  } finally {
+    yt.analyticsLoading = false;
+    renderYoutubeAnalytics();
+  }
+}
+
+const REGION_NAMES = (() => {
+  try {
+    return new Intl.DisplayNames(["ko"], { type: "region" });
+  } catch {
+    return null;
+  }
+})();
+function regionName(code) {
+  if (!code || code === "ZZ") return "기타/미상";
+  try {
+    return REGION_NAMES?.of(code) || code;
+  } catch {
+    return code;
+  }
+}
+const TRAFFIC_LABELS = {
+  YT_SEARCH: "YouTube 검색",
+  SUGGESTED_VIDEO: "추천 영상",
+  RELATED_VIDEO: "관련 영상",
+  BROWSE: "탐색(홈/구독)",
+  CHANNEL: "채널 페이지",
+  PLAYLIST: "재생목록",
+  YT_PLAYLIST_PAGE: "재생목록 페이지",
+  EXT_URL: "외부 링크",
+  NOTIFICATION: "알림",
+  SHORTS: "Shorts 피드",
+  SUBSCRIBER: "구독 피드",
+  NO_LINK_OTHER: "기타",
+  NO_LINK_EMBEDDED: "임베드 재생",
+  ADVERTISING: "광고",
+  END_SCREEN: "최종 화면",
+  ANNOTATION: "카드/주석",
+  HASHTAGS: "해시태그",
+};
+function trafficLabel(code) {
+  return TRAFFIC_LABELS[code] || code || "기타";
+}
+function formatWatchMinutes(min) {
+  const m = Math.round(Number(min || 0));
+  if (m < 60) return `${number(m)}분`;
+  return `${number(Math.floor(m / 60))}시간 ${m % 60}분`;
+}
+function formatSeconds(sec) {
+  const s = Math.round(Number(sec || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function renderYoutubeAnalytics() {
+  const container = $("#youtubeAnalytics");
+  if (!container) return;
+  const yt = state.youtube;
+  if (!yt) {
+    container.innerHTML = "";
+    return;
+  }
+  const oauth = yt.oauth || {};
+  if (!oauth.connected) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <strong>비공개 분석은 Google 연결이 필요합니다.</strong>
+        <span>위 "YouTube 연동 설정"에서 OAuth Client를 저장하고 Google 계정을 연결하면 조회수·시청시간·국가별·유입경로 분석을 볼 수 있습니다.</span>
+      </div>`;
+    return;
+  }
+  const channel = yt.channels.find((item) => item.id === yt.selectedChannelId);
+  if (!channel) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const rangeButtons = [7, 28, 90]
+    .map((d) => `<button class="yt-range ${yt.selectedDays === d ? "active" : ""}" type="button" data-yt-days="${d}">${d}일</button>`)
+    .join("");
+  const head = `
+    <div class="yt-analytics-head">
+      <h3>Analytics · ${escapeHtml(channel.title || channel.channelId)}</h3>
+      <div class="yt-range-group">${rangeButtons}<button class="secondary-button table-button" type="button" data-yt-refresh>새로고침</button></div>
+    </div>`;
+
+  if (yt.analyticsLoading && !yt.analytics) {
+    container.innerHTML = `${head}<div class="empty">분석 데이터를 불러오는 중…</div>`;
+    return;
+  }
+  if (yt.analyticsError) {
+    container.innerHTML = `${head}<div class="empty">분석을 불러오지 못했습니다: ${escapeHtml(yt.analyticsError)}</div>`;
+    return;
+  }
+  const a = yt.analytics;
+  if (!a) {
+    container.innerHTML = `${head}<div class="empty">분석 데이터가 없습니다.</div>`;
+    return;
+  }
+
+  const t = a.totals;
+  const cards = [
+    { label: `조회수 (최근 ${a.days}일)`, value: number(t.views), sub: `${a.range.startDate} ~ ${a.range.endDate}`, tone: "blue", icon: ICONS.views },
+    { label: "시청시간", value: formatWatchMinutes(t.minutes), sub: "추정 시청시간", tone: "teal", icon: ICONS.video },
+    { label: "평균 시청 지속", value: formatSeconds(t.avgViewDuration), sub: "분:초", tone: "amber", icon: ICONS.trend },
+    { label: "순구독", value: signedNumber(t.netSubs), sub: `+${number(t.gained)} / -${number(t.lost)}`, tone: "green", icon: ICONS.subs },
+  ];
+  const cardsHtml = `<div class="metric-grid">${cards
+    .map(
+      (c) => `<article class="metric-card ${c.tone}"><div class="metric-head"><span>${c.label}</span><span class="metric-icon">${c.icon}</span></div><strong>${c.value}</strong><small>${escapeHtml(c.sub)}</small></article>`,
+    )
+    .join("")}</div>`;
+
+  const maxViews = Math.max(...a.daily.map((d) => Number(d.views || 0)), 1);
+  const sparkHtml = `
+    <div class="panel">
+      <div class="panel-title"><h3>일별 조회수</h3><span>${a.range.startDate} ~ ${a.range.endDate}</span></div>
+      <div class="yt-spark">${a.daily
+        .map(
+          (d) =>
+            `<span class="yt-spark-bar" style="height:${Math.max(2, Math.round((Number(d.views || 0) / maxViews) * 100))}%" title="${escapeHtml(d.day)} · ${number(d.views)} views · ${formatWatchMinutes(d.estimatedMinutesWatched)}"></span>`,
+        )
+        .join("")}</div>
+    </div>`;
+
+  const maxCountry = Math.max(...a.countries.map((c) => Number(c.views || 0)), 1);
+  const countriesHtml = `
+    <div class="panel">
+      <div class="panel-title"><h3>국가별 시청자 Top</h3><span>조회수 기준</span></div>
+      <div class="bar-list">${
+        a.countries.length
+          ? a.countries
+              .map(
+                (c) =>
+                  `<div class="bar-item"><div class="bar-label">${escapeHtml(regionName(c.country))}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(4, Math.round((Number(c.views || 0) / maxCountry) * 100))}%"></div></div><div class="bar-meta">${number(c.views)} · ${formatWatchMinutes(c.estimatedMinutesWatched)}</div></div>`,
+              )
+              .join("")
+          : '<div class="empty">데이터 없음</div>'
+      }</div>
+    </div>`;
+
+  const maxTraffic = Math.max(...a.trafficSources.map((s) => Number(s.views || 0)), 1);
+  const trafficHtml = `
+    <div class="panel">
+      <div class="panel-title"><h3>유입경로</h3><span>조회수 기준</span></div>
+      <div class="bar-list">${
+        a.trafficSources.length
+          ? a.trafficSources
+              .map(
+                (s) =>
+                  `<div class="bar-item"><div class="bar-label">${escapeHtml(trafficLabel(s.insightTrafficSourceType))}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(4, Math.round((Number(s.views || 0) / maxTraffic) * 100))}%"></div></div><div class="bar-meta">${number(s.views)}</div></div>`,
+              )
+              .join("")
+          : '<div class="empty">데이터 없음</div>'
+      }</div>
+    </div>`;
+
+  const videosHtml = `
+    <div class="panel">
+      <div class="panel-title"><h3>영상별 성과</h3><span>조회수 Top ${number(a.topVideos.length)}</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>영상</th><th class="num">조회수</th><th class="num">시청시간</th><th class="num">평균 시청률</th></tr></thead>
+          <tbody>${
+            a.topVideos.length
+              ? a.topVideos
+                  .map(
+                    (v) =>
+                      `<tr><td data-label="영상"><span class="cell-title"><a href="https://youtu.be/${escapeHtml(v.video)}" target="_blank" rel="noreferrer">${escapeHtml(v.title || v.video)}</a></span></td><td data-label="조회수" class="num">${number(v.views)}</td><td data-label="시청시간" class="num">${formatWatchMinutes(v.estimatedMinutesWatched)}</td><td data-label="평균 시청률" class="num">${Number(v.averageViewPercentage || 0).toFixed(1)}%</td></tr>`,
+                  )
+                  .join("")
+              : '<tr><td data-label="상태" colspan="4"><span class="empty">데이터 없음</span></td></tr>'
+          }</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  container.innerHTML = `${head}${cardsHtml}${sparkHtml}<div class="insight-grid">${countriesHtml}${trafficHtml}</div>${videosHtml}`;
+}
+
+function renderRedditPosts() {
+  if (!$("#redditTable")) return;
+  $("#redditCount").textContent = `글 ${number(state.redditPosts.length)}개`;
+  if (!state.redditPosts.length) {
+    $("#redditTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">기록된 레딧 글이 없습니다.</span></td></tr>';
+    return;
+  }
+  $("#redditTable").innerHTML = state.redditPosts
+    .map((post) => {
+      const ratio = post.upvoteRatio ? ` · ${Math.round(post.upvoteRatio * 100)}%` : "";
+      const titleText = post.title || post.postId || "(제목 없음)";
+      const titleCell = post.url
+        ? `<a href="${escapeHtml(post.url)}" target="_blank" rel="noreferrer">${escapeHtml(titleText)}</a>`
+        : escapeHtml(titleText);
+      return `
+        <tr>
+          <td data-label="글"><span class="cell-title">${titleCell}</span><span class="cell-sub">${escapeHtml(post.subreddit || "-")}${ratio}</span></td>
+          <td data-label="게임">${escapeHtml(post.gameName || "-")}</td>
+          <td data-label="상태"><span class="status ${escapeHtml(post.status)}">${escapeHtml(post.status)}</span></td>
+          <td data-label="업보트" class="num">${number(post.upvotes)}</td>
+          <td data-label="댓글" class="num">${number(post.comments)}</td>
+          <td data-label="게시일">${escapeHtml(post.postedAt || "-")}</td>
+          <td data-label="작업"><button class="table-button secondary-button danger-button" type="button" data-del-reddit="${escapeHtml(post.id)}">삭제</button></td>
+        </tr>
+      `;
+    })
+    .join("");
 }
 
 function renderCampaignBars(campaigns) {
@@ -1203,6 +1470,7 @@ function renderAll() {
   renderSettings();
   renderOutreachLogs();
   renderYoutube();
+  renderRedditPosts();
 }
 
 async function setGameScope(gameId) {
@@ -1232,6 +1500,7 @@ async function loadAll() {
     emailStatus,
     outreachLogs,
     youtube,
+    redditPosts,
   ] = await Promise.all([
     api("/api/health"),
     api("/api/games"),
@@ -1249,6 +1518,7 @@ async function loadAll() {
     api("/api/email/status"),
     api(`/api/outreach-logs?${query}`),
     api("/api/youtube"),
+    api(`/api/reddit-posts?${query}`),
   ]);
   state.games = games;
   state.storeListings = storeListings;
@@ -1264,8 +1534,17 @@ async function loadAll() {
   state.settings = settings;
   state.emailStatus = emailStatus;
   state.outreachLogs = outreachLogs;
-  const prevSelectedChannel = state.youtube?.selectedChannelId;
-  state.youtube = { ...youtube, selectedChannelId: prevSelectedChannel || youtube.channels[0]?.id || null };
+  const prevYt = state.youtube || {};
+  state.youtube = {
+    ...youtube,
+    selectedChannelId: prevYt.selectedChannelId || youtube.channels[0]?.id || null,
+    selectedDays: prevYt.selectedDays || 28,
+    analytics: prevYt.analytics || null,
+    analyticsKey: prevYt.analyticsKey || "",
+    analyticsError: prevYt.analyticsError || "",
+    analyticsLoading: false,
+  };
+  state.redditPosts = redditPosts;
   status.textContent = health.ok ? "API 정상" : "API 응답 확인 필요";
   status.classList.add(health.ok ? "ok" : "fail");
   renderAll();
@@ -1362,6 +1641,13 @@ function initForms() {
     api("/api/keys", {
       method: "POST",
       body: withSelectedGame(data),
+    }),
+  );
+
+  bindForm("#redditPostForm", (data) =>
+    api("/api/reddit-posts", {
+      method: "POST",
+      body: data,
     }),
   );
 
@@ -1767,6 +2053,94 @@ function initForms() {
     renderYoutube();
   });
 
+  $("#youtubeOAuthForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitter = form.querySelector("button[type='submit']");
+    submitter.disabled = true;
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: {
+          youtubeClientId: form.elements.youtubeClientId.value,
+          youtubeClientSecret: form.elements.youtubeClientSecret.value,
+          clearYoutubeClientSecret: form.elements.clearYoutubeClientSecret.checked,
+        },
+      });
+      form.elements.youtubeClientSecret.value = "";
+      form.elements.clearYoutubeClientSecret.checked = false;
+      await loadAll();
+      showToast("OAuth 설정을 저장했습니다.");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      submitter.disabled = false;
+    }
+  });
+
+  $("#youtubeOAuthStatus").addEventListener("click", async (event) => {
+    if (event.target.closest("#youtubeConnectButton")) {
+      window.location.href = "/api/youtube/oauth/start";
+      return;
+    }
+    if (event.target.closest("#youtubeDisconnectButton")) {
+      if (!window.confirm("Google 계정 연결을 해제할까요? (저장된 채널과 공개 지표는 유지됩니다)")) return;
+      try {
+        await api("/api/youtube/oauth/disconnect", { method: "POST", body: {} });
+        if (state.youtube) {
+          state.youtube.analytics = null;
+          state.youtube.analyticsKey = "";
+        }
+        await loadAll();
+        showToast("Google 연결을 해제했습니다.");
+      } catch (error) {
+        showToast(error.message);
+      }
+    }
+  });
+
+  $("#youtubeAnalytics").addEventListener("click", (event) => {
+    const dayButton = event.target.closest("[data-yt-days]");
+    if (dayButton) {
+      if (state.youtube) state.youtube.selectedDays = Number(dayButton.dataset.ytDays) || 28;
+      renderYoutube();
+      return;
+    }
+    if (event.target.closest("[data-yt-refresh]")) {
+      if (state.youtube) state.youtube.analyticsKey = "";
+      renderYoutube();
+    }
+  });
+
+  $("#redditRefreshButton")?.addEventListener("click", async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      const result = await api("/api/reddit-posts/refresh", { method: "POST", body: {} });
+      await loadAll();
+      showToast(result.warning ? result.warning : `반응 갱신 완료 · ${result.updated}/${result.total}건`);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      event.currentTarget.disabled = false;
+    }
+  });
+
+  $("#redditTable")?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-del-reddit]");
+    if (!button) return;
+    if (!window.confirm("이 레딧 글 기록을 삭제할까요?")) return;
+    button.disabled = true;
+    try {
+      await api(`/api/reddit-posts/${encodeURIComponent(button.dataset.delReddit)}`, { method: "DELETE" });
+      await loadAll();
+      showToast("기록을 삭제했습니다.");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   $("#refreshButton").addEventListener("click", async () => {
     try {
       await loadAll();
@@ -1777,7 +2151,7 @@ function initForms() {
   });
 }
 
-const VIEWS = ["overview", "campaigns", "creators", "youtube", "distribution", "datasync", "admin"];
+const VIEWS = ["overview", "campaigns", "creators", "youtube", "reddit", "distribution", "datasync", "admin"];
 
 const VIEW_OF_SECTION = {
   today: "overview",
@@ -1788,6 +2162,7 @@ const VIEW_OF_SECTION = {
   creators: "creators",
   outreach: "creators",
   youtube: "youtube",
+  reddit: "reddit",
   keys: "distribution",
   utm: "distribution",
   steam: "datasync",
@@ -1802,6 +2177,7 @@ const VIEW_META = {
   campaigns: { eyebrow: "Campaign Performance", title: "캠페인 성과" },
   creators: { eyebrow: "Creator Relations", title: "크리에이터 & 섭외" },
   youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
+  reddit: { eyebrow: "Reddit Log", title: "레딧 글 기록" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },
   datasync: { eyebrow: "Data Pipeline", title: "Steam 데이터 & 동기화" },
   admin: { eyebrow: "Workspace Admin", title: "게임 · 연동 · 설정" },
@@ -1823,6 +2199,7 @@ function showView(view, sectionId) {
     $("#viewEyebrow").textContent = meta.eyebrow;
     $("#viewTitle").textContent = meta.title;
   }
+  if (view === "youtube" && state.youtube) renderYoutube();
   requestAnimationFrame(() => {
     const target = sectionId ? document.getElementById(sectionId) : null;
     if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1855,6 +2232,19 @@ function applyTheme(theme) {
 }
 
 function setupShell() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const ytauth = params.get("ytauth");
+    if (ytauth) {
+      showToast(ytauth === "ok" ? "Google 계정을 연결했습니다." : `연결 실패: ${params.get("msg") || "오류"}`);
+      params.delete("ytauth");
+      params.delete("msg");
+      const query = params.toString();
+      history.replaceState(null, "", location.pathname + (query ? `?${query}` : "") + location.hash);
+    }
+  } catch (error) {
+    /* ignore */
+  }
   window.addEventListener("hashchange", routeFromHash);
   routeFromHash();
   const toggle = $("#themeToggle");

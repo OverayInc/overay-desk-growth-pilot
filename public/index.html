@@ -51,6 +51,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
               <span>YouTube</span>
             </a>
+            <a class="nav-item" data-view="reddit" href="#reddit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.4 12.5h.01"/><path d="M14.6 12.5h.01"/></svg>
+              <span>Reddit</span>
+            </a>
             <a class="nav-item" data-view="distribution" href="#distribution">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 21.7a.5.5 0 0 0 .94-.02l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.02.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></svg>
               <span>배포 · 링크</span>
@@ -430,6 +434,22 @@
                     </label>
                     <button type="submit">키 저장</button>
                   </form>
+                  <form class="form-row" id="youtubeOAuthForm">
+                    <label class="field-wide">
+                      OAuth Client ID (Analytics · 시청시간/국가/유입경로용)
+                      <input name="youtubeClientId" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off" />
+                    </label>
+                    <label class="field-wide">
+                      OAuth Client Secret
+                      <input name="youtubeClientSecret" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
+                    </label>
+                    <label class="check-row">
+                      <input name="clearYoutubeClientSecret" type="checkbox" />
+                      저장된 Secret 삭제
+                    </label>
+                    <button type="submit">OAuth 설정 저장</button>
+                  </form>
+                  <div class="yt-oauth-status" id="youtubeOAuthStatus"></div>
                   <form class="form-row" id="youtubeChannelForm">
                     <label class="field-wide">
                       채널 추가
@@ -463,6 +483,78 @@
                     <tbody id="youtubeVideoTable"></tbody>
                   </table>
                 </div>
+              </div>
+              <div id="youtubeAnalytics" class="yt-analytics"></div>
+            </section>
+          </div>
+
+          <!-- ============================ REDDIT ============================ -->
+          <div class="view" id="view-reddit">
+            <section class="band" id="reddit">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Reddit Log</p>
+                  <h2>레딧 글 기록</h2>
+                </div>
+                <div class="button-row">
+                  <span class="muted" id="redditCount">글 0개</span>
+                  <button class="secondary-button" type="button" id="redditRefreshButton">반응 새로고침</button>
+                </div>
+              </div>
+              <details class="action-panel">
+                <summary><span>새 글 기록</span><span class="summary-icon"></span></summary>
+                <form class="form-row reddit-form" id="redditPostForm">
+                  <label class="field-wide">
+                    글 URL
+                    <input name="url" placeholder="https://www.reddit.com/r/.../comments/..." required />
+                  </label>
+                  <label>
+                    게임
+                    <select name="gameId" id="redditGameSelect"></select>
+                  </label>
+                  <label>
+                    서브레딧
+                    <input name="subreddit" placeholder="비우면 URL에서 자동" />
+                  </label>
+                  <label>
+                    제목
+                    <input name="title" placeholder="비우면 자동 수집" />
+                  </label>
+                  <label>
+                    상태
+                    <select name="status">
+                      <option value="posted">posted</option>
+                      <option value="draft">draft</option>
+                      <option value="removed">removed</option>
+                    </select>
+                  </label>
+                  <label>
+                    게시일
+                    <input name="postedAt" type="date" />
+                  </label>
+                  <label class="field-wide">
+                    메모
+                    <input name="notes" placeholder="캠페인 / 목적 / 결과 메모" />
+                  </label>
+                  <button type="submit">글 기록</button>
+                </form>
+              </details>
+              <div class="result-line">글 URL만 붙여넣으면 제목·서브레딧·업보트·댓글을 자동으로 가져옵니다. "반응 새로고침"으로 전체 글의 반응을 한 번에 갱신합니다.</div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>글</th>
+                      <th>게임</th>
+                      <th>상태</th>
+                      <th class="num">업보트</th>
+                      <th class="num">댓글</th>
+                      <th>게시일</th>
+                      <th>작업</th>
+                    </tr>
+                  </thead>
+                  <tbody id="redditTable"></tbody>
+                </table>
               </div>
             </section>
           </div>

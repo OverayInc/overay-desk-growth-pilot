@@ -23,6 +23,7 @@ const COLLECTIONS = [
   "syncRuns",
   "youtubeChannels",
   "youtubeSnapshots",
+  "redditPosts",
 ];
 
 const SINGLETONS = ["meta", "steamSyncState", "integrationSettings", "syncSchedule"];
