@@ -26,9 +26,27 @@ jobs:
         with:
           node-version: 24
 
-      # 의존성 없는 순수 node 앱 → install 생략, 빌트인 test runner 만 실행
-      - name: Run tests
-        run: node --test tests/*.test.mjs
+      # 스모크 테스트는 실행 중인 서버를 가정 → 서버 부팅 후 health 대기 → 테스트 → 종료
+      - name: Run smoke tests
+        env:
+          HOST: "127.0.0.1"
+          PORT: "4173"
+          DISABLE_SYNC_SCHEDULER: "true"
+          DATA_FILE: /tmp/glp/app-data.json
+          DATA_DB: /tmp/glp/app.db
+        run: |
+          mkdir -p /tmp/glp
+          node src/server.mjs &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:4173/api/health >/dev/null && { ready=1; break; }
+            sleep 1
+          done
+          if [ -z "$ready" ]; then echo "server failed to start"; kill $SERVER_PID 2>/dev/null; exit 1; fi
+          node --test tests/*.test.mjs
+          status=$?
+          kill $SERVER_PID 2>/dev/null
+          exit $status
 
       - uses: docker/setup-buildx-action@v3
 
