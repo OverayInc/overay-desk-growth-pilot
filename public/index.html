@@ -13,7 +13,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260529-redesign" />
+    <link rel="stylesheet" href="/styles.css?v=20260531-auth2" />
     <script>
       (function () {
         try {
@@ -27,6 +27,21 @@
          Classic (non-deferred) script so window.msal is ready before the
          deferred /auth.js module runs. -->
     <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.30.0/lib/msal-browser.min.js" crossorigin="anonymous"></script>
+    <style>
+      /* Critical: the login gate must fully cover the app from first paint,
+         even if styles.css is cached/stale. Cosmetic card styling is in styles.css. */
+      .auth-gate {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg, #f3f5fb);
+      }
+      .auth-gate[hidden] { display: none; }
+    </style>
   </head>
   <body>
     <!-- Microsoft login gate. Visible by default so the dashboard never paints
@@ -1202,6 +1217,6 @@
       </main>
     </div>
     <!-- Entry point: the auth gate boots /app.js after a valid login. -->
-    <script type="module" src="/auth.js?v=20260529-auth"></script>
+    <script type="module" src="/auth.js?v=20260531-auth2"></script>
   </body>
 </html>
