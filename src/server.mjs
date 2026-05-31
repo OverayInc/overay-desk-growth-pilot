@@ -7,6 +7,13 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { initDb, loadData, persistData, migrateFromJson } from "./db.mjs";
+import {
+  authEnabled,
+  getPublicAuthConfig,
+  authConfigSummary,
+  authenticateRequest,
+  AuthError,
+} from "./auth.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2477,9 +2484,44 @@ async function checkScheduledSync() {
   }
 }
 
+// Routes reachable without a Microsoft login. `/api/auth/config` bootstraps the
+// browser login; the YouTube OAuth routes are full-page browser redirects that
+// cannot carry a bearer token (and are self-protected by Google OAuth + state).
+const PUBLIC_API_ROUTES = new Set([
+  "GET /api/health",
+  "GET /api/auth/config",
+  "GET /api/youtube/oauth/start",
+  "GET /api/youtube/oauth/callback",
+]);
+
 async function handleApi(req, res, url) {
-  const data = await readData();
   const route = `${req.method} ${url.pathname}`;
+
+  // Public: the browser needs this before it can log in.
+  if (route === "GET /api/auth/config") {
+    return respondJson(res, 200, getPublicAuthConfig());
+  }
+
+  // Microsoft login gate. When enabled, every /api/* call (except the small
+  // public set above) must carry a valid company ID token for an allow-listed
+  // executive — otherwise the sensitive data is never served, even to curl.
+  if (authEnabled && !PUBLIC_API_ROUTES.has(route)) {
+    try {
+      req.authUser = await authenticateRequest(req);
+    } catch (error) {
+      const statusCode = error instanceof AuthError ? error.statusCode : 401;
+      const code = error instanceof AuthError ? error.code : "unauthorized";
+      res.setHeader("WWW-Authenticate", "Bearer");
+      return respondError(res, statusCode, error.message || "Unauthorized", { code });
+    }
+  }
+
+  // Who am I? Lets the client choose between login / access-denied / ready.
+  if (route === "GET /api/auth/me") {
+    return respondJson(res, 200, { email: req.authUser?.email ?? null, enabled: authEnabled });
+  }
+
+  const data = await readData();
 
   if (route === "GET /api/health") {
     return respondJson(res, 200, { ok: true, service: "launch-pilot-growth-dashboard", version: "0.1.0" });
@@ -3327,6 +3369,19 @@ ensureDb();
 
 createServer(handleRequest).listen(PORT, HOST, () => {
   console.log(`Launch Pilot Growth Dashboard running at http://${HOST}:${PORT}`);
+  const auth = authConfigSummary();
+  if (auth.enabled) {
+    const scope =
+      [
+        auth.allowedDomains.length ? `domain(s) ${auth.allowedDomains.join(", ")}` : null,
+        auth.allowedCount ? `${auth.allowedCount} email(s)` : null,
+      ]
+        .filter(Boolean)
+        .join(" + ") || "none";
+    console.log(`[auth] Microsoft login ENFORCED · tenant ${auth.tenantId} · allow ${scope}`);
+  } else {
+    console.warn("[auth] Microsoft login DISABLED — /api/* is open. Set MS_CLIENT_ID + AUTH_ALLOWED_EMAILS (or AUTH_ENABLED=true) to lock it down.");
+  }
 });
 
 if (!DISABLE_SYNC_SCHEDULER) {
