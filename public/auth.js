@@ -9,7 +9,7 @@
 
 import { setTokenProvider, setUnauthorizedHandler } from "./auth-state.js";
 
-const APP_MODULE = "/app.js?v=20260529-redesign";
+const APP_MODULE = "/app.js?v=20260531-auth2";
 
 const gate = document.getElementById("authGate");
 const errorEl = document.getElementById("authError");
@@ -133,11 +133,23 @@ async function doLogin() {
 }
 
 async function doLogout() {
+  // Local sign-out only: clear THIS app's MSAL token cache so the gate returns.
+  // We intentionally do NOT call logoutPopup/logoutRedirect — that would sign
+  // the user out of their entire Microsoft (Azure AD) session (Teams, Office…).
   try {
-    const account = pca.getActiveAccount() || pca.getAllAccounts()[0];
-    await pca.logoutPopup({ account });
+    if (typeof pca.clearCache === "function") {
+      await pca.clearCache();
+    } else {
+      // Fallback: drop only MSAL's own keys (keep app prefs like the theme).
+      for (const key of Object.keys(window.localStorage)) {
+        if (key.startsWith("msal.") || key.includes(cfg.clientId)) {
+          window.localStorage.removeItem(key);
+        }
+      }
+    }
+    pca.setActiveAccount(null);
   } catch {
-    /* ignore — fall through to reload */
+    /* ignore — reload still returns the gate */
   }
   window.location.reload();
 }
