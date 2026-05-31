@@ -1277,3 +1277,79 @@ tbody tr:last-child td { border-bottom: 0; }
   }
   .num { text-align: left; }
 }
+
+/* ============================ AUTH GATE ============================ */
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  background-image: var(--bg-grad);
+}
+.auth-gate[hidden] { display: none; }
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 40px 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.auth-logo { border-radius: 12px; }
+.auth-title { margin: 0; font-size: 22px; font-weight: 800; color: var(--text); }
+.auth-sub { margin: -8px 0 0; font-size: 14px; color: var(--text-secondary); }
+.auth-error {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  color: var(--danger-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.auth-error[hidden] { display: none; }
+.auth-ms-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.auth-ms-btn:hover:not(:disabled) { background: var(--surface-muted); border-color: var(--brand-line); }
+.auth-ms-btn:disabled { opacity: 0.55; cursor: default; }
+.auth-foot { margin: 0; font-size: 12px; color: var(--text-muted); }
+
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.user-chip[hidden] { display: none; }
+.user-email {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

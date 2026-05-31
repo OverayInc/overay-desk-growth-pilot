@@ -1,3 +1,5 @@
+import { getAccessToken, notifyUnauthorized } from "./auth-state.js";
+
 const state = {
   selectedGameId: "all",
   dashboard: null,
@@ -163,6 +165,8 @@ async function api(path, options = {}) {
       ...(options.headers || {}),
     },
   };
+  const token = await getAccessToken();
+  if (token) init.headers.Authorization = `Bearer ${token}`;
   if (Object.hasOwn(options, "body")) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body);
@@ -170,6 +174,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, init);
   const body = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401) notifyUnauthorized(body?.details?.code);
     throw new Error(body?.error || `요청 실패: ${response.status}`);
   }
   return body;
@@ -2256,11 +2261,15 @@ function setupShell() {
   }
 }
 
-initForms();
-setupShell();
-loadAll().catch((error) => {
-  const status = $("#apiStatus");
-  status.textContent = error.message;
-  status.classList.add("fail");
-  showToast(error.message);
-});
+// Bootstrap is triggered by the auth gate (auth.js) once a valid, allow-listed
+// Microsoft account is signed in — or immediately when auth is disabled.
+export function startDashboard() {
+  initForms();
+  setupShell();
+  loadAll().catch((error) => {
+    const status = $("#apiStatus");
+    status.textContent = error.message;
+    status.classList.add("fail");
+    showToast(error.message);
+  });
+}
