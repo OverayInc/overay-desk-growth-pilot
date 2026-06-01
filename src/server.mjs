@@ -24,6 +24,8 @@ const STEAM_API_BASE = "https://partner.steam-api.com/IPartnerFinancialsService"
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
 const REDDIT_USER_AGENT =
   process.env.REDDIT_USER_AGENT || "web:launch-pilot-growth-console:1.0 (internal marketing dashboard)";
+const REDDIT_OAUTH_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+const REDDIT_OAUTH_API_BASE = "https://oauth.reddit.com";
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 const YOUTUBE_ANALYTICS_BASE = "https://youtubeanalytics.googleapis.com/v2/reports";
 const GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -199,6 +201,11 @@ function defaultData() {
       youtubeAccessTokenExpiry: 0,
       youtubeOAuthConnectedAt: "",
       youtubeOAuthState: "",
+      redditClientId: "",
+      redditClientSecretEncrypted: "",
+      redditClientSecretMasked: "",
+      redditAccessToken: "",
+      redditAccessTokenExpiry: 0,
       updatedAt: "",
     },
     syncSchedule: {
@@ -273,6 +280,11 @@ function normalizeData(data) {
   data.integrationSettings.youtubeAccessTokenExpiry ||= 0;
   data.integrationSettings.youtubeOAuthConnectedAt ||= "";
   data.integrationSettings.youtubeOAuthState ||= "";
+  data.integrationSettings.redditClientId ||= "";
+  data.integrationSettings.redditClientSecretEncrypted ||= "";
+  data.integrationSettings.redditClientSecretMasked ||= "";
+  data.integrationSettings.redditAccessToken ||= "";
+  data.integrationSettings.redditAccessTokenExpiry ||= 0;
   data.integrationSettings.smtpHost ||= "";
   data.integrationSettings.smtpPort = toNumber(data.integrationSettings.smtpPort, 587);
   data.integrationSettings.smtpUser ||= "";
@@ -990,6 +1002,7 @@ function effectiveIntegrationConfig(data) {
   const storedYoutubeKey = decryptSecret(settings.youtubeApiKeyEncrypted);
   const storedYoutubeSecret = decryptSecret(settings.youtubeClientSecretEncrypted);
   const storedYoutubeRefresh = decryptSecret(settings.youtubeRefreshTokenEncrypted);
+  const storedRedditSecret = decryptSecret(settings.redditClientSecretEncrypted);
   const storedSmtpPass = decryptSecret(settings.smtpPassEncrypted);
   const smtpUser = settings.smtpUser || SMTP_USER;
   return {
@@ -1014,6 +1027,9 @@ function effectiveIntegrationConfig(data) {
     youtubeClientSecret: storedYoutubeSecret,
     youtubeRefreshToken: storedYoutubeRefresh,
     youtubeOAuthConnected: Boolean(storedYoutubeRefresh),
+    redditClientId: settings.redditClientId || "",
+    redditClientSecret: storedRedditSecret,
+    redditConfigured: Boolean(settings.redditClientId && storedRedditSecret),
   };
 }
 
@@ -1030,6 +1046,10 @@ function publicSettings(data) {
       configured: Boolean(config.youtubeApiKey),
       source: config.youtubeKeySource,
       keyMasked: config.youtubeKeyMasked,
+    },
+    reddit: {
+      configured: Boolean(config.redditClientId && config.redditClientSecret),
+      clientId: config.redditClientId,
     },
     email: buildEmailStatus(data),
     form: {
@@ -1073,6 +1093,19 @@ function updateIntegrationSettings(data, input = {}) {
   } else if (input.youtubeClientSecret) {
     settings.youtubeClientSecretEncrypted = encryptSecret(input.youtubeClientSecret);
     settings.youtubeClientSecretMasked = maskSecret(input.youtubeClientSecret);
+  }
+
+  if (input.redditClientId !== undefined) settings.redditClientId = String(input.redditClientId).trim();
+  if (input.clearRedditClientSecret) {
+    settings.redditClientSecretEncrypted = "";
+    settings.redditClientSecretMasked = "";
+    settings.redditAccessToken = "";
+    settings.redditAccessTokenExpiry = 0;
+  } else if (input.redditClientSecret) {
+    settings.redditClientSecretEncrypted = encryptSecret(input.redditClientSecret);
+    settings.redditClientSecretMasked = maskSecret(input.redditClientSecret);
+    settings.redditAccessToken = "";
+    settings.redditAccessTokenExpiry = 0;
   }
 
   if (input.clearSmtpPass) {
@@ -2295,17 +2328,63 @@ function parseRedditPostId(input) {
   return "";
 }
 
-// Fetch many posts in a SINGLE request via Reddit's by_id endpoint (1 call for
-// the whole log) — fast and far less likely to be rate-limited than per-post.
-async function redditFetchByIds(ids) {
+async function ensureRedditToken(data) {
+  const settings = data.integrationSettings;
+  const config = effectiveIntegrationConfig(data);
+  if (!config.redditClientId || !config.redditClientSecret) return "";
+  if (settings.redditAccessToken && settings.redditAccessTokenExpiry && Date.now() < settings.redditAccessTokenExpiry - 60000) {
+    return settings.redditAccessToken;
+  }
+  const auth = Buffer.from(`${config.redditClientId}:${config.redditClientSecret}`).toString("base64");
+  const response = await fetch(REDDIT_OAUTH_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": REDDIT_USER_AGENT,
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.access_token) {
+    throw new Error(body?.error || body?.message || `Reddit 토큰 발급 실패 (${response.status})`);
+  }
+  settings.redditAccessToken = body.access_token;
+  settings.redditAccessTokenExpiry = Date.now() + toNumber(body.expires_in, 3600) * 1000;
+  return settings.redditAccessToken;
+}
+
+// Fetch many posts in a SINGLE request via Reddit's by_id endpoint. Uses app-only
+// OAuth (oauth.reddit.com) when client credentials are configured — reliable from
+// servers — otherwise best-effort anonymous (often 403 from datacenter IPs).
+async function redditFetchByIds(data, ids) {
   const unique = [...new Set(ids.filter(Boolean))];
   if (!unique.length) return { byId: {}, warning: "" };
   const names = unique.map((id) => `t3_${id}`).join(",");
+  const config = effectiveIntegrationConfig(data);
+  let token = "";
+  if (config.redditClientId && config.redditClientSecret) {
+    try {
+      token = await ensureRedditToken(data);
+    } catch (error) {
+      return { byId: {}, warning: error.message };
+    }
+  }
+  const requestUrl = token
+    ? `${REDDIT_OAUTH_API_BASE}/by_id/${names}?raw_json=1`
+    : `https://www.reddit.com/by_id/${names}.json?raw_json=1`;
+  const headers = { "User-Agent": REDDIT_USER_AGENT, Accept: "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
   try {
-    const response = await fetch(`https://www.reddit.com/by_id/${names}.json?raw_json=1`, {
-      headers: { "User-Agent": REDDIT_USER_AGENT, Accept: "application/json" },
-    });
-    if (!response.ok) return { byId: {}, warning: `Reddit 응답 ${response.status} (차단/제한일 수 있음)` };
+    const response = await fetch(requestUrl, { headers });
+    if (!response.ok) {
+      return {
+        byId: {},
+        warning: token
+          ? `Reddit API 응답 ${response.status}`
+          : `Reddit 응답 ${response.status} — Reddit 연동 설정에 앱 인증을 등록하면 자동 수집이 동작합니다`,
+      };
+    }
     const body = await response.json().catch(() => null);
     const children = body?.data?.children || [];
     const byId = {};
@@ -2788,7 +2867,7 @@ async function handleApi(req, res, url) {
       notes: input.notes || "",
     });
     if (postId) {
-      const { byId } = await redditFetchByIds([postId]);
+      const { byId } = await redditFetchByIds(data, [postId]);
       const stats = byId[postId];
       if (stats) {
         applyRedditStats(post, stats);
@@ -2804,7 +2883,7 @@ async function handleApi(req, res, url) {
   if (route === "POST /api/reddit-posts/refresh") {
     const targets = data.redditPosts.filter((post) => post.postId);
     if (!targets.length) return respondJson(res, 200, { updated: 0, total: 0, warning: "갱신할 글이 없습니다." });
-    const { byId, warning } = await redditFetchByIds(targets.map((post) => post.postId));
+    const { byId, warning } = await redditFetchByIds(data, targets.map((post) => post.postId));
     let updated = 0;
     for (const post of targets) {
       if (byId[post.postId]) {

@@ -925,6 +925,19 @@ function renderYoutubeAnalytics() {
 
 function renderRedditPosts() {
   if (!$("#redditTable")) return;
+  const reddit = state.settings?.reddit;
+  const statusEl = $("#redditOAuthStatus");
+  if (statusEl) {
+    statusEl.textContent = reddit?.configured
+      ? "자동 수집: 앱 인증 연결됨 (oauth.reddit.com)"
+      : "자동 수집: 미설정 — 수동/베스트에포트";
+  }
+  const cfgForm = $("#redditOAuthForm");
+  if (cfgForm && document.activeElement !== cfgForm.elements.redditClientId) {
+    cfgForm.elements.redditClientId.value = reddit?.clientId || "";
+  }
+  const configPanel = $("#redditConfigPanel");
+  if (configPanel && reddit && !reddit.configured && !configPanel.dataset.touched) configPanel.setAttribute("open", "");
   $("#redditCount").textContent = `글 ${number(state.redditPosts.length)}개`;
   if (!state.redditPosts.length) {
     $("#redditTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">기록된 레딧 글이 없습니다.</span></td></tr>';
@@ -1650,6 +1663,35 @@ function initForms() {
       body: data,
     }),
   );
+
+  $("#redditConfigPanel")?.addEventListener("toggle", (event) => {
+    event.currentTarget.dataset.touched = "1";
+  });
+
+  $("#redditOAuthForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitter = form.querySelector("button[type='submit']");
+    submitter.disabled = true;
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: {
+          redditClientId: form.elements.redditClientId.value,
+          redditClientSecret: form.elements.redditClientSecret.value,
+          clearRedditClientSecret: form.elements.clearRedditClientSecret.checked,
+        },
+      });
+      form.elements.redditClientSecret.value = "";
+      form.elements.clearRedditClientSecret.checked = false;
+      await loadAll();
+      showToast("Reddit 연동을 저장했습니다.");
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      submitter.disabled = false;
+    }
+  });
 
   bindForm(
     "#csvForm",

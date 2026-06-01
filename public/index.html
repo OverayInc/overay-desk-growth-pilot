@@ -501,6 +501,28 @@
                   <button class="secondary-button" type="button" id="redditRefreshButton">반응 새로고침</button>
                 </div>
               </div>
+              <details class="action-panel" id="redditConfigPanel">
+                <summary><span>Reddit 연동 설정 (자동 수집)</span><span class="summary-icon"></span></summary>
+                <div class="stack-form">
+                  <form class="form-row" id="redditOAuthForm">
+                    <label class="field-wide">
+                      Client ID
+                      <input name="redditClientId" placeholder="reddit.com/prefs/apps → script 앱의 client id" autocomplete="off" />
+                    </label>
+                    <label class="field-wide">
+                      Client Secret
+                      <input name="redditClientSecret" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
+                    </label>
+                    <label class="check-row">
+                      <input name="clearRedditClientSecret" type="checkbox" />
+                      저장된 Secret 삭제
+                    </label>
+                    <button type="submit">연동 저장</button>
+                  </form>
+                  <div class="settings-meta" id="redditOAuthStatus">-</div>
+                  <div class="image-picker__hint">reddit.com/prefs/apps → "create app" → 유형 "script" 생성 후 client id/secret 입력. 등록하면 oauth.reddit.com 경유로 자동 수집(업보트·댓글)이 안정적으로 동작합니다.</div>
+                </div>
+              </details>
               <details class="action-panel">
                 <summary><span>새 글 기록</span><span class="summary-icon"></span></summary>
                 <form class="form-row reddit-form" id="redditPostForm">
