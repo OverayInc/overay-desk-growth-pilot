@@ -385,6 +385,83 @@ function renderMetricGrid(dashboard) {
     .join("");
 }
 
+function niceCeil(value) {
+  const v = Math.max(1, value);
+  if (v <= 5) return 5;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / mag;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return step * mag;
+}
+
+function renderTrendChart(trend) {
+  const el = $("#trendChart");
+  if (!el) return;
+  const days = Array.isArray(trend) ? trend : [];
+  const summaryEl = $("#trendSummary");
+  if (days.length < 2) {
+    el.innerHTML = '<div class="empty">추세를 그릴 데이터가 부족합니다. Steam 동기화로 일자별 지표를 모아주세요.</div>';
+    if (summaryEl) summaryEl.textContent = "";
+    return;
+  }
+  const W = Math.max(320, Math.round(el.clientWidth || 760));
+  const H = 260;
+  const padL = 46;
+  const padR = 16;
+  const padT = 14;
+  const padB = 30;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const maxVal = Math.max(1, ...days.map((d) => Math.max(Number(d.wishlists || 0), Number(d.purchases || 0))));
+  const yMax = niceCeil(maxVal);
+  const xAt = (i) => padL + (days.length === 1 ? innerW / 2 : (i / (days.length - 1)) * innerW);
+  const yAt = (v) => padT + innerH - (Number(v || 0) / yMax) * innerH;
+  const linePath = (key) => days.map((d, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)} ${yAt(d[key]).toFixed(1)}`).join(" ");
+  const areaPath = (key) =>
+    `${linePath(key)} L${xAt(days.length - 1).toFixed(1)} ${yAt(0).toFixed(1)} L${xAt(0).toFixed(1)} ${yAt(0).toFixed(1)} Z`;
+
+  let grid = "";
+  const steps = 4;
+  for (let s = 0; s <= steps; s++) {
+    const v = (yMax * s) / steps;
+    const yy = yAt(v);
+    grid += `<line class="tg-grid" x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}"/>`;
+    grid += `<text class="tg-ylabel" x="${padL - 8}" y="${(yy + 4).toFixed(1)}" text-anchor="end">${number(Math.round(v))}</text>`;
+  }
+  const tickEvery = Math.max(1, Math.ceil(days.length / 6));
+  let xLabels = "";
+  days.forEach((d, i) => {
+    if (i % tickEvery === 0 || i === days.length - 1) {
+      xLabels += `<text class="tg-xlabel" x="${xAt(i).toFixed(1)}" y="${H - 10}" text-anchor="middle">${escapeHtml(String(d.date).slice(5))}</text>`;
+    }
+  });
+  const dots = (key, cls, label) =>
+    days
+      .map(
+        (d, i) =>
+          `<circle class="tg-dot ${cls}" cx="${xAt(i).toFixed(1)}" cy="${yAt(d[key]).toFixed(1)}" r="2.4"><title>${escapeHtml(d.date)} · ${label} ${number(d[key])}</title></circle>`,
+      )
+      .join("");
+
+  el.innerHTML = `
+    <svg class="trend-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="위시리스트 판매 추세">
+      ${grid}
+      <path class="tg-area tg-area-wish" d="${areaPath("wishlists")}"/>
+      <path class="tg-line tg-line-wish" d="${linePath("wishlists")}"/>
+      <path class="tg-line tg-line-buy" d="${linePath("purchases")}"/>
+      ${dots("wishlists", "tg-dot-wish", "위시")}
+      ${dots("purchases", "tg-dot-buy", "판매")}
+      ${xLabels}
+    </svg>`;
+
+  if (summaryEl) {
+    const totW = days.reduce((sum, d) => sum + Number(d.wishlists || 0), 0);
+    const totP = days.reduce((sum, d) => sum + Number(d.purchases || 0), 0);
+    const totR = days.reduce((sum, d) => sum + Number(d.revenue || 0), 0);
+    summaryEl.textContent = `최근 ${days.length}일 · 위시 ${number(totW)} · 판매 ${number(totP)} · 매출 ${money(totR)}`;
+  }
+}
+
 function renderPlatformChips(listings) {
   if (!listings.length) return '<span class="cell-sub">리스팅 없음</span>';
   return `
@@ -1022,6 +1099,7 @@ function renderDashboard() {
   renderScope();
   renderPortfolio();
   renderMetricGrid(dashboard);
+  renderTrendChart(dashboard.trend);
   renderCampaignBars(dashboard.topCampaigns);
   renderContactQueue(dashboard.contactQueue);
 }
@@ -2247,6 +2325,7 @@ function showView(view, sectionId) {
     $("#viewTitle").textContent = meta.title;
   }
   if (view === "youtube" && state.youtube) renderYoutube();
+  if (view === "overview" && state.dashboard) renderTrendChart(state.dashboard.trend);
   requestAnimationFrame(() => {
     const target = sectionId ? document.getElementById(sectionId) : null;
     if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2294,6 +2373,13 @@ function setupShell() {
   }
   window.addEventListener("hashchange", routeFromHash);
   routeFromHash();
+  let trendResizeTimer = 0;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(trendResizeTimer);
+    trendResizeTimer = window.setTimeout(() => {
+      if (state.dashboard) renderTrendChart(state.dashboard.trend);
+    }, 160);
+  });
   const toggle = $("#themeToggle");
   if (toggle) {
     toggle.addEventListener("click", () => {

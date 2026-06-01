@@ -24,6 +24,13 @@ services:
       EMAIL_SEND_MODE: ${EMAIL_SEND_MODE:-smtp}
       DISABLE_SYNC_SCHEDULER: ${DISABLE_SYNC_SCHEDULER:-false}
       SYNC_SCHEDULER_INTERVAL_MS: ${SYNC_SCHEDULER_INTERVAL_MS:-60000}
+      # Microsoft (Entra ID) login — empty by default = gate OFF (open). Set
+      # MS_CLIENT_ID + AUTH_ALLOWED_EMAILS/DOMAIN (host env or .env) to enable.
+      MS_CLIENT_ID: ${MS_CLIENT_ID:-}
+      MS_TENANT_ID: ${MS_TENANT_ID:-f1f0a729-25be-432c-b9c9-24775c52aa1a}
+      AUTH_ALLOWED_DOMAIN: ${AUTH_ALLOWED_DOMAIN:-}
+      AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:-}
+      AUTH_ENABLED: ${AUTH_ENABLED:-}
     volumes:
       - ./data:/app/data
       # public/ and src/ are bind-mounted so code changes apply without an image rebuild

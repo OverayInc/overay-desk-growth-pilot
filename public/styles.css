@@ -785,9 +785,29 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 .insight-grid { margin-top: 0; }
+
+/* ---- Trend chart ---- */
+.trend-panel { margin-bottom: 18px; }
+.trend-chart { width: 100%; min-height: 120px; }
+.trend-svg { display: block; width: 100%; height: auto; }
+.trend-legend { display: flex; gap: 14px; }
+.trend-legend-item { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.tg-swatch { width: 12px; height: 4px; border-radius: 2px; flex: 0 0 auto; }
+.tg-swatch-wish { background: var(--brand); }
+.tg-swatch-buy { background: var(--tone-2); }
+.trend-summary { margin-top: 10px; font-size: 12.5px; }
+.tg-grid { stroke: var(--border); stroke-width: 1; }
+.tg-ylabel, .tg-xlabel { fill: var(--text-muted); font-size: 11px; }
+.tg-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.tg-line-wish { stroke: var(--brand); }
+.tg-line-buy { stroke: var(--tone-2); }
+.tg-area-wish { fill: var(--brand); opacity: 0.1; }
+.tg-dot { stroke: var(--surface); stroke-width: 1; }
+.tg-dot-wish { fill: var(--brand); }
+.tg-dot-buy { fill: var(--tone-2); }
 
 .bar-list, .queue-list { display: grid; gap: 12px; }
 .bar-item {

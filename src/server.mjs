@@ -757,8 +757,28 @@ function buildDashboard(data, gameId = "all") {
     .sort((a, b) => toNumber(b.fitScore) - toNumber(a.fitScore))
     .slice(0, 12);
 
+  // Daily time series for the dashboard chart (last 30 days). Scoped by gameId,
+  // so "all" is the aggregate across games and a specific game is that game.
+  const dayMap = new Map();
+  for (const metric of metrics) {
+    if (!metric.date) continue;
+    if (!dayMap.has(metric.date)) {
+      dayMap.set(metric.date, { date: metric.date, wishlists: 0, purchases: 0, revenue: 0, visits: 0 });
+    }
+    const day = dayMap.get(metric.date);
+    day.wishlists += toNumber(metric.wishlists);
+    day.purchases += toNumber(metric.purchases);
+    day.revenue += toNumber(metric.revenue);
+    day.visits += toNumber(metric.visits);
+  }
+  const trend = [...dayMap.values()]
+    .filter((day) => withinLastDays(day.date, latestDate, 30))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((day) => ({ ...day, revenue: Number(day.revenue.toFixed(2)) }));
+
   return {
     latestDate,
+    trend,
     selectedGameId: gameId,
     selectedGameName: gameId === "all" ? "All Games" : gameNameFor(data, gameId),
     portfolio: buildPortfolio(data),
