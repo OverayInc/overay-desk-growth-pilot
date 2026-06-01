@@ -9,7 +9,7 @@
 
 import { setTokenProvider, setUnauthorizedHandler } from "./auth-state.js";
 
-const APP_MODULE = "/app.js?v=20260601-trend";
+const APP_MODULE = "/app.js?v=20260601-2";
 
 const gate = document.getElementById("authGate");
 const errorEl = document.getElementById("authError");

@@ -324,25 +324,26 @@ const ICONS = {
 };
 
 function renderMetricGrid(dashboard) {
+  const dayLabel = dashboard.latestDate ? String(dashboard.latestDate).slice(5) : "";
   const items = [
     {
-      label: "오늘 위시리스트",
+      label: "최근 위시리스트",
       value: number(dashboard.today.wishlists),
-      sub: `방문 ${number(dashboard.today.visits)}`,
+      sub: `${dayLabel} · 방문 ${number(dashboard.today.visits)}`,
       tone: "teal",
       icon: ICONS.wishlist,
     },
     {
-      label: "오늘 판매",
+      label: "최근 판매",
       value: number(dashboard.today.purchases),
-      sub: `구매 전환율 ${dashboard.today.purchaseRate}%`,
+      sub: `${dayLabel} · 구매 전환율 ${dashboard.today.purchaseRate}%`,
       tone: "green",
       icon: ICONS.purchases,
     },
     {
-      label: "오늘 매출",
+      label: "최근 매출",
       value: money(dashboard.today.revenue),
-      sub: `환불 ${number(dashboard.today.refunds)}건`,
+      sub: `${dayLabel} · 환불 ${number(dashboard.today.refunds)}건`,
       tone: "amber",
       icon: ICONS.revenue,
     },
