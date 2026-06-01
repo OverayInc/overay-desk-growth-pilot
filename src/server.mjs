@@ -2819,6 +2819,7 @@ async function handleApi(req, res, url) {
         connected: config.youtubeOAuthConnected,
         connectedAt: data.integrationSettings.youtubeOAuthConnectedAt || "",
         clientId: config.youtubeClientId,
+        clientSecretMasked: data.integrationSettings.youtubeClientSecretMasked || "",
         redirectUri: youtubeOAuthRedirectUri(url),
       },
       channels: data.youtubeChannels,

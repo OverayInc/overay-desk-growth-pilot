@@ -2101,6 +2101,27 @@ function initForms() {
     event.currentTarget.dataset.touched = "1";
   });
 
+  $("#youtubeRevealButton")?.addEventListener("click", (event) => {
+    const btn = event.currentTarget;
+    const info = $("#youtubeCredInfo");
+    if (!info) return;
+    if (!info.hasAttribute("hidden")) {
+      info.setAttribute("hidden", "");
+      btn.textContent = "등록 정보 확인";
+      return;
+    }
+    const yt = state.youtube || {};
+    const oauth = yt.oauth || {};
+    info.innerHTML = `<div class="settings-state-list">
+      <div class="settings-state-item"><span>Data API Key</span><strong>${yt.keyMasked ? escapeHtml(yt.keyMasked) : "미등록"}</strong><small>${yt.configured ? "등록됨" : "없음"}</small></div>
+      <div class="settings-state-item"><span>OAuth Client ID</span><strong>${oauth.clientId ? escapeHtml(oauth.clientId) : "미등록"}</strong><small>${oauth.clientId ? "등록됨" : "없음"}</small></div>
+      <div class="settings-state-item"><span>OAuth Client Secret</span><strong>${oauth.clientSecretMasked ? escapeHtml(oauth.clientSecretMasked) : "미등록"}</strong><small>${oauth.clientSecretMasked ? "등록됨" : "없음"}</small></div>
+      <div class="settings-state-item"><span>Google 연결</span><strong>${oauth.connected ? "연결됨" : "미연결"}</strong><small>${oauth.connected && oauth.connectedAt ? escapeHtml(new Date(oauth.connectedAt).toLocaleString("ko-KR")) : ""}</small></div>
+    </div>`;
+    info.removeAttribute("hidden");
+    btn.textContent = "확인 숨기기";
+  });
+
   $("#youtubeKeyForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
