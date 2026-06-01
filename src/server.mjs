@@ -3,7 +3,7 @@ import net from "node:net";
 import tls from "node:tls";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { initDb, loadData, persistData, migrateFromJson } from "./db.mjs";
@@ -19,6 +19,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+// Content hash of the versioned front-end assets, computed once at startup and
+// injected into index.html (replaces __ASSET_VERSION__). Changes automatically
+// whenever the code changes, so each deploy busts browser/CDN caches with no
+// manual version bump.
+const ASSET_VERSION = (() => {
+  try {
+    const hash = createHash("sha256");
+    for (const name of ["app.js", "styles.css", "auth.js"]) {
+      const file = path.join(PUBLIC_DIR, name);
+      if (existsSync(file)) hash.update(readFileSync(file));
+    }
+    return hash.digest("hex").slice(0, 12);
+  } catch {
+    return "dev";
+  }
+})();
 const DATA_FILE = process.env.DATA_FILE || path.join(ROOT_DIR, "data", "app-data.json");
 const DATA_DB = process.env.DATA_DB || path.join(ROOT_DIR, "data", "app.db");
 const HOST = process.env.HOST || "127.0.0.1";
@@ -208,6 +224,7 @@ function defaultData() {
       youtubeAccessTokenExpiry: 0,
       youtubeOAuthConnectedAt: "",
       youtubeOAuthState: "",
+      youtubeAutoSyncAt: 0,
       redditClientId: "",
       redditClientSecretEncrypted: "",
       redditClientSecretMasked: "",
@@ -287,6 +304,7 @@ function normalizeData(data) {
   data.integrationSettings.youtubeAccessTokenExpiry ||= 0;
   data.integrationSettings.youtubeOAuthConnectedAt ||= "";
   data.integrationSettings.youtubeOAuthState ||= "";
+  data.integrationSettings.youtubeAutoSyncAt ||= 0;
   data.integrationSettings.redditClientId ||= "";
   data.integrationSettings.redditClientSecretEncrypted ||= "";
   data.integrationSettings.redditClientSecretMasked ||= "";
@@ -2574,13 +2592,31 @@ async function runScheduledSync(data, { force = false } = {}) {
 
 let schedulerRunning = false;
 
+// Once a day, snapshot every YouTube channel's public stats (subscribers/views)
+// so the trend charts fill in automatically without manual syncing.
+async function runYoutubeAutoSnapshot(data) {
+  const settings = data.integrationSettings;
+  const config = effectiveIntegrationConfig(data);
+  if (!config.youtubeApiKey || !data.youtubeChannels.length) return false;
+  const lastAt = Number(settings.youtubeAutoSyncAt || 0);
+  if (lastAt && Date.now() - lastAt < 23 * 60 * 60 * 1000) return false;
+  try {
+    await syncYoutubeChannels(data, "all");
+  } catch (error) {
+    console.error("YouTube auto-snapshot failed:", error.message || error);
+  }
+  settings.youtubeAutoSyncAt = Date.now();
+  return true;
+}
+
 async function checkScheduledSync() {
   if (schedulerRunning) return;
   schedulerRunning = true;
   try {
     const data = await readData();
     const result = await runScheduledSync(data);
-    if (!result.skipped) await writeData(data);
+    const youtubeChanged = await runYoutubeAutoSnapshot(data);
+    if (!result.skipped || youtubeChanged) await writeData(data);
   } catch (error) {
     console.error("Scheduled sync check failed:", error.message || error);
   } finally {
@@ -2827,6 +2863,7 @@ async function handleApi(req, res, url) {
         clientSecretMasked: data.integrationSettings.youtubeClientSecretMasked || "",
         redirectUri: youtubeOAuthRedirectUri(url),
       },
+      autoSyncAt: data.integrationSettings.youtubeAutoSyncAt || 0,
       channels: data.youtubeChannels,
       snapshots: data.youtubeSnapshots,
     });
@@ -3442,8 +3479,12 @@ async function serveStatic(req, res, url) {
   try {
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error("Not a file.");
-    const body = await readFile(filePath);
-    const contentType = contentTypes.get(path.extname(filePath)) || "application/octet-stream";
+    const ext = path.extname(filePath);
+    const contentType = contentTypes.get(ext) || "application/octet-stream";
+    let body = await readFile(filePath);
+    if (ext === ".html") {
+      body = Buffer.from(body.toString("utf8").replaceAll("__ASSET_VERSION__", ASSET_VERSION), "utf8");
+    }
     res.writeHead(200, {
       "Content-Type": contentType,
       "Content-Length": body.length,

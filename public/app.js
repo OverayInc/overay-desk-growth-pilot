@@ -827,7 +827,9 @@ function renderYoutube() {
   if (!yt) return;
   const statusEl = $("#youtubeStatus");
   if (statusEl) {
-    statusEl.textContent = yt.configured ? `API 연결됨 · 채널 ${number(yt.channels.length)}개` : "API 키 미설정";
+    statusEl.textContent = yt.configured
+      ? `API 연결됨 · 채널 ${number(yt.channels.length)}개${yt.channels.length ? " · 자동 기록 ON(1일 1회)" : ""}`
+      : "API 키 미설정";
   }
   const configPanel = $("#youtubeConfigPanel");
   if (configPanel && !yt.configured && !configPanel.dataset.touched) configPanel.setAttribute("open", "");
