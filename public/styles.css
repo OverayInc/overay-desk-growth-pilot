@@ -808,6 +808,13 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
 .tg-dot { stroke: var(--surface); stroke-width: 1; }
 .tg-dot-wish { fill: var(--brand); }
 .tg-dot-buy { fill: var(--tone-2); }
+.yt-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 18px; }
+.tg-line-subs { stroke: var(--brand); }
+.tg-area-subs { fill: var(--brand); opacity: 0.1; }
+.tg-dot-subs { fill: var(--brand); }
+.tg-line-views { stroke: var(--tone-4); }
+.tg-area-views { fill: var(--tone-4); opacity: 0.1; }
+.tg-dot-views { fill: var(--tone-4); }
 
 .bar-list, .queue-list { display: grid; gap: 12px; }
 .bar-item {

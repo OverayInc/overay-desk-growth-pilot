@@ -705,14 +705,18 @@ function buildPortfolio(data) {
     .sort((a, b) => Number(a.archived) - Number(b.archived) || b.wishlists - a.wishlists || b.purchases - a.purchases || a.name.localeCompare(b.name));
 }
 
-function buildDashboard(data, gameId = "all") {
+function buildDashboard(data, gameId = "all", clientDate = "") {
   const metrics = scopedItems(data.steamDailyMetrics, gameId);
   const campaigns = scopedItems(data.campaigns, gameId);
   const creators = scopedItems(data.creators, gameId);
   const keys = scopedItems(data.influencerKeys, gameId);
   const latestDate = latestMetricDate(metrics);
-  const todayMetrics = metrics.filter((metric) => metric.date === latestDate);
-  const last7Metrics = metrics.filter((metric) => withinLastDays(metric.date, latestDate, 7));
+  // The headline cards report YESTERDAY specifically (Steam financials lag ~1 day);
+  // empty when yesterday has no data. Use the caller's local date if provided.
+  const baseToday = /^\d{4}-\d{2}-\d{2}$/.test(clientDate) ? clientDate : toDateString(new Date());
+  const reportDate = addDays(baseToday, -1);
+  const todayMetrics = metrics.filter((metric) => metric.date === reportDate);
+  const last7Metrics = metrics.filter((metric) => withinLastDays(metric.date, reportDate, 7));
   const today = aggregateMetrics(todayMetrics);
   const last7 = aggregateMetrics(last7Metrics);
   const campaignGroups = new Map();
@@ -778,6 +782,7 @@ function buildDashboard(data, gameId = "all") {
 
   return {
     latestDate,
+    reportDate,
     trend,
     selectedGameId: gameId,
     selectedGameName: gameId === "all" ? "All Games" : gameNameFor(data, gameId),
@@ -2801,7 +2806,7 @@ async function handleApi(req, res, url) {
   }
 
   if (route === "GET /api/dashboard") {
-    return respondJson(res, 200, buildDashboard(data, requestedGameId(url)));
+    return respondJson(res, 200, buildDashboard(data, requestedGameId(url), url.searchParams.get("clientDate") || ""));
   }
 
   if (route === "GET /api/readiness") {

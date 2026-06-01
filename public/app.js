@@ -30,6 +30,11 @@ const currencyFormat = new Intl.NumberFormat("ko-KR", {
 
 const $ = (selector) => document.querySelector(selector);
 
+function localDateString(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function text(value, fallback = "-") {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value);
@@ -324,24 +329,24 @@ const ICONS = {
 };
 
 function renderMetricGrid(dashboard) {
-  const dayLabel = dashboard.latestDate ? String(dashboard.latestDate).slice(5) : "";
+  const dayLabel = dashboard.reportDate ? String(dashboard.reportDate).slice(5) : "";
   const items = [
     {
-      label: "최근 위시리스트",
+      label: "어제 위시리스트",
       value: number(dashboard.today.wishlists),
       sub: `${dayLabel} · 방문 ${number(dashboard.today.visits)}`,
       tone: "teal",
       icon: ICONS.wishlist,
     },
     {
-      label: "최근 판매",
+      label: "어제 판매",
       value: number(dashboard.today.purchases),
       sub: `${dayLabel} · 구매 전환율 ${dashboard.today.purchaseRate}%`,
       tone: "green",
       icon: ICONS.purchases,
     },
     {
-      label: "최근 매출",
+      label: "어제 매출",
       value: money(dashboard.today.revenue),
       sub: `${dayLabel} · 환불 ${number(dashboard.today.refunds)}건`,
       tone: "amber",
@@ -746,6 +751,77 @@ function renderYoutubeVideos(channel) {
     .join("");
 }
 
+function renderYtSeriesChart(el, points, variant) {
+  if (!el) return;
+  if (points.length < 2) {
+    el.innerHTML = '<div class="empty">2일 이상 동기화되면 추이가 표시됩니다.</div>';
+    return;
+  }
+  const W = Math.max(280, Math.round(el.clientWidth || 480));
+  const H = 180;
+  const padL = 50;
+  const padR = 14;
+  const padT = 12;
+  const padB = 26;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const values = points.map((p) => Number(p.value || 0));
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const lo = minV === maxV ? Math.max(0, minV - 1) : minV - (maxV - minV) * 0.12;
+  const hi = minV === maxV ? minV + 1 : maxV + (maxV - minV) * 0.12;
+  const span = hi - lo || 1;
+  const xAt = (i) => padL + (points.length === 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
+  const yAt = (v) => padT + innerH - ((Number(v || 0) - lo) / span) * innerH;
+  const linePath = points.map((p, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)} ${yAt(p.value).toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L${xAt(points.length - 1).toFixed(1)} ${yAt(lo).toFixed(1)} L${xAt(0).toFixed(1)} ${yAt(lo).toFixed(1)} Z`;
+  let grid = "";
+  for (let s = 0; s <= 2; s++) {
+    const v = lo + (span * s) / 2;
+    const yy = yAt(v);
+    grid += `<line class="tg-grid" x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}"/>`;
+    grid += `<text class="tg-ylabel" x="${padL - 8}" y="${(yy + 4).toFixed(1)}" text-anchor="end">${number(Math.round(v))}</text>`;
+  }
+  const tickEvery = Math.max(1, Math.ceil(points.length / 5));
+  let xLabels = "";
+  points.forEach((p, i) => {
+    if (i % tickEvery === 0 || i === points.length - 1) {
+      xLabels += `<text class="tg-xlabel" x="${xAt(i).toFixed(1)}" y="${H - 9}" text-anchor="middle">${escapeHtml(String(p.date).slice(5))}</text>`;
+    }
+  });
+  const dots = points
+    .map(
+      (p, i) =>
+        `<circle class="tg-dot tg-dot-${variant}" cx="${xAt(i).toFixed(1)}" cy="${yAt(p.value).toFixed(1)}" r="2.4"><title>${escapeHtml(p.date)} · ${number(p.value)}</title></circle>`,
+    )
+    .join("");
+  el.innerHTML = `
+    <svg class="trend-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img">
+      ${grid}
+      <path class="tg-area tg-area-${variant}" d="${areaPath}"/>
+      <path class="tg-line tg-line-${variant}" d="${linePath}"/>
+      ${dots}
+      ${xLabels}
+    </svg>`;
+}
+
+function renderYoutubeCharts(channel) {
+  const subsEl = $("#youtubeSubsChart");
+  const viewsEl = $("#youtubeViewsChart");
+  if (!subsEl || !viewsEl) return;
+  const yt = state.youtube || {};
+  const snaps = channel
+    ? (yt.snapshots || [])
+        .filter((snap) => snap.channelId === channel.channelId)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    : [];
+  renderYtSeriesChart(subsEl, snaps.map((s) => ({ date: s.date, value: Number(s.subscribers || 0) })), "subs");
+  renderYtSeriesChart(viewsEl, snaps.map((s) => ({ date: s.date, value: Number(s.views || 0) })), "views");
+  const last = snaps[snaps.length - 1];
+  $("#youtubeSubsLabel").textContent = last ? `현재 ${number(last.subscribers)}` : "데이터 없음";
+  $("#youtubeViewsLabel").textContent = last ? `현재 ${number(last.views)}` : "데이터 없음";
+}
+
 function renderYoutube() {
   const yt = state.youtube;
   if (!yt) return;
@@ -777,6 +853,7 @@ function renderYoutube() {
   const channel = yt.channels.find((item) => item.id === yt.selectedChannelId);
   renderYoutubeMetrics(channel);
   renderYoutubeVideos(channel);
+  renderYoutubeCharts(channel);
 
   const oauthForm = $("#youtubeOAuthForm");
   if (oauthForm && document.activeElement !== oauthForm.elements.youtubeClientId) {
@@ -1602,7 +1679,7 @@ async function loadAll() {
     api("/api/health"),
     api("/api/games"),
     api("/api/store-listings?includeArchived=true"),
-    api(`/api/dashboard?${query}`),
+    api(`/api/dashboard?${query}&clientDate=${localDateString()}`),
     api("/api/readiness"),
     api(`/api/campaigns?${query}`),
     api("/api/creator-profiles"),
@@ -2400,6 +2477,9 @@ function setupShell() {
     window.clearTimeout(trendResizeTimer);
     trendResizeTimer = window.setTimeout(() => {
       if (state.dashboard) renderTrendChart(state.dashboard.trend);
+      if (state.youtube) {
+        renderYoutubeCharts(state.youtube.channels.find((c) => c.id === state.youtube.selectedChannelId));
+      }
     }, 160);
   });
   const toggle = $("#themeToggle");

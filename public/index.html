@@ -13,7 +13,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260601-2" />
+    <link rel="stylesheet" href="/styles.css?v=20260601-3" />
     <script>
       (function () {
         try {
@@ -521,6 +521,16 @@
 
               <div class="yt-channel-tabs" id="youtubeChannelTabs"></div>
               <div class="metric-grid" id="youtubeMetricGrid"></div>
+              <div class="yt-charts">
+                <div class="panel">
+                  <div class="panel-title"><h3>구독자 추이</h3><span class="muted" id="youtubeSubsLabel">-</span></div>
+                  <div id="youtubeSubsChart" class="trend-chart"></div>
+                </div>
+                <div class="panel">
+                  <div class="panel-title"><h3>조회수 추이</h3><span class="muted" id="youtubeViewsLabel">-</span></div>
+                  <div id="youtubeViewsChart" class="trend-chart"></div>
+                </div>
+              </div>
 
               <div class="panel">
                 <div class="panel-title">
@@ -1254,6 +1264,6 @@
       </main>
     </div>
     <!-- Entry point: the auth gate boots /app.js after a valid login. -->
-    <script type="module" src="/auth.js?v=20260601-2"></script>
+    <script type="module" src="/auth.js?v=20260601-3"></script>
   </body>
 </html>
