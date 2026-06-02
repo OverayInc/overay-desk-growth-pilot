@@ -798,10 +798,27 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((day) => ({ ...day, revenue: Number(day.revenue.toFixed(2)) }));
 
+  // Conversion funnel over all available data for this scope: 방문 → 위시 → 구매.
+  // Steam's wishlist/financials API has no visit/impression data (visits come
+  // only from an imported Steamworks traffic CSV), so visit-based rates appear
+  // only when visits exist; wishlist→purchase is always available from the API.
+  const funnelTotals = aggregateMetrics(metrics);
+  const funnel = {
+    visits: funnelTotals.visits,
+    wishlists: funnelTotals.wishlists,
+    purchases: funnelTotals.purchases,
+    revenue: Number(funnelTotals.revenue.toFixed(2)),
+    hasVisits: funnelTotals.visits > 0,
+    visitToWishlist: rate(funnelTotals.wishlists, funnelTotals.visits),
+    wishlistToPurchase: rate(funnelTotals.purchases, funnelTotals.wishlists),
+    visitToPurchase: rate(funnelTotals.purchases, funnelTotals.visits),
+  };
+
   return {
     latestDate,
     reportDate,
     trend,
+    funnel,
     selectedGameId: gameId,
     selectedGameName: gameId === "all" ? "All Games" : gameNameFor(data, gameId),
     portfolio: buildPortfolio(data),
@@ -810,12 +827,14 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
       revenue: Number(today.revenue.toFixed(2)),
       wishlistRate: rate(today.wishlists, today.visits),
       purchaseRate: rate(today.purchases, today.visits),
+      wishlistToPurchaseRate: rate(today.purchases, today.wishlists),
     },
     last7: {
       ...last7,
       revenue: Number(last7.revenue.toFixed(2)),
       wishlistRate: rate(last7.wishlists, last7.visits),
       purchaseRate: rate(last7.purchases, last7.visits),
+      wishlistToPurchaseRate: rate(last7.purchases, last7.wishlists),
     },
     topCampaigns,
     contactQueue,

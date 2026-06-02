@@ -341,7 +341,7 @@ function renderMetricGrid(dashboard) {
     {
       label: "어제 판매",
       value: number(dashboard.today.purchases),
-      sub: `${dayLabel} · 구매 전환율 ${dashboard.today.purchaseRate}%`,
+      sub: `${dayLabel} · 위시 대비 ${dashboard.today.wishlistToPurchaseRate}%`,
       tone: "green",
       icon: ICONS.purchases,
     },
@@ -355,7 +355,7 @@ function renderMetricGrid(dashboard) {
     {
       label: "최근 7일 위시리스트",
       value: number(dashboard.last7.wishlists),
-      sub: `위시 전환율 ${dashboard.last7.wishlistRate}%`,
+      sub: `구매 ${number(dashboard.last7.purchases)} · 위시→구매 ${dashboard.last7.wishlistToPurchaseRate}%`,
       tone: "blue",
       icon: ICONS.trend,
     },
@@ -466,6 +466,43 @@ function renderTrendChart(trend) {
     const totR = days.reduce((sum, d) => sum + Number(d.revenue || 0), 0);
     summaryEl.textContent = `최근 ${days.length}일 · 위시 ${number(totW)} · 판매 ${number(totP)} · 매출 ${money(totR)}`;
   }
+}
+
+function renderConversionFunnel(funnel) {
+  const el = $("#conversionFunnel");
+  if (!el) return;
+  if (!funnel || (!funnel.wishlists && !funnel.purchases && !funnel.visits)) {
+    el.innerHTML = '<div class="empty">전환을 계산할 Steam 지표가 없습니다.</div>';
+    return;
+  }
+  const stages = [];
+  if (funnel.hasVisits) stages.push({ label: "방문", value: funnel.visits, note: "" });
+  stages.push({
+    label: "위시리스트",
+    value: funnel.wishlists,
+    note: funnel.hasVisits ? `방문→위시 ${funnel.visitToWishlist}%` : "",
+  });
+  stages.push({
+    label: "구매",
+    value: funnel.purchases,
+    note: `위시→구매 ${funnel.wishlistToPurchase}%${funnel.hasVisits ? ` · 방문→구매 ${funnel.visitToPurchase}%` : ""}`,
+  });
+  const max = Math.max(...stages.map((s) => Number(s.value || 0)), 1);
+  el.innerHTML =
+    stages
+      .map(
+        (s) => `
+        <div class="funnel-row">
+          <div class="funnel-label">${s.label}</div>
+          <div class="funnel-bar"><div class="funnel-fill" style="width:${Math.max(3, Math.round((Number(s.value || 0) / max) * 100))}%"></div></div>
+          <div class="funnel-meta"><strong>${number(s.value)}</strong>${s.note ? `<span>${escapeHtml(s.note)}</span>` : ""}</div>
+        </div>
+      `,
+      )
+      .join("") +
+    (funnel.hasVisits
+      ? ""
+      : '<div class="funnel-note">방문(상점 페이지 노출) 수는 Steam 위시리스트/재무 API에 없습니다. Steamworks 트래픽 CSV를 가져오면 "방문 → 위시" 전환율까지 표시됩니다.</div>');
 }
 
 function renderPlatformChips(listings) {
@@ -1180,6 +1217,7 @@ function renderDashboard() {
   renderPortfolio();
   renderMetricGrid(dashboard);
   renderTrendChart(dashboard.trend);
+  renderConversionFunnel(dashboard.funnel);
   renderCampaignBars(dashboard.topCampaigns);
   renderContactQueue(dashboard.contactQueue);
 }
