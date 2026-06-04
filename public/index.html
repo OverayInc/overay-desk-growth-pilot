@@ -291,6 +291,7 @@
                 <span class="status-pill" id="keyTrackerCookieStatus">쿠키 확인 중</span>
                 <button type="button" id="openProfileAddBtn">+ 크리에이터 추가</button>
                 <button type="button" class="secondary-button" data-open-csv="profiles">크리에이터 CSV</button>
+                <button type="button" class="secondary-button" id="openTemplatesBtn">메일 템플릿</button>
                 <button type="button" class="secondary-button" id="creatorRefreshAll">전체 사용여부 새로고침</button>
                 <label class="matrix-sort">
                   <span>정렬</span>
@@ -1186,6 +1187,19 @@
           <button type="button" class="csv-modal-close" data-mail-close aria-label="닫기">✕</button>
         </div>
         <div class="csv-modal-body">
+          <div class="mail-template-row">
+            <label>
+              템플릿
+              <select id="mailTemplate"></select>
+            </label>
+            <label>
+              언어
+              <select id="mailLang">
+                <option value="en">English</option>
+                <option value="ko">한국어</option>
+              </select>
+            </label>
+          </div>
           <label>
             받는 사람
             <input id="mailTo" type="email" placeholder="email@example.com" />
@@ -1206,6 +1220,36 @@
           <button type="button" class="secondary-button" id="mailCopyBody">본문 복사</button>
           <button type="button" class="secondary-button" id="mailSmtpBtn">SMTP 발송</button>
           <button type="button" id="mailOpenBtn">메일 앱으로 열기</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="templateModal" class="csv-modal wide">
+      <div class="csv-modal-inner">
+        <div class="csv-modal-head">
+          <h3>메일 템플릿 관리</h3>
+          <button type="button" class="csv-modal-close" data-tmpl-close aria-label="닫기">✕</button>
+        </div>
+        <div class="csv-modal-body">
+          <div class="tmpl-layout">
+            <div class="tmpl-list" id="templateList"></div>
+            <form class="tmpl-form" id="templateForm">
+              <input type="hidden" name="id" />
+              <label>이름<input name="name" placeholder="예: 호러 채널용" required /></label>
+              <label>제목 (EN)<input name="subjectEn" /></label>
+              <label>본문 (EN)<textarea name="bodyEn" rows="7"></textarea></label>
+              <label>제목 (KO)<input name="subjectKo" /></label>
+              <label>본문 (KO)<textarea name="bodyKo" rows="7"></textarea></label>
+              <p class="muted tmpl-hint">치환 변수: <code>{{creator}}</code> <code>{{game}}</code> <code>{{key}}</code> <code>{{utm}}</code> <code>{{embargo}}</code> <code>{{genre}}</code></p>
+              <div class="button-row">
+                <button type="submit" id="templateSubmit">추가</button>
+                <button type="button" class="secondary-button" id="templateNewBtn">새 템플릿</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <div class="csv-modal-actions">
+          <button type="button" class="secondary-button" data-tmpl-close>닫기</button>
         </div>
       </div>
     </dialog>

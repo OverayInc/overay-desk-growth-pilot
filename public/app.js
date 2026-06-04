@@ -1708,36 +1708,53 @@ function initMailModal() {
   if (!modal) return;
   let ctx = { profileId: null, gameId: null, recordId: null };
 
+  // Regenerate the draft from the currently selected template + language.
+  async function loadDraft() {
+    let draft = {};
+    try {
+      draft = await api("/api/email-drafts", {
+        method: "POST",
+        body: {
+          ...(ctx.recordId ? { creatorId: ctx.recordId } : { creatorProfileId: ctx.profileId }),
+          gameId: ctx.gameId,
+          templateId: $("#mailTemplate").value || undefined,
+          lang: $("#mailLang").value,
+        },
+      });
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
+    $("#mailTo").value = draft.to || "";
+    $("#mailSubject").value = draft.subject || "";
+    $("#mailBody").value = draft.body || "";
+    const utm = draft.utmLink || "";
+    $("#mailUtm").textContent = utm || "-";
+    $("#mailUtm").href = utm || "#";
+  }
+
   async function open(profileId, gameId) {
     const profile = state.creatorProfiles.find((p) => p.id === profileId);
     const game = state.games.find((g) => g.id === gameId);
     const rec = state.creators.find((c) => c.creatorProfileId === profileId && c.gameId === gameId);
     ctx = { profileId, gameId, recordId: rec?.id || null };
     $("#mailModalTitle").textContent = `메일 — ${profile?.channelName || ""} · ${game?.name || ""}`;
-    let draft = {};
-    try {
-      draft = await api("/api/email-drafts", {
-        method: "POST",
-        body: rec?.id ? { creatorId: rec.id, gameId } : { creatorProfileId: profileId, gameId },
-      });
-    } catch (error) {
-      showToast(error.message);
-      return;
-    }
-    $("#mailTo").value = draft.to || profile?.email || "";
-    $("#mailSubject").value = draft.subject || "";
-    $("#mailBody").value = draft.body || "";
-    const utm = draft.utmLink || "";
-    $("#mailUtm").textContent = utm || "-";
-    $("#mailUtm").href = utm || "#";
+    const templates = state.emailTemplates || [];
+    $("#mailTemplate").innerHTML =
+      '<option value="">(기본 양식)</option>' + templates.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join("");
+    $("#mailTemplate").value = templates.some((t) => t.id === "tmpl_review_request") ? "tmpl_review_request" : "";
+    $("#mailLang").value = /kr|ko|한국|korea/i.test(profile?.country || "") ? "ko" : "en";
     const email = state.settings?.email || {};
     $("#mailSmtpBtn").disabled = !email.configured;
     $("#mailStatusHint").textContent = email.configured
       ? `SMTP 발송 가능 (${email.mode || "smtp"})`
       : "SMTP 미설정 — '메일 앱으로 열기'로 보내세요.";
+    await loadDraft();
     modal.showModal();
   }
   openMailModal = open;
+  $("#mailTemplate").addEventListener("change", loadDraft);
+  $("#mailLang").addEventListener("change", loadDraft);
 
   const mailtoUrl = () =>
     `mailto:${encodeURIComponent($("#mailTo").value.trim())}?subject=${encodeURIComponent($("#mailSubject").value)}&body=${encodeURIComponent($("#mailBody").value)}`;
@@ -1916,6 +1933,7 @@ async function loadAll() {
     outreachLogs,
     youtube,
     redditPosts,
+    emailTemplates,
   ] = await Promise.all([
     api("/api/health"),
     api("/api/games"),
@@ -1933,6 +1951,7 @@ async function loadAll() {
     api(`/api/outreach-logs?${query}`),
     api("/api/youtube"),
     api(`/api/reddit-posts?${query}`),
+    api("/api/email-templates"),
   ]);
   state.games = games;
   state.storeListings = storeListings;
@@ -1958,6 +1977,7 @@ async function loadAll() {
     analyticsLoading: false,
   };
   state.redditPosts = redditPosts;
+  state.emailTemplates = emailTemplates;
   status.textContent = health.ok ? "API 정상" : "API 응답 확인 필요";
   status.classList.add(health.ok ? "ok" : "fail");
   renderAll();
@@ -2232,6 +2252,100 @@ function initMatrixModal() {
   });
 }
 
+// Email template manager modal (list + bilingual editor).
+function initTemplateManager() {
+  const modal = $("#templateModal");
+  if (!modal) return;
+  const form = $("#templateForm");
+
+  function renderList() {
+    const list = state.emailTemplates || [];
+    $("#templateList").innerHTML = list.length
+      ? list
+          .map(
+            (t) => `
+        <div class="tmpl-item">
+          <button type="button" class="tmpl-pick" data-tmpl-edit="${escapeHtml(t.id)}">
+            <span class="tmpl-name">${escapeHtml(t.name)}</span>
+            ${t.builtin ? '<span class="tmpl-badge">기본</span>' : ""}
+          </button>
+          <button type="button" class="icon-btn danger" data-tmpl-del="${escapeHtml(t.id)}" title="삭제" aria-label="삭제">${ICON_TRASH}</button>
+        </div>`,
+          )
+          .join("")
+      : '<div class="empty" style="padding:12px">템플릿이 없습니다.</div>';
+  }
+  function resetForm() {
+    form.reset();
+    form.elements.id.value = "";
+    $("#templateSubmit").textContent = "추가";
+  }
+  function fillForm(t) {
+    form.elements.id.value = t.id;
+    form.elements.name.value = t.name || "";
+    form.elements.subjectEn.value = t.subjectEn || "";
+    form.elements.bodyEn.value = t.bodyEn || "";
+    form.elements.subjectKo.value = t.subjectKo || "";
+    form.elements.bodyKo.value = t.bodyKo || "";
+    $("#templateSubmit").textContent = "수정 저장";
+  }
+
+  $("#openTemplatesBtn")?.addEventListener("click", () => {
+    renderList();
+    resetForm();
+    modal.showModal();
+  });
+  modal.querySelectorAll("[data-tmpl-close]").forEach((b) => b.addEventListener("click", () => modal.close()));
+  $("#templateNewBtn").addEventListener("click", resetForm);
+
+  $("#templateList").addEventListener("click", async (event) => {
+    const editBtn = event.target.closest("[data-tmpl-edit]");
+    if (editBtn) {
+      const t = state.emailTemplates.find((x) => x.id === editBtn.dataset.tmplEdit);
+      if (t) fillForm(t);
+      return;
+    }
+    const delBtn = event.target.closest("[data-tmpl-del]");
+    if (delBtn) {
+      const t = state.emailTemplates.find((x) => x.id === delBtn.dataset.tmplDel);
+      if (!t || !confirm(`'${t.name}' 템플릿을 삭제할까요?`)) return;
+      try {
+        await api(`/api/email-templates/${encodeURIComponent(t.id)}`, { method: "DELETE" });
+        showToast("삭제했습니다.");
+        if (form.elements.id.value === t.id) resetForm();
+        await loadAll();
+        renderList();
+      } catch (error) {
+        showToast(error.message);
+      }
+    }
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = formData(form);
+    const id = String(data.id || "").trim();
+    const submit = $("#templateSubmit");
+    submit.disabled = true;
+    try {
+      if (id) {
+        await api(`/api/email-templates/${encodeURIComponent(id)}`, { method: "PUT", body: data });
+        showToast("템플릿을 수정했습니다.");
+      } else {
+        await api("/api/email-templates", { method: "POST", body: data });
+        showToast("템플릿을 추가했습니다.");
+        resetForm();
+      }
+      await loadAll();
+      renderList();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
 function initForms() {
   bindForm("#gameForm", (data) =>
     api("/api/games", {
@@ -2333,6 +2447,7 @@ function initForms() {
   initCsvImportModal();
   initMatrixModal();
   initMailModal();
+  initTemplateManager();
 
   // Creator sort.
   $("#matrixSort")?.addEventListener("change", (event) => {

@@ -264,6 +264,106 @@ function defaultGames() {
   return [];
 }
 
+// Built-in outreach email templates (EN + KO). Placeholders: {{creator}} {{game}}
+// {{key}} {{utm}} {{embargo}} {{genre}}. Team signature is baked in.
+function defaultEmailTemplates() {
+  const t = (id, name, subjectEn, bodyEn, subjectKo, bodyKo) => ({
+    id,
+    name,
+    subjectEn,
+    bodyEn,
+    subjectKo,
+    bodyKo,
+    builtin: true,
+    createdAt: "2026-06-05T00:00:00.000Z",
+    updatedAt: "2026-06-05T00:00:00.000Z",
+  });
+  const sigEn = "— Immersed Player, Overay Inc.";
+  const sigKo = "— 오버레이(Overay Inc.) · Immersed Player 팀";
+  return [
+    t(
+      "tmpl_review_request",
+      "기본 리뷰 요청",
+      "{{game}} — Steam review key for {{creator}}",
+      `Hi {{creator}},\n\nWe're the team behind {{game}} at Immersed Player by Overay Inc. We love what you do and think {{game}} would resonate with your audience.\n\nWe'd be glad to send you a free Steam key for an honest review or video — no obligations.\n\nSteam page: {{utm}}\n\nJust reply and we'll send the key right away.\n\nThanks for considering it!\n${sigEn}`,
+      "{{game}} — {{creator}}님께 드리는 Steam 리뷰 키",
+      `안녕하세요 {{creator}}님,\n\n저희는 오버레이(Overay Inc.)의 Immersed Player 팀으로, {{game}}을(를) 만들고 있습니다. {{creator}}님의 콘텐츠를 즐겨 보고 있는데, {{game}}이(가) 채널 분위기와 잘 맞을 것 같아 연락드려요.\n\n부담 없이 솔직한 리뷰나 영상용으로 무료 Steam 키를 보내드리고 싶습니다.\n\nSteam 페이지: {{utm}}\n\n회신 주시면 바로 키를 보내드릴게요.\n\n검토해 주셔서 감사합니다!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_short_casual",
+      "짧고 캐주얼",
+      "Quick one — {{game}} key?",
+      `Hey {{creator}},\n\nBig fan of your channel. We made {{game}} and would love to get a key in your hands — totally up to you whether you cover it.\n\nWant me to send one over?\n\n{{utm}}\n\n${sigEn}`,
+      "간단히 — {{game}} 키 드릴까요?",
+      `안녕하세요 {{creator}}님!\n\n채널 잘 보고 있어요. 저희가 만든 {{game}} 키를 보내드리고 싶은데, 다루실지는 편하게 결정하셔도 됩니다.\n\n키 하나 보내드릴까요?\n\n{{utm}}\n\n${sigKo}`,
+    ),
+    t(
+      "tmpl_personalized",
+      "채널 맞춤",
+      "Loved your recent videos — {{game}} for {{creator}}",
+      `Hi {{creator}},\n\nI've been watching your recent uploads and the way you build tension is exactly the vibe of {{game}}. We're the dev team at Immersed Player by Overay Inc.\n\nWe'd love to offer you a Steam key. No strings — only if it fits your channel.\n\nMore here: {{utm}}\n\nHappy to answer anything.\n${sigEn}`,
+      "최근 영상 잘 봤어요 — {{creator}}님께 {{game}}",
+      `안녕하세요 {{creator}}님,\n\n최근 올리신 영상들을 보면서 긴장감을 쌓아가는 연출이 {{game}}의 분위기와 정말 잘 맞는다고 느꼈어요. 저희는 오버레이의 Immersed Player 개발팀입니다.\n\n부담 없이, 채널과 어울린다면 Steam 키를 드리고 싶어요.\n\n자세히: {{utm}}\n\n궁금한 점 있으면 언제든요.\n${sigKo}`,
+    ),
+    t(
+      "tmpl_horror",
+      "호러·분위기 게임",
+      "A horror experience for your channel — {{game}}",
+      `Hi {{creator}},\n\n{{game}} is an atmospheric horror experience, and your reactions would do it justice. We're Immersed Player by Overay Inc.\n\nWe'd be happy to send a Steam key for a playthrough or first-impressions. Best with headphones, in the dark. :)\n\n{{utm}}\n\n${sigEn}`,
+      "채널에 어울릴 호러 — {{game}}",
+      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 분위기로 몰입시키는 호러 게임이라, {{creator}}님의 리액션과 정말 잘 맞을 것 같아요. 저희는 오버레이의 Immersed Player 팀입니다.\n\n플레이 영상이나 첫인상용으로 Steam 키를 보내드릴게요. 헤드폰 끼고 어두운 데서 하시길 추천해요. :)\n\n{{utm}}\n\n${sigKo}`,
+    ),
+    t(
+      "tmpl_streamer",
+      "스트리머(라이브)",
+      "{{game}} — live-friendly key for {{creator}}",
+      `Hi {{creator}},\n\nWe think {{game}} streams really well — lots of moments that play off chat. We're the team at Immersed Player by Overay Inc.\n\nWe can send a Steam key if you'd like to try it on stream. No embargo unless noted: {{embargo}}\n\n{{utm}}\n\n${sigEn}`,
+      "{{game}} — {{creator}}님 방송용 키",
+      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 채팅과 함께 즐기기 좋은 순간이 많아 방송에 잘 어울려요. 저희는 오버레이의 Immersed Player 팀입니다.\n\n방송에서 해보고 싶으시면 Steam 키를 보내드릴게요. 별도 표기가 없으면 엠바고는 없습니다: {{embargo}}\n\n{{utm}}\n\n${sigKo}`,
+    ),
+    t(
+      "tmpl_curator",
+      "스팀 큐레이터",
+      "Curator key request — {{game}}",
+      `Hello {{creator}},\n\nWe'd like to offer your Steam Curator page a key for {{game}} from Immersed Player by Overay Inc. If it's a fit, a recommendation would mean a lot.\n\nStore page: {{utm}}\n\nReply and we'll add the key to your curator queue.\n\nThank you!\n${sigEn}`,
+      "큐레이터 키 요청 — {{game}}",
+      `안녕하세요 {{creator}}님,\n\n오버레이 Immersed Player 팀의 {{game}} 키를 큐레이터 페이지용으로 드리고 싶습니다. 잘 맞는다면 추천 한마디가 큰 힘이 됩니다.\n\n상점 페이지: {{utm}}\n\n회신 주시면 큐레이터 큐에 키를 추가해 드릴게요.\n\n감사합니다!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_press",
+      "매체·프레스",
+      "Press key & assets — {{game}}",
+      `Hello,\n\nI'm writing from Immersed Player by Overay Inc. regarding {{game}}. We'd be glad to provide a Steam press key plus a press kit (screenshots, trailer, fact sheet) for coverage consideration.\n\nReview embargo (if any): {{embargo}}\nStore page: {{utm}}\n\nHappy to arrange an interview or build.\n${sigEn}`,
+      "프레스 키 & 자료 — {{game}}",
+      `안녕하세요,\n\n오버레이 Immersed Player 팀에서 {{game}} 관련하여 연락드립니다. 기사 검토용으로 Steam 프레스 키와 보도자료(스크린샷·트레일러·팩트시트)를 제공해 드릴 수 있습니다.\n\n리뷰 엠바고(있는 경우): {{embargo}}\n상점 페이지: {{utm}}\n\n인터뷰나 빌드 제공도 가능합니다.\n${sigKo}`,
+    ),
+    t(
+      "tmpl_key_attached",
+      "키 동봉(바로 전달)",
+      "Your {{game}} Steam key is inside",
+      `Hi {{creator}},\n\nThanks for the interest in {{game}}! Here's your Steam key:\n\n{{key}}\n\nActivate on Steam → Games → Activate a Product. Coverage is entirely optional, but if you do, tagging the store page helps us a lot: {{utm}}\n\nEnjoy, and let us know if you hit any issues.\n${sigEn}`,
+      "{{game}} Steam 키를 보내드려요",
+      `안녕하세요 {{creator}}님,\n\n{{game}}에 관심 가져 주셔서 감사합니다! Steam 키 보내드려요:\n\n{{key}}\n\nSteam → 게임 → 제품 활성화에서 등록하시면 됩니다. 콘텐츠 제작은 자유지만, 진행하신다면 상점 페이지를 함께 태그해 주시면 큰 도움이 됩니다: {{utm}}\n\n즐겨 주시고, 문제 있으면 알려주세요!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_embargo",
+      "엠바고·출시일",
+      "{{game}} key + embargo details",
+      `Hi {{creator}},\n\nHere's a Steam key for {{game}} from Immersed Player by Overay Inc.\n\nPlease hold any coverage until the embargo lifts: {{embargo}}\nKey: {{key}}\nStore page: {{utm}}\n\nWe'll share assets and a changelog before launch. Thanks for keeping the date!\n${sigEn}`,
+      "{{game}} 키 + 엠바고 안내",
+      `안녕하세요 {{creator}}님,\n\n오버레이 Immersed Player 팀의 {{game}} Steam 키를 보내드립니다.\n\n공개는 엠바고 해제 이후로 부탁드려요: {{embargo}}\n키: {{key}}\n상점 페이지: {{utm}}\n\n출시 전에 자료와 변경사항을 공유드릴게요. 일정 지켜 주셔서 감사합니다!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_followup",
+      "팔로업·리마인더",
+      "Following up — {{game}} key for {{creator}}",
+      `Hi {{creator}},\n\nJust circling back on {{game}} — no worries if you've been busy. The offer for a free Steam key still stands whenever it suits you.\n\n{{utm}}\n\nHappy to send it over anytime.\n${sigEn}`,
+      "다시 한번 — {{creator}}님께 {{game}} 키",
+      `안녕하세요 {{creator}}님,\n\n{{game}} 관련해 다시 한번 가볍게 연락드려요. 바쁘셨다면 전혀 괜찮습니다! 무료 Steam 키 제안은 언제든 편하실 때 유효해요.\n\n{{utm}}\n\n원하시면 바로 보내드릴게요.\n${sigKo}`,
+    ),
+  ];
+}
+
 function defaultData() {
   const games = defaultGames();
   return {
@@ -278,6 +378,7 @@ function defaultData() {
     creatorProfiles: [],
     creators: [],
     influencerKeys: [],
+    emailTemplates: defaultEmailTemplates(),
     steamDailyMetrics: [],
     outreachLogs: [],
     steamSyncState: {
@@ -371,6 +472,8 @@ function normalizeData(data) {
   data.creatorProfiles ||= [];
   data.creators ||= [];
   data.influencerKeys ||= [];
+  data.emailTemplates ||= [];
+  if (!data.emailTemplates.length) data.emailTemplates = defaultEmailTemplates();
   data.steamDailyMetrics ||= [];
   data.outreachLogs ||= [];
   data.steamSyncState ||= {
@@ -1181,6 +1284,15 @@ function creatorProfilesWithStats(data) {
     .sort((a, b) => toNumber(b.fitScore) - toNumber(a.fitScore) || a.channelName.localeCompare(b.channelName));
 }
 
+// Replaces {{placeholder}} tokens; unknown/empty values become a visible [token] so the
+// sender notices to fill them in the editable composer.
+function fillTemplate(str, vars) {
+  return String(str || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => {
+    const value = vars[key];
+    return value !== undefined && value !== null && value !== "" ? String(value) : `[${key}]`;
+  });
+}
+
 function buildEmailDraft(data, input = {}) {
   const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
   const gameError = requireGame(data, gameId);
@@ -1212,24 +1324,42 @@ function buildEmailDraft(data, input = {}) {
       campaign: campaign?.id || slugify(campaign?.name || "creator_db"),
       content: contentSlug,
     });
-  const subject = input.subject || `${game.name} Steam key for creator preview`;
   const greetingName = profile.channelName || profile.handle || "there";
-  const body =
-    input.body ||
-    [
-      `Hi ${greetingName},`,
-      "",
-      `I'm reaching out from the team behind ${game.name}. We thought your channel could be a strong fit, especially for viewers who like ${game.genre || "indie games"}.`,
-      "",
-      "We can send a Steam key if you would like to try it for a short impressions video or stream.",
-      "",
-      `Steam page: ${link}`,
-      "",
-      "No pressure either way. If it looks relevant to your audience, I would be happy to send over the key and a small press note.",
-      "",
-      "Thanks,",
-      "Launch Pilot team",
-    ].join("\n");
+  const keyValue = creator?.steamKeyEncrypted ? decryptSecret(creator.steamKeyEncrypted) : "";
+  const vars = {
+    creator: greetingName,
+    game: game.name,
+    key: keyValue,
+    utm: link,
+    embargo: creator?.embargoAt || "",
+    genre: game.genre || "",
+  };
+  const template = input.templateId ? data.emailTemplates?.find((item) => item.id === input.templateId) : null;
+  const lang = input.lang === "ko" ? "ko" : "en";
+  let subject;
+  let body;
+  if (template) {
+    subject = input.subject || fillTemplate(lang === "ko" ? template.subjectKo : template.subjectEn, vars);
+    body = input.body || fillTemplate(lang === "ko" ? template.bodyKo : template.bodyEn, vars);
+  } else {
+    subject = input.subject || `${game.name} Steam key for creator preview`;
+    body =
+      input.body ||
+      [
+        `Hi ${greetingName},`,
+        "",
+        `I'm reaching out from the team behind ${game.name}. We thought your channel could be a strong fit, especially for viewers who like ${game.genre || "indie games"}.`,
+        "",
+        "We can send a Steam key if you would like to try it for a short impressions video or stream.",
+        "",
+        `Steam page: ${link}`,
+        "",
+        "No pressure either way. If it looks relevant to your audience, I would be happy to send over the key and a small press note.",
+        "",
+        "Thanks,",
+        "Immersed Player, Overay Inc.",
+      ].join("\n");
+  }
   const to = profile.email || creator?.email || "";
   const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   return {
@@ -3985,6 +4115,52 @@ async function handleApi(req, res, url) {
     const result = await sendOutreachEmail(data, input);
     await writeData(data);
     return respondJson(res, 200, result);
+  }
+
+  if (route === "GET /api/email-templates") {
+    return respondJson(res, 200, data.emailTemplates);
+  }
+  if (route === "POST /api/email-templates") {
+    const input = await readJson(req);
+    const name = String(input.name || "").trim();
+    if (!name) return respondError(res, 400, "템플릿 이름이 필요합니다.");
+    const tmpl = {
+      id: input.id || makeId("tmpl", name),
+      name,
+      subjectEn: String(input.subjectEn || "").trim(),
+      bodyEn: String(input.bodyEn || ""),
+      subjectKo: String(input.subjectKo || "").trim(),
+      bodyKo: String(input.bodyKo || ""),
+      builtin: false,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    data.emailTemplates.push(tmpl);
+    await writeData(data);
+    return respondJson(res, 201, tmpl);
+  }
+  const templateRoute = url.pathname.match(/^\/api\/email-templates\/([^/]+)$/);
+  if (templateRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const id = decodeURIComponent(templateRoute[1]);
+    const tmpl = data.emailTemplates.find((item) => item.id === id);
+    if (!tmpl) return respondError(res, 404, "템플릿을 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.name !== undefined) tmpl.name = String(input.name).trim() || tmpl.name;
+    if (input.subjectEn !== undefined) tmpl.subjectEn = String(input.subjectEn);
+    if (input.bodyEn !== undefined) tmpl.bodyEn = String(input.bodyEn);
+    if (input.subjectKo !== undefined) tmpl.subjectKo = String(input.subjectKo);
+    if (input.bodyKo !== undefined) tmpl.bodyKo = String(input.bodyKo);
+    tmpl.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, tmpl);
+  }
+  if (templateRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(templateRoute[1]);
+    const index = data.emailTemplates.findIndex((item) => item.id === id);
+    if (index < 0) return respondError(res, 404, "템플릿을 찾지 못했습니다.");
+    data.emailTemplates.splice(index, 1);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: id });
   }
 
   if (route === "GET /api/outreach-logs") {
