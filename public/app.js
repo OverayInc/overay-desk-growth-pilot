@@ -48,6 +48,69 @@ function money(value) {
   return currencyFormat.format(Number(value || 0));
 }
 
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("ko-KR");
+}
+
+const CREATOR_STATUS_LABELS = {
+  uncontacted: "미접촉",
+  sent: "발송",
+  review: "리뷰",
+  other: "기타",
+};
+
+const KEY_TYPE_LABELS = {
+  youtuber: "유튜버",
+  streamer: "스트리머",
+  reviewer: "리뷰어",
+  press: "매체",
+  curator: "큐레이터",
+  other: "기타",
+};
+
+// Real brand logos from the Simple Icons CDN (white glyph on a brand-colored badge).
+const PLATFORM_SLUGS = {
+  youtube: "youtube",
+  tiktok: "tiktok",
+  twitch: "twitch",
+  steam: "steam",
+  x: "x",
+  instagram: "instagram",
+  reddit: "reddit",
+  discord: "discord",
+  facebook: "facebook",
+};
+const WEB_GLOBE_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>';
+
+function platformIcon(platform) {
+  const key = String(platform || "web").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const slug = PLATFORM_SLUGS[key];
+  if (slug) {
+    return { key, html: `<img src="https://cdn.simpleicons.org/${slug}/white" alt="${key}" loading="lazy" />` };
+  }
+  return { key: "web", html: WEB_GLOBE_SVG };
+}
+
+// Stable 0-359 hue from a string, for monogram tinting.
+function hueFromString(s) {
+  let h = 0;
+  for (let i = 0; i < (s || "").length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+}
+function monogram(s) {
+  const t = (s || "").trim();
+  return t ? t[0].toUpperCase() : "?";
+}
+
+// Heroicons (outline) for row actions.
+const ICON_EDIT =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16.86 4.49l1.69-1.69a1.875 1.875 0 112.65 2.65l-10.6 10.6a4.5 4.5 0 01-1.9 1.13L6 18l.81-2.69a4.5 4.5 0 011.13-1.9l8.92-8.92zM19.5 7.13L16.86 4.5"/></svg>';
+const ICON_TRASH =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.74 9l-.35 9m-4.79 0L9.26 9M19.23 5.79a48 48 0 00-3.48-.4M4.77 5.79a48 48 0 013.48-.4m7.5 0V4.87c0-1.18-.91-2.16-2.09-2.2a51 51 0 00-3.32 0c-1.18.04-2.09 1.02-2.09 2.2v.92m7.5 0a48.67 48.67 0 00-7.5 0m9.68.95l-.66 10.1a2.25 2.25 0 01-2.25 2.1H8.7a2.25 2.25 0 01-2.25-2.1L5.79 6.74"/></svg>';
+
 function escapeHtml(value) {
   return text(value, "")
     .replaceAll("&", "&amp;")
@@ -259,7 +322,7 @@ function renderGameSelectors() {
   }
 
   const hasGames = state.games.length > 0;
-  for (const formId of ["#campaignForm", "#creatorForm", "#keyForm", "#csvForm", "#utmForm", "#gameSettingsForm", "#storeListingForm"]) {
+  for (const formId of ["#campaignForm", "#csvForm", "#utmForm", "#gameSettingsForm", "#storeListingForm"]) {
     const form = $(formId);
     if (!form) continue;
     form.querySelector("button[type='submit']").disabled = !hasGames;
@@ -1247,77 +1310,175 @@ function renderCampaigns() {
     .join("");
 }
 
-function renderCreatorProfiles() {
-  $("#creatorProfileCount").textContent = `프로필 ${number(state.creatorProfiles.length)}개`;
-  if (!state.creatorProfiles.length) {
-    $("#creatorProfileTable").innerHTML = '<tr><td data-label="상태" colspan="8"><span class="empty">공용 크리에이터 DB가 비어 있습니다.</span></td></tr>';
-    return;
-  }
-  $("#creatorProfileTable").innerHTML = state.creatorProfiles
-    .map((profile) => {
-      const games = profile.stats?.gameNames?.length ? profile.stats.gameNames.join(", ") : "-";
-      const canDraft = state.games.length ? "" : "disabled";
-      return `
-        <tr>
-          <td data-label="채널"><span class="cell-title">${escapeHtml(profile.channelName)}</span><span class="cell-sub">${escapeHtml(profile.platform)} @${escapeHtml(profile.handle)}</span></td>
-          <td data-label="연락처">${escapeHtml(profile.email || "-")}<span class="cell-sub">${escapeHtml(profile.country || "-")}</span></td>
-          <td data-label="태그"><div class="tag-row">${(profile.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div></td>
-          <td data-label="조회수" class="num">${number(profile.averageViews)}</td>
-          <td data-label="적합도" class="num">${number(profile.fitScore)}</td>
-          <td data-label="사용 게임">${escapeHtml(games)}<span class="cell-sub">아웃리치 ${number(profile.stats?.outreachCount)}회</span></td>
-          <td data-label="상태"><span class="status ${escapeHtml(profile.status)}">${escapeHtml(profile.status)}</span></td>
-          <td data-label="메일"><button class="secondary-button table-button" type="button" data-email-profile-id="${escapeHtml(profile.id)}" ${canDraft}>초안</button></td>
-        </tr>
-      `;
+// Channel-link icon badges for a profile (reused in the matrix name column).
+function channelIconsHtml(profile) {
+  if (!(profile.channels || []).length) return "";
+  return profile.channels
+    .map((ch) => {
+      const icon = platformIcon(ch.platform);
+      return `<a class="channel-icon plat-${icon.key}" href="${escapeHtml(ch.url)}" target="_blank" rel="noreferrer" title="${escapeHtml(ch.platform)} · ${escapeHtml(ch.url)}" aria-label="${escapeHtml(ch.platform)}">${icon.html}</a>`;
     })
     .join("");
 }
 
-function renderCreators() {
-  $("#creatorCount").textContent = `크리에이터 ${number(state.creators.length)}명`;
-  if (!state.creators.length) {
-    $("#creatorTable").innerHTML = '<tr><td data-label="상태" colspan="9"><span class="empty">크리에이터가 없습니다.</span></td></tr>';
-    return;
+function activationCell(record) {
+  const activation = record.steamActivation;
+  if (!activation) return '<span class="status reserved">미확인</span>';
+  const when = activation.checkedAt ? `확인 ${formatDateTime(activation.checkedAt)}` : "";
+  const manual = activation.source === "manual" ? " (수동)" : "";
+  if (activation.activated) {
+    const account = activation.account ? ` · ${escapeHtml(activation.account)}` : "";
+    return `<span class="status claimed" title="${escapeHtml(when)}${manual}">✅ 사용됨${account}</span>`;
   }
-  $("#creatorTable").innerHTML = state.creators
-    .map(
-      (creator) => `
-        <tr>
-          <td data-label="채널"><span class="cell-title">${escapeHtml(creator.channelName)}</span><span class="cell-sub">${escapeHtml(creator.platform)} ${escapeHtml(creator.email)}</span></td>
-          <td data-label="게임">${escapeHtml(creator.gameName || gameName(creator.gameId))}</td>
-          <td data-label="태그"><div class="tag-row">${(creator.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div></td>
-          <td data-label="국가">${escapeHtml(creator.country)}</td>
-          <td data-label="조회수" class="num">${number(creator.averageViews)}</td>
-          <td data-label="적합도" class="num">${number(creator.fitScore)}</td>
-          <td data-label="상태"><span class="status ${escapeHtml(creator.status)}">${escapeHtml(creator.status)}</span></td>
-          <td data-label="UTM" class="link-cell">${creator.utmLink ? `<a href="${escapeHtml(creator.utmLink)}" target="_blank" rel="noreferrer">열기</a>` : "-"}</td>
-          <td data-label="메일"><button class="secondary-button table-button" type="button" data-email-creator-id="${escapeHtml(creator.id)}">초안</button></td>
-        </tr>
-      `,
-    )
-    .join("");
+  if (activation.notFound) {
+    return `<span class="status revoked" title="${escapeHtml(when)}${manual}">키 없음</span>`;
+  }
+  return `<span class="status bounced" title="${escapeHtml(when)}${manual}">⛔ 미사용</span>`;
 }
 
-function renderKeys() {
-  $("#keyCount").textContent = `키 ${number(state.keys.length)}개`;
-  if (!state.keys.length) {
-    $("#keyTable").innerHTML = '<tr><td data-label="상태" colspan="6"><span class="empty">키 배포 기록이 없습니다.</span></td></tr>';
+// Compact cell for the creator × game matrix: summarizes one creator's state for one game.
+// Cells without a saved record default to "미접촉" (display only — no record is created
+// until the cell is edited and saved).
+function matrixCellContent(record, profileId, gameId) {
+  const status = record?.status || "uncontacted";
+  const a = record?.steamActivation;
+  const usage = a ? (a.activated ? '<span class="matrix-use ok" title="사용됨">✅</span>' : '<span class="matrix-use no" title="미사용">⛔</span>') : "";
+  // Quick "draft mail" shortcut for not-yet-contacted creators.
+  const mail =
+    status === "uncontacted"
+      ? `<button type="button" class="matrix-mail" data-matrix-mail="${escapeHtml(profileId)}|${escapeHtml(gameId)}" title="메일 초안 보내기" aria-label="메일">✉</button>`
+      : "";
+  const bits = [
+    `<span class="matrix-line"><span class="matrix-badge status ${escapeHtml(status)}${record ? "" : " is-empty"}">${escapeHtml(CREATOR_STATUS_LABELS[status] || status)}</span>${usage}${mail}</span>`,
+  ];
+  const code = record?.steamKey || record?.steamKeyMasked;
+  if (code) bits.push(`<span class="matrix-code" data-copy="${escapeHtml(code)}" title="클릭하여 복사: ${escapeHtml(code)}">🔑 ${escapeHtml(code)}</span>`);
+  if (record?.note) bits.push(`<span class="matrix-note" title="${escapeHtml(record.note)}">📝 ${escapeHtml(record.note)}</span>`);
+  return bits.join("");
+}
+
+// Creator × game matrix: rows = shared creator profiles, columns = games. Each cell is the
+// per-game creator record (mail/key/usage at a glance); click to edit/create it.
+function renderCreatorMatrix() {
+  const wrap = $("#creatorMatrixWrap");
+  if (!wrap) return;
+  const cookie = state.settings?.steam || {};
+  const cookieStatus = $("#keyTrackerCookieStatus");
+  if (cookieStatus) {
+    cookieStatus.textContent = cookie.partnerCookieConfigured ? "파트너 쿠키 설정됨" : "파트너 쿠키 미설정";
+    cookieStatus.className = `status-pill ${cookie.partnerCookieConfigured ? "ok" : "fail"}`;
+  }
+  const refreshBtn = $("#creatorRefreshAll");
+  if (refreshBtn) refreshBtn.disabled = !cookie.partnerCookieConfigured;
+  const allGames = state.games.filter((g) => !g.archived);
+  state.hiddenGames ||= new Set();
+  renderGameFilter(allGames);
+  const games = allGames.filter((g) => !state.hiddenGames.has(g.id));
+  // Per-profile aggregates for sorting.
+  const reviewCount = (id) => state.creators.filter((c) => c.creatorProfileId === id && c.status === "review").length;
+  const sentCount = (id) => state.creators.filter((c) => c.creatorProfileId === id && ["sent", "review"].includes(c.status)).length;
+  const sortMode = state.matrixSort || "name";
+  const profiles = [...state.creatorProfiles].sort((a, b) => {
+    if (sortMode === "reviews") return reviewCount(b.id) - reviewCount(a.id) || a.channelName.localeCompare(b.channelName);
+    if (sortMode === "sent") return sentCount(b.id) - sentCount(a.id) || a.channelName.localeCompare(b.channelName);
+    if (sortMode === "fit") return toNumber(b.fitScore) - toNumber(a.fitScore) || a.channelName.localeCompare(b.channelName);
+    return a.channelName.localeCompare(b.channelName);
+  });
+  $("#creatorMatrixCount").textContent = `${number(profiles.length)}명 × ${number(games.length)}/${number(allGames.length)}게임`;
+  if (!profiles.length || !allGames.length) {
+    wrap.innerHTML = '<div class="empty" style="padding:16px">크리에이터와 게임이 있어야 매트릭스가 표시됩니다.</div>';
     return;
   }
-  $("#keyTable").innerHTML = state.keys
-    .map(
-      (key) => `
-        <tr>
-          <td data-label="수신자"><span class="cell-title">${escapeHtml(key.recipientName)}</span><span class="cell-sub">${escapeHtml(key.recipientEmail)}</span></td>
-          <td data-label="게임">${escapeHtml(key.gameName || gameName(key.gameId))}</td>
-          <td data-label="상태"><span class="status ${escapeHtml(key.status)}">${escapeHtml(key.status)}</span></td>
-          <td data-label="키">${escapeHtml(key.steamKeyMasked || "-")}</td>
-          <td data-label="캠페인">${escapeHtml(key.campaignName || key.campaignId || "-")}</td>
-          <td data-label="메모">${escapeHtml(key.note || "-")}</td>
-        </tr>
-      `,
-    )
+  if (!games.length) {
+    wrap.innerHTML = '<div class="empty" style="padding:16px">표시할 게임을 필터에서 선택하세요.</div>';
+    return;
+  }
+  // index per-game records by profile+game
+  const byKey = new Map();
+  for (const c of state.creators) byKey.set(`${c.creatorProfileId}::${c.gameId}`, c);
+  const gameHead = games
+    .map((g) => {
+      const thumb = g.imageUrl
+        ? `<img class="matrix-game-thumb" src="${escapeHtml(g.imageUrl)}" alt="" loading="lazy" />`
+        : `<span class="matrix-game-thumb placeholder" style="--mono-h:${hueFromString(g.name)}" aria-hidden="true">${escapeHtml(monogram(g.name))}</span>`;
+      return `<th class="matrix-game-col"><div class="matrix-game-head">${thumb}<span>${escapeHtml(g.name)}</span></div></th>`;
+    })
     .join("");
+  const head = `<tr><th class="matrix-name-col">크리에이터</th><th class="matrix-chan-col">채널</th><th class="matrix-act-col">관리</th>${gameHead}<th class="matrix-spacer"></th></tr>`;
+  const body = profiles
+    .map((p) => {
+      const cells = games
+        .map((g) => {
+          const rec = byKey.get(`${p.id}::${g.id}`);
+          return `<td class="matrix-cell-td"><div class="matrix-cell" role="button" tabindex="0" data-matrix-profile="${escapeHtml(p.id)}" data-matrix-game="${escapeHtml(g.id)}">${matrixCellContent(rec, p.id, g.id)}</div></td>`;
+        })
+        .join("");
+      const icons = channelIconsHtml(p);
+      const sub = p.email
+        ? `<span class="cell-sub cell-copy" data-copy="${escapeHtml(p.email)}" title="클릭하여 이메일 복사">${escapeHtml(p.email)}</span>`
+        : `<span class="cell-sub">${escapeHtml(p.country || "")}</span>`;
+      const nameCell = `<td class="matrix-name-col"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${sub}</td>`;
+      const chanCell = `<td class="matrix-chan-col"><div class="channel-links">${icons || '<span class="cell-sub">-</span>'}</div></td>`;
+      const actions = `<td class="matrix-act-col"><div class="icon-actions">
+        <button type="button" class="icon-btn" data-edit-profile="${escapeHtml(p.id)}" title="편집" aria-label="편집">${ICON_EDIT}</button>
+        <button type="button" class="icon-btn danger" data-del-profile="${escapeHtml(p.id)}" title="삭제" aria-label="삭제">${ICON_TRASH}</button>
+      </div></td>`;
+      return `<tr>${nameCell}${chanCell}${actions}${cells}<td class="matrix-spacer"></td></tr>`;
+    })
+    .join("");
+  wrap.innerHTML = `<table class="matrix-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+// Game-column visibility filter (helps when many games make the matrix too wide).
+function renderGameFilter(allGames) {
+  const panel = $("#matrixGameFilter");
+  if (!panel) return;
+  const shown = allGames.filter((g) => !state.hiddenGames.has(g.id)).length;
+  $("#matrixGameFilterSummary").textContent = `게임 ${shown}/${allGames.length}`;
+  panel.innerHTML =
+    allGames
+      .map(
+        (g) =>
+          `<label class="matrix-filter-item"><input type="checkbox" data-game-toggle="${escapeHtml(g.id)}" ${state.hiddenGames.has(g.id) ? "" : "checked"} /> ${escapeHtml(g.name)}</label>`,
+      )
+      .join("") + '<div class="matrix-filter-actions"><button type="button" id="matrixGameAll">전체</button><button type="button" id="matrixGameNone">모두 해제</button></div>';
+}
+
+// Renders a CSV preview into the import modal. `type` is "keys" (per-game tracker) or
+// "profiles" (shared creator DB), which selects the column layout.
+function renderCsvModalPreview(preview, type) {
+  const head =
+    type === "profiles"
+      ? "<th>채널</th><th>플랫폼</th><th>이메일</th><th>태그</th><th>조회수</th><th>적합도</th>"
+      : "<th>대상</th><th>구분</th><th>연락처</th><th>국가</th><th>Key</th><th>발송일</th><th>상태</th>";
+  const colspan = type === "profiles" ? 6 : 7;
+  const rowHtml = (row) =>
+    type === "profiles"
+      ? `<tr><td>${escapeHtml(row.channelName)}</td><td>${escapeHtml(row.platform)}</td><td>${escapeHtml(row.email || "-")}</td><td>${escapeHtml((row.tags || []).join(", "))}</td><td class="num">${number(row.averageViews)}</td><td class="num">${number(row.fitScore)}</td></tr>`
+      : `<tr><td>${escapeHtml(row.channelName)}</td><td>${escapeHtml(KEY_TYPE_LABELS[row.recipientType] || row.recipientType || "-")}</td><td>${escapeHtml(row.email || "-")}</td><td>${escapeHtml(row.country || "-")}</td><td><code>${escapeHtml(row.steamKeyMasked)}</code></td><td>${escapeHtml(row.sentAt || "-")}</td><td>${escapeHtml(CREATOR_STATUS_LABELS[row.status] || row.status)}</td></tr>`;
+  $("#csvModalPreview").innerHTML = `
+    <div class="preview-grid">
+      <div class="preview-stats">
+        <span>${number(preview.totalRows)} rows</span>
+        <span>${number(preview.newRows)} new</span>
+        <span>${number(preview.updateRows)} update</span>
+        <span>${number(preview.duplicateRows)} duplicate</span>
+      </div>
+      ${preview.warnings?.length ? `<div class="empty">${preview.warnings.map((w) => escapeHtml(w)).join("<br>")}</div>` : ""}
+      <div class="table-wrap compact">
+        <table>
+          <thead><tr>${head}</tr></thead>
+          <tbody>
+            ${
+              preview.previewRows?.length
+                ? preview.previewRows.map(rowHtml).join("")
+                : `<tr><td colspan="${colspan}"><span class="empty">미리볼 행이 없습니다.</span></td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderMetrics() {
@@ -1420,6 +1581,13 @@ function renderSettings() {
   steamStatus.textContent = steam.configured ? steam.source : "missing";
   steamStatus.className = `status-pill ${steam.configured ? "ok" : "fail"}`;
   $("#steamSettingsMeta").textContent = steam.configured ? `key ${steam.keyMasked || "stored"}` : "key not configured";
+  const cookieMeta = $("#steamPartnerCookieMeta");
+  if (cookieMeta) {
+    cookieMeta.textContent = steam.partnerCookieConfigured
+      ? `설정됨 ${steam.partnerCookieUpdatedAt ? `(${formatDateTime(steam.partnerCookieUpdatedAt)})` : ""}`
+      : "미설정";
+    cookieMeta.className = steam.partnerCookieConfigured ? "muted ok-text" : "muted";
+  }
 
   const emailStatus = $("#emailSettingsStatus");
   emailStatus.textContent = email.configured ? email.mode : "missing";
@@ -1450,6 +1618,8 @@ function renderSettings() {
   const steamForm = $("#steamSettingsForm");
   steamForm.elements.steamFinancialApiKey.value = "";
   steamForm.elements.clearSteamFinancialApiKey.checked = false;
+  if (steamForm.elements.steamPartnerCookie) steamForm.elements.steamPartnerCookie.value = "";
+  if (steamForm.elements.clearSteamPartnerCookie) steamForm.elements.clearSteamPartnerCookie.checked = false;
 
   const form = $("#emailSettingsForm");
   const values = settings.form || {};
@@ -1530,67 +1700,118 @@ function renderSyncRunDetail(run) {
   `;
 }
 
-function renderEmailDraft(draft) {
-  state.currentEmailDraft = draft;
-  $("#emailDraftResult").innerHTML = `
-    <div class="email-draft">
-      <header>
-        <div>
-          <strong>${escapeHtml(draft.subject)}</strong>
-          <span>${escapeHtml(draft.to || "수신 이메일 없음")}</span>
-        </div>
-        <div class="button-row">
-          <a href="${escapeHtml(draft.mailto)}">메일 앱 열기</a>
-          <button type="button" id="sendDraftButton">실제 발송</button>
-        </div>
-      </header>
-      <textarea readonly>${escapeHtml(draft.body)}</textarea>
-      <div class="link-cell"><a href="${escapeHtml(draft.utmLink)}" target="_blank" rel="noreferrer">${escapeHtml(draft.utmLink)}</a></div>
-    </div>
-  `;
-}
+// Dedicated mail compose modal: editable to/subject/body, open-in-mail-app or SMTP send,
+// and marks the creator as 발송 automatically.
+let openMailModal = null;
+function initMailModal() {
+  const modal = $("#mailModal");
+  if (!modal) return;
+  let ctx = { profileId: null, gameId: null, recordId: null };
 
-function renderCreatorCsvPreview(preview) {
-  $("#creatorCsvPreviewResult").innerHTML = `
-    <div class="preview-grid">
-      <div class="preview-stats">
-        <span>${number(preview.totalRows)} rows</span>
-        <span>${number(preview.newRows)} new</span>
-        <span>${number(preview.updateRows)} update</span>
-        <span>${number(preview.duplicateRows)} duplicate</span>
-      </div>
-      ${
-        preview.warnings?.length
-          ? `<div class="empty">${preview.warnings.map((warning) => escapeHtml(warning)).join("<br>")}</div>`
-          : ""
+  async function open(profileId, gameId) {
+    const profile = state.creatorProfiles.find((p) => p.id === profileId);
+    const game = state.games.find((g) => g.id === gameId);
+    const rec = state.creators.find((c) => c.creatorProfileId === profileId && c.gameId === gameId);
+    ctx = { profileId, gameId, recordId: rec?.id || null };
+    $("#mailModalTitle").textContent = `메일 — ${profile?.channelName || ""} · ${game?.name || ""}`;
+    let draft = {};
+    try {
+      draft = await api("/api/email-drafts", {
+        method: "POST",
+        body: rec?.id ? { creatorId: rec.id, gameId } : { creatorProfileId: profileId, gameId },
+      });
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
+    $("#mailTo").value = draft.to || profile?.email || "";
+    $("#mailSubject").value = draft.subject || "";
+    $("#mailBody").value = draft.body || "";
+    const utm = draft.utmLink || "";
+    $("#mailUtm").textContent = utm || "-";
+    $("#mailUtm").href = utm || "#";
+    const email = state.settings?.email || {};
+    $("#mailSmtpBtn").disabled = !email.configured;
+    $("#mailStatusHint").textContent = email.configured
+      ? `SMTP 발송 가능 (${email.mode || "smtp"})`
+      : "SMTP 미설정 — '메일 앱으로 열기'로 보내세요.";
+    modal.showModal();
+  }
+  openMailModal = open;
+
+  const mailtoUrl = () =>
+    `mailto:${encodeURIComponent($("#mailTo").value.trim())}?subject=${encodeURIComponent($("#mailSubject").value)}&body=${encodeURIComponent($("#mailBody").value)}`;
+
+  // Bump the creator to 발송 (create the per-game record if it doesn't exist yet).
+  async function markContacted() {
+    if (ctx.recordId) {
+      const rec = state.creators.find((c) => c.id === ctx.recordId);
+      if (rec && rec.status === "uncontacted") {
+        await api(`/api/creators/${encodeURIComponent(ctx.recordId)}`, { method: "PUT", body: { status: "sent" } });
       }
-      <div class="table-wrap compact">
-        <table>
-          <thead><tr><th>채널</th><th>플랫폼</th><th>이메일</th><th>태그</th><th>조회수</th><th>적합도</th></tr></thead>
-          <tbody>
-            ${
-              preview.previewRows?.length
-                ? preview.previewRows
-                    .map(
-                      (row) => `
-                        <tr>
-                          <td data-label="채널">${escapeHtml(row.channelName)}</td>
-                          <td data-label="플랫폼">${escapeHtml(row.platform)}</td>
-                          <td data-label="이메일">${escapeHtml(row.email || "-")}</td>
-                          <td data-label="태그">${escapeHtml((row.tags || []).join(", "))}</td>
-                          <td data-label="조회수" class="num">${number(row.averageViews)}</td>
-                          <td data-label="적합도" class="num">${number(row.fitScore)}</td>
-                        </tr>
-                      `,
-                    )
-                    .join("")
-                : '<tr><td data-label="상태" colspan="6"><span class="empty">미리볼 행이 없습니다.</span></td></tr>'
-            }
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+    } else {
+      const profile = state.creatorProfiles.find((p) => p.id === ctx.profileId);
+      await api("/api/creators", {
+        method: "POST",
+        body: { gameId: ctx.gameId, creatorProfileId: ctx.profileId, channelName: profile?.channelName || "", email: profile?.email || "", status: "sent" },
+      });
+    }
+  }
+
+  modal.querySelectorAll("[data-mail-close]").forEach((b) => b.addEventListener("click", () => modal.close()));
+  $("#mailCopyBody").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($("#mailBody").value);
+      showToast("본문을 복사했습니다.");
+    } catch {
+      showToast("복사 실패 — 직접 선택해 복사하세요.");
+    }
+  });
+  $("#mailCopyUtm").addEventListener("click", async () => {
+    const u = $("#mailUtm").textContent;
+    if (!u || u === "-") return;
+    try {
+      await navigator.clipboard.writeText(u);
+      showToast("링크를 복사했습니다.");
+    } catch {
+      showToast("복사 실패");
+    }
+  });
+  $("#mailOpenBtn").addEventListener("click", async () => {
+    window.open(mailtoUrl(), "_blank");
+    try {
+      await markContacted();
+    } catch (error) {
+      showToast(error.message);
+    }
+    showToast("메일 앱을 열었습니다 · 상태: 발송");
+    modal.close();
+    await loadAll();
+  });
+  $("#mailSmtpBtn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      const draft = {
+        to: $("#mailTo").value.trim(),
+        subject: $("#mailSubject").value,
+        body: $("#mailBody").value,
+        utmLink: $("#mailUtm").textContent,
+        gameId: ctx.gameId,
+        creatorId: ctx.recordId || "",
+        creatorProfileId: ctx.recordId ? "" : ctx.profileId,
+      };
+      const result = await api("/api/email-send", { method: "POST", body: { draft } });
+      await markContacted();
+      showToast(result.message || result.status || "발송 처리했습니다.");
+      modal.close();
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function renderCsvPreview(preview) {
@@ -1651,32 +1872,13 @@ function downloadJson(filename, data) {
   URL.revokeObjectURL(url);
 }
 
-async function createEmailDraft(payload) {
-  const gameId = selectedGameForForms();
-  if (!gameId) {
-    showToast("메일 초안을 만들 게임을 먼저 추가하세요.");
-    return;
-  }
-  const draft = await api("/api/email-drafts", {
-    method: "POST",
-    body: {
-      ...payload,
-      gameId,
-    },
-  });
-  renderEmailDraft(draft);
-  showToast("메일 초안을 만들었습니다.");
-}
-
 function renderAll() {
   renderGameSelectors();
   renderGameAdmin();
   renderDashboard();
   renderReadiness();
   renderCampaigns();
-  renderCreatorProfiles();
-  renderCreators();
-  renderKeys();
+  renderCreatorMatrix();
   renderMetrics();
   renderSyncStatus();
   renderSyncSchedule();
@@ -1706,7 +1908,6 @@ async function loadAll() {
     campaigns,
     creatorProfiles,
     creators,
-    keys,
     metrics,
     syncStatus,
     syncSchedule,
@@ -1723,8 +1924,7 @@ async function loadAll() {
     api("/api/readiness"),
     api(`/api/campaigns?${query}`),
     api("/api/creator-profiles"),
-    api(`/api/creators?${query}`),
-    api(`/api/keys?${query}`),
+    api("/api/creators?gameId=all"),
     api(`/api/steam-metrics?${query}`),
     api("/api/steam-sync/status"),
     api("/api/sync-schedule"),
@@ -1741,7 +1941,6 @@ async function loadAll() {
   state.campaigns = campaigns;
   state.creatorProfiles = creatorProfiles;
   state.creators = creators;
-  state.keys = keys;
   state.metrics = metrics;
   state.syncStatus = syncStatus;
   state.syncSchedule = syncSchedule;
@@ -1792,6 +1991,247 @@ function bindForm(selector, handler, options = {}) {
   });
 }
 
+// CSV import is occasional, so it lives in a dedicated modal (one dialog reused for both the
+// per-game key tracker and the shared creator DB) rather than cluttering each section inline.
+function initCsvImportModal() {
+  const modal = $("#csvImportModal");
+  if (!modal) return;
+  const CONFIG = {
+    keys: {
+      title: "키 트래커 CSV 가져오기 (엑셀 형식)",
+      game: true,
+      previewPath: "/api/import/key-csv/preview",
+      importPath: "/api/import/key-csv",
+      placeholder: "No,Key,대상,대상 구분,연락처,국가/언어,발송일,엠바고 (KST),상태,채널/프로필 URL,메모",
+    },
+    profiles: {
+      title: "공용 크리에이터 DB CSV 가져오기",
+      game: false,
+      previewPath: "/api/import/creator-csv/preview",
+      importPath: "/api/import/creator-csv",
+      placeholder: "channelName,platform,email,country,tags,averageViews,fitScore",
+    },
+  };
+  let current = "keys";
+  const fileEl = $("#csvModalFile");
+  const textEl = $("#csvModalText");
+  const gameSel = $("#csvModalGame");
+
+  const bodyFor = () => {
+    const body = { csvText: textEl.value };
+    if (CONFIG[current].game) body.gameId = gameSel.value || selectedGameForForms();
+    return body;
+  };
+
+  function open(type) {
+    current = CONFIG[type] ? type : "keys";
+    const cfg = CONFIG[current];
+    $("#csvModalTitle").textContent = cfg.title;
+    $("#csvModalGameWrap").style.display = cfg.game ? "" : "none";
+    textEl.placeholder = cfg.placeholder;
+    textEl.value = "";
+    fileEl.value = "";
+    $("#csvModalPreview").innerHTML = "";
+    if (cfg.game && state.selectedGameId !== "all") gameSel.value = state.selectedGameId;
+    modal.showModal();
+  }
+
+  async function preview() {
+    try {
+      const result = await api(CONFIG[current].previewPath, { method: "POST", body: bodyFor() });
+      renderCsvModalPreview(result, current);
+    } catch (error) {
+      showToast(error.message);
+    }
+  }
+
+  document.querySelectorAll("[data-open-csv]").forEach((btn) =>
+    btn.addEventListener("click", () => open(btn.getAttribute("data-open-csv"))),
+  );
+  modal.querySelectorAll("[data-csv-close]").forEach((btn) => btn.addEventListener("click", () => modal.close()));
+
+  fileEl.addEventListener("change", async () => {
+    if (!fileEl.files?.length) return;
+    const file = fileEl.files[0];
+    try {
+      let text = await file.text();
+      if (text.charCodeAt(0) === 0xfeff) text = text.slice(1); // strip UTF-8 BOM
+      textEl.value = text;
+      showToast(`${file.name} 불러왔습니다.`);
+      await preview();
+    } catch (error) {
+      showToast(`파일을 읽지 못했습니다: ${error.message}`);
+    } finally {
+      fileEl.value = ""; // allow re-selecting the same file
+    }
+  });
+
+  $("#csvModalPreviewBtn").addEventListener("click", preview);
+
+  $("#csvModalImportBtn").addEventListener("click", async (event) => {
+    if (!textEl.value.trim()) {
+      showToast("CSV 내용이 비어 있습니다.");
+      return;
+    }
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      const result = await api(CONFIG[current].importPath, { method: "POST", body: bodyFor() });
+      showToast(`${number(result.imported)}개 추가, ${number(result.updated)}개 갱신`);
+      modal.close();
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// Matrix cell editor: edit (or create) one creator's per-game record from the matrix.
+let openMatrixCell = null;
+function initMatrixModal() {
+  const modal = $("#matrixCellModal");
+  if (!modal) return;
+  let ctx = { profileId: null, gameId: null, recordId: null };
+
+  function openCell(profileId, gameId) {
+    const profile = state.creatorProfiles.find((p) => p.id === profileId);
+    const game = state.games.find((g) => g.id === gameId);
+    const rec = state.creators.find((c) => c.creatorProfileId === profileId && c.gameId === gameId);
+    ctx = { profileId, gameId, recordId: rec?.id || null };
+    $("#matrixModalTitle").textContent = `${profile?.channelName || "크리에이터"} · ${game?.name || "게임"}`;
+    $("#matrixStatus").value = rec?.status || "uncontacted";
+    $("#matrixKey").value = rec?.steamKey || "";
+    $("#matrixKeyCopy").hidden = !rec?.steamKey;
+    $("#matrixSentAt").value = rec?.sentAt || "";
+    $("#matrixEmbargo").value = rec?.embargoAt || "";
+    $("#matrixNote").value = rec?.note || "";
+    const a = rec?.steamActivation;
+    $("#matrixUsage").textContent = a
+      ? `사용여부: ${a.activated ? `사용됨${a.account ? ` (${a.account})` : ""}` : "미사용"} · 확인 ${formatDateTime(a.checkedAt)}`
+      : "사용여부: 미확인";
+    $("#matrixDeleteBtn").hidden = !rec;
+    $("#matrixCheckBtn").disabled = !rec?.steamKeyMasked;
+    modal.showModal();
+  }
+
+  openMatrixCell = openCell; // expose so the per-game table's 편집 button can reuse this editor
+
+  $("#creatorMatrixWrap").addEventListener("click", async (event) => {
+    // Click an email to copy it to the clipboard.
+    const copyEl = event.target.closest("[data-copy]");
+    if (copyEl) {
+      event.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(copyEl.getAttribute("data-copy"));
+        showToast("클립보드에 복사했습니다.");
+      } catch {
+        showToast("복사 실패 — 직접 선택해 복사하세요.");
+      }
+      return;
+    }
+    // Quick "메일" shortcut on uncontacted cells: open the dedicated mail composer.
+    const mailBtn = event.target.closest("[data-matrix-mail]");
+    if (mailBtn) {
+      event.stopPropagation();
+      const [profileId, gameId] = mailBtn.getAttribute("data-matrix-mail").split("|");
+      if (openMailModal) openMailModal(profileId, gameId);
+      return;
+    }
+    if (event.target.closest("[data-edit-profile], [data-del-profile]")) return; // handled elsewhere
+    const cell = event.target.closest("[data-matrix-profile]");
+    if (!cell) return;
+    openCell(cell.getAttribute("data-matrix-profile"), cell.getAttribute("data-matrix-game"));
+  });
+
+  modal.querySelectorAll("[data-matrix-close]").forEach((b) => b.addEventListener("click", () => modal.close()));
+
+  $("#matrixSaveBtn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      const profile = state.creatorProfiles.find((p) => p.id === ctx.profileId);
+      const body = {
+        status: $("#matrixStatus").value,
+        sentAt: $("#matrixSentAt").value,
+        embargoAt: $("#matrixEmbargo").value,
+        note: $("#matrixNote").value,
+        steamKey: $("#matrixKey").value.trim(), // always sent — empty clears the key
+      };
+      if (ctx.recordId) {
+        await api(`/api/creators/${encodeURIComponent(ctx.recordId)}`, { method: "PUT", body });
+      } else {
+        await api("/api/creators", {
+          method: "POST",
+          body: {
+            ...body,
+            gameId: ctx.gameId,
+            creatorProfileId: ctx.profileId,
+            channelName: profile?.channelName || "",
+            email: profile?.email || "",
+            country: profile?.country || "",
+            platform: profile?.platform || "",
+          },
+        });
+      }
+      showToast("저장했습니다.");
+      modal.close();
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#matrixCheckBtn").addEventListener("click", async (event) => {
+    if (!ctx.recordId) return;
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      await api(`/api/creators/${encodeURIComponent(ctx.recordId)}/check-activation`, { method: "POST" });
+      showToast("사용여부를 확인했습니다.");
+      await loadAll();
+      openCell(ctx.profileId, ctx.gameId); // refresh displayed usage
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#matrixDraftBtn").addEventListener("click", () => {
+    const { profileId, gameId } = ctx;
+    modal.close();
+    if (openMailModal) openMailModal(profileId, gameId);
+  });
+
+  $("#matrixKeyCopy").addEventListener("click", async () => {
+    const value = $("#matrixKey").value.trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast("코드를 복사했습니다.");
+    } catch {
+      showToast("복사 실패 — 직접 선택해 복사하세요.");
+    }
+  });
+
+  $("#matrixDeleteBtn").addEventListener("click", async () => {
+    if (!ctx.recordId) return;
+    if (!confirm("이 게임의 기록을 삭제할까요?")) return;
+    try {
+      await api(`/api/creators/${encodeURIComponent(ctx.recordId)}`, { method: "DELETE" });
+      showToast("삭제했습니다.");
+      modal.close();
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+}
+
 function initForms() {
   bindForm("#gameForm", (data) =>
     api("/api/games", {
@@ -1824,39 +2264,125 @@ function initForms() {
     }),
   );
 
-  bindForm("#creatorProfileForm", (data) =>
-    api("/api/creator-profiles", {
-      method: "POST",
-      body: data,
-    }),
-  );
+  // Creator profile add/edit lives in a compact modal; one form handles both (hidden id).
+  const profileModal = $("#profileModal");
+  const profileForm = $("#creatorProfileForm");
+  function openProfileModal(profile) {
+    profileForm.reset();
+    profileForm.elements.id.value = profile?.id || "";
+    profileForm.elements.channelName.value = profile?.channelName || "";
+    profileForm.elements.links.value = (profile?.channels || []).map((c) => c.url).join("\n");
+    profileForm.elements.email.value = profile?.email || "";
+    profileForm.elements.country.value = profile?.country || "";
+    profileForm.elements.tags.value = (profile?.tags || []).join(", ");
+    profileForm.elements.averageViews.value = profile?.averageViews || "";
+    profileForm.elements.fitScore.value = profile?.fitScore || "";
+    $("#profileModalTitle").textContent = profile ? "크리에이터 편집" : "크리에이터 추가";
+    $("#creatorProfileSubmit").textContent = profile ? "수정 저장" : "추가";
+    profileModal.showModal();
+  }
+  $("#openProfileAddBtn")?.addEventListener("click", () => openProfileModal(null));
+  profileModal?.querySelectorAll("[data-profile-close]").forEach((b) => b.addEventListener("click", () => profileModal.close()));
 
-  bindForm(
-    "#creatorCsvForm",
-    async (data, form) => {
-      const result = await api("/api/import/creator-csv", {
+  profileForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = $("#creatorProfileSubmit");
+    submit.disabled = true;
+    try {
+      const data = formData(profileForm);
+      const id = String(data.id || "").trim();
+      if (id) {
+        await api(`/api/creator-profiles/${encodeURIComponent(id)}`, { method: "PUT", body: data });
+        showToast("크리에이터를 수정했습니다.");
+      } else {
+        await api("/api/creator-profiles", { method: "POST", body: data });
+        showToast("크리에이터를 추가했습니다.");
+      }
+      profileModal.close();
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  // Row 편집/삭제 buttons live in the matrix table now.
+  $("#creatorMatrixWrap").addEventListener("click", async (event) => {
+    const editBtn = event.target.closest("[data-edit-profile]");
+    if (editBtn) {
+      const p = state.creatorProfiles.find((x) => x.id === editBtn.dataset.editProfile);
+      if (p) openProfileModal(p);
+      return;
+    }
+    const delBtn = event.target.closest("[data-del-profile]");
+    if (delBtn) {
+      const p = state.creatorProfiles.find((x) => x.id === delBtn.dataset.delProfile);
+      if (!p) return;
+      if (!confirm(`'${p.channelName}' 크리에이터를 삭제할까요? (게임별 키/상태 기록은 남습니다)`)) return;
+      try {
+        await api(`/api/creator-profiles/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+        showToast("삭제했습니다.");
+        await loadAll();
+      } catch (error) {
+        showToast(error.message);
+      }
+    }
+  });
+
+  initCsvImportModal();
+  initMatrixModal();
+  initMailModal();
+
+  // Creator sort.
+  $("#matrixSort")?.addEventListener("change", (event) => {
+    state.matrixSort = event.target.value;
+    renderCreatorMatrix();
+  });
+
+  // Game-column visibility filter.
+  $("#matrixGameFilter").addEventListener("change", (event) => {
+    const box = event.target.closest("[data-game-toggle]");
+    if (!box) return;
+    const id = box.getAttribute("data-game-toggle");
+    if (box.checked) state.hiddenGames.delete(id);
+    else state.hiddenGames.add(id);
+    renderCreatorMatrix();
+  });
+  $("#matrixGameFilter").addEventListener("click", (event) => {
+    const allGames = state.games.filter((g) => !g.archived);
+    if (event.target.closest("#matrixGameAll")) {
+      state.hiddenGames.clear();
+      renderCreatorMatrix();
+    } else if (event.target.closest("#matrixGameNone")) {
+      state.hiddenGames = new Set(allGames.map((g) => g.id));
+      renderCreatorMatrix();
+    }
+  });
+
+  $("#creatorRefreshAll").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "조회 중…";
+    try {
+      const result = await api("/api/creators/check-activation", {
         method: "POST",
-        body: { csvText: data.csvText },
+        body: { gameId: "all" },
       });
-      showToast(`${result.imported}개 추가, ${result.updated}개 갱신`);
-      form.querySelector("textarea").value = data.csvText;
-    },
-    { keepValues: true },
-  );
-
-  bindForm("#creatorForm", (data) =>
-    api("/api/creators", {
-      method: "POST",
-      body: withSelectedGame(data),
-    }),
-  );
-
-  bindForm("#keyForm", (data) =>
-    api("/api/keys", {
-      method: "POST",
-      body: withSelectedGame(data),
-    }),
-  );
+      if (result.authError) {
+        showToast(result.message || "Steam 파트너 세션 쿠키를 확인하세요.");
+      } else {
+        showToast(`${number(result.checked)}개 조회 · ${number(result.activated)}개 사용됨`);
+      }
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+    }
+  });
 
   bindForm("#redditPostForm", (data) =>
     api("/api/reddit-posts", {
@@ -1929,6 +2455,8 @@ function initForms() {
         body: {
           steamFinancialApiKey: data.steamFinancialApiKey,
           clearSteamFinancialApiKey: form.elements.clearSteamFinancialApiKey.checked,
+          steamPartnerCookie: data.steamPartnerCookie,
+          clearSteamPartnerCookie: form.elements.clearSteamPartnerCookie?.checked,
         },
       }),
     { keepValues: true },
@@ -1948,20 +2476,6 @@ function initForms() {
       }),
     { keepValues: true },
   );
-
-  $("#creatorCsvPreviewButton").addEventListener("click", async () => {
-    try {
-      const data = formData($("#creatorCsvForm"));
-      const preview = await api("/api/import/creator-csv/preview", {
-        method: "POST",
-        body: { csvText: data.csvText },
-      });
-      renderCreatorCsvPreview(preview);
-      showToast("Creator CSV 미리보기를 만들었습니다.");
-    } catch (error) {
-      showToast(error.message);
-    }
-  });
 
   $("#csvPreviewButton").addEventListener("click", async () => {
     try {
@@ -2129,50 +2643,6 @@ function initForms() {
       showToast(error.message);
     } finally {
       event.currentTarget.disabled = false;
-    }
-  });
-
-  $("#creatorProfileTable").addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-email-profile-id]");
-    if (!button) return;
-    button.disabled = true;
-    try {
-      await createEmailDraft({ creatorProfileId: button.dataset.emailProfileId });
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  $("#creatorTable").addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-email-creator-id]");
-    if (!button) return;
-    button.disabled = true;
-    try {
-      await createEmailDraft({ creatorId: button.dataset.emailCreatorId });
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  $("#emailDraftResult").addEventListener("click", async (event) => {
-    const button = event.target.closest("#sendDraftButton");
-    if (!button || !state.currentEmailDraft) return;
-    button.disabled = true;
-    try {
-      const result = await api("/api/email-send", {
-        method: "POST",
-        body: { draft: state.currentEmailDraft },
-      });
-      await loadAll();
-      showToast(result.message || result.status);
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      button.disabled = false;
     }
   });
 

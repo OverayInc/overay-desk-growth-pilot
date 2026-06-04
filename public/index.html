@@ -279,154 +279,35 @@
 
           <!-- ============================ CREATORS ============================ -->
           <div class="view" id="view-creators">
-            <section class="band" id="creator-db">
+            <section class="band" id="creator-matrix">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Shared Creator Database</p>
-                  <h2>공용 크리에이터 DB</h2>
-                </div>
-                <span class="muted" id="creatorProfileCount">프로필 0개</span>
-              </div>
-              <details class="action-panel">
-                <summary><span>새 DB 프로필</span><span class="summary-icon"></span></summary>
-                <form class="form-row creator-db-form" id="creatorProfileForm">
-                  <label>
-                    채널명
-                    <input name="channelName" placeholder="Odd Hallways" required />
-                  </label>
-                  <label>
-                    플랫폼
-                    <select name="platform">
-                      <option>YouTube</option>
-                      <option>TikTok</option>
-                      <option>X</option>
-                      <option>Reddit</option>
-                      <option>Discord</option>
-                    </select>
-                  </label>
-                  <label>
-                    이메일
-                    <input name="email" type="email" placeholder="business@example.com" />
-                  </label>
-                  <label>
-                    국가
-                    <input name="country" placeholder="US" />
-                  </label>
-                  <label>
-                    태그
-                    <input name="tags" placeholder="anomaly, backrooms" />
-                  </label>
-                  <label>
-                    평균 조회수
-                    <input name="averageViews" type="number" min="0" placeholder="18000" />
-                  </label>
-                  <label>
-                    적합도
-                    <input name="fitScore" type="number" min="0" max="100" placeholder="85" />
-                  </label>
-                  <button type="submit">DB 추가</button>
-                </form>
-              </details>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>채널</th>
-                      <th>연락처</th>
-                      <th>태그</th>
-                      <th>조회수</th>
-                      <th>적합도</th>
-                      <th>사용 게임</th>
-                      <th>상태</th>
-                      <th>메일</th>
-                    </tr>
-                  </thead>
-                  <tbody id="creatorProfileTable"></tbody>
-                </table>
-              </div>
-              <div class="result-line" id="emailDraftResult"></div>
-              <details class="action-panel">
-                <summary><span>Creator CSV 가져오기</span><span class="summary-icon"></span></summary>
-                <form class="stack-form" id="creatorCsvForm">
-                  <label>
-                    Creator CSV
-                    <textarea name="csvText" rows="7" placeholder="channelName,platform,email,country,tags,averageViews,fitScore"></textarea>
-                  </label>
-                  <div class="button-row">
-                    <button class="secondary-button" type="button" id="creatorCsvPreviewButton">미리보기</button>
-                    <button type="submit">DB 가져오기</button>
-                  </div>
-                </form>
-              </details>
-              <div class="result-line" id="creatorCsvPreviewResult"></div>
-            </section>
-
-            <section class="band" id="creators">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Creator CRM</p>
+                  <p class="eyebrow">Creators</p>
                   <h2>크리에이터</h2>
                 </div>
-                <span class="muted" id="creatorCount">크리에이터 0명</span>
+                <span class="muted" id="creatorMatrixCount">-</span>
               </div>
-              <details class="action-panel">
-                <summary><span>새 크리에이터</span><span class="summary-icon"></span></summary>
-                <form class="form-row creator-form" id="creatorForm">
-                  <label>
-                    게임
-                    <select name="gameId" data-game-select></select>
-                  </label>
-                  <label>
-                    채널명
-                    <input name="channelName" placeholder="Odd Hallways" required />
-                  </label>
-                  <label>
-                    플랫폼
-                    <select name="platform">
-                      <option>YouTube</option>
-                      <option>TikTok</option>
-                      <option>X</option>
-                      <option>Reddit</option>
-                      <option>Discord</option>
-                    </select>
-                  </label>
-                  <label>
-                    이메일
-                    <input name="email" type="email" placeholder="business@example.com" />
-                  </label>
-                  <label>
-                    태그
-                    <input name="tags" placeholder="anomaly, backrooms" />
-                  </label>
-                  <label>
-                    평균 조회수
-                    <input name="averageViews" type="number" min="0" placeholder="18000" />
-                  </label>
-                  <label>
-                    적합도
-                    <input name="fitScore" type="number" min="0" max="100" placeholder="85" />
-                  </label>
-                  <button type="submit">크리에이터 추가</button>
-                </form>
-              </details>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>채널</th>
-                      <th>게임</th>
-                      <th>태그</th>
-                      <th>국가</th>
-                      <th>조회수</th>
-                      <th>적합도</th>
-                      <th>상태</th>
-                      <th>UTM</th>
-                      <th>메일</th>
-                    </tr>
-                  </thead>
-                  <tbody id="creatorTable"></tbody>
-                </table>
+              <div class="key-tracker-toolbar">
+                <span class="status-pill" id="keyTrackerCookieStatus">쿠키 확인 중</span>
+                <button type="button" id="openProfileAddBtn">+ 크리에이터 추가</button>
+                <button type="button" class="secondary-button" data-open-csv="profiles">크리에이터 CSV</button>
+                <button type="button" class="secondary-button" id="creatorRefreshAll">전체 사용여부 새로고침</button>
+                <label class="matrix-sort">
+                  <span>정렬</span>
+                  <select id="matrixSort">
+                    <option value="name">이름순 (A–Z)</option>
+                    <option value="reviews">리뷰 많은순</option>
+                    <option value="sent">발송 많은순</option>
+                    <option value="fit">적합도순</option>
+                  </select>
+                </label>
+                <details class="matrix-filter">
+                  <summary class="secondary-button"><span id="matrixGameFilterSummary">게임 필터</span></summary>
+                  <div class="matrix-filter-panel" id="matrixGameFilter"></div>
+                </details>
               </div>
+              <p class="muted matrix-legend">행=크리에이터, 열=게임. 게임 칸 클릭 = 상태/키/발송일/메일 편집 · 🔑 키 발송 · ✅ 사용됨 · ⛔ 미사용. 이름 옆 아이콘 = 채널 바로가기.</p>
+              <div class="table-wrap scroll-y" id="creatorMatrixWrap"></div>
             </section>
 
             <section class="band" id="outreach">
@@ -659,62 +540,6 @@
 
           <!-- ============================ DISTRIBUTION ============================ -->
           <div class="view" id="view-distribution">
-            <section class="band" id="keys">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Key Management</p>
-                  <h2>Steam Key 배포</h2>
-                </div>
-                <span class="muted" id="keyCount">키 0개</span>
-              </div>
-              <details class="action-panel">
-                <summary><span>새 키 기록</span><span class="summary-icon"></span></summary>
-                <form class="form-row key-form" id="keyForm">
-                  <label>
-                    게임
-                    <select name="gameId" data-game-select></select>
-                  </label>
-                  <label>
-                    수신자
-                    <input name="recipientName" placeholder="Exit Path TV" required />
-                  </label>
-                  <label>
-                    이메일
-                    <input name="recipientEmail" type="email" placeholder="contact@example.com" />
-                  </label>
-                  <label>
-                    Steam Key
-                    <input name="steamKey" placeholder="AAAAA-BBBBB-CCCCC" />
-                  </label>
-                  <label>
-                    상태
-                    <select name="status">
-                      <option value="reserved">reserved</option>
-                      <option value="sent">sent</option>
-                      <option value="claimed">claimed</option>
-                      <option value="video_uploaded">video_uploaded</option>
-                    </select>
-                  </label>
-                  <button type="submit">키 기록 추가</button>
-                </form>
-              </details>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>수신자</th>
-                      <th>게임</th>
-                      <th>상태</th>
-                      <th>키</th>
-                      <th>캠페인</th>
-                      <th>메모</th>
-                    </tr>
-                  </thead>
-                  <tbody id="keyTable"></tbody>
-                </table>
-              </div>
-            </section>
-
             <section class="band" id="utm">
               <div class="section-heading">
                 <div>
@@ -1164,6 +989,15 @@
                       <input name="clearSteamFinancialApiKey" type="checkbox" />
                       저장된 키 삭제
                     </label>
+                    <label class="field-full">
+                      파트너 세션 쿠키 <span class="muted" id="steamPartnerCookieMeta">미설정</span>
+                      <textarea name="steamPartnerCookie" rows="2" placeholder="sessionid=...; steamLoginSecure=...; (비우면 기존 값 유지)" autocomplete="off"></textarea>
+                      <span class="image-picker__hint">키 사용여부(querycdkey) 자동조회용. partner.steamgames.com 로그인 후 개발자도구 → Network → querycdkey 요청의 Cookie 헤더를 그대로 붙여넣으세요. 주기적으로 만료됩니다.</span>
+                    </label>
+                    <label class="check-row">
+                      <input name="clearSteamPartnerCookie" type="checkbox" />
+                      저장된 쿠키 삭제
+                    </label>
                   </div>
                   <div class="settings-actions">
                     <button type="submit">Steam 설정 저장</button>
@@ -1271,6 +1105,157 @@
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </main>
     </div>
+
+    <dialog id="csvImportModal" class="csv-modal">
+      <div class="csv-modal-inner">
+        <div class="csv-modal-head">
+          <h3 id="csvModalTitle">CSV 가져오기</h3>
+          <button type="button" class="csv-modal-close" data-csv-close aria-label="닫기">✕</button>
+        </div>
+        <div class="csv-modal-body">
+          <label class="csv-modal-game" id="csvModalGameWrap">
+            게임
+            <select id="csvModalGame" data-game-select></select>
+          </label>
+          <label>
+            CSV 파일 선택
+            <input type="file" accept=".csv,text/csv" id="csvModalFile" />
+          </label>
+          <label>
+            또는 직접 붙여넣기
+            <textarea id="csvModalText" rows="7"></textarea>
+          </label>
+          <div class="result-line" id="csvModalPreview"></div>
+        </div>
+        <div class="csv-modal-actions">
+          <button type="button" class="secondary-button" data-csv-close>닫기</button>
+          <button type="button" class="secondary-button" id="csvModalPreviewBtn">미리보기</button>
+          <button type="button" id="csvModalImportBtn">가져오기</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="matrixCellModal" class="csv-modal">
+      <div class="csv-modal-inner">
+        <div class="csv-modal-head">
+          <h3 id="matrixModalTitle">항목 편집</h3>
+          <button type="button" class="csv-modal-close" data-matrix-close aria-label="닫기">✕</button>
+        </div>
+        <div class="csv-modal-body">
+          <label>
+            상태
+            <select id="matrixStatus">
+              <option value="uncontacted">미접촉</option>
+              <option value="sent">발송</option>
+              <option value="review">리뷰</option>
+              <option value="other">기타</option>
+            </select>
+          </label>
+          <label>
+            Steam Key / 프로모 코드 <button type="button" class="secondary-button mini" id="matrixKeyCopy" hidden>복사</button>
+            <input id="matrixKey" placeholder="XXXXX-XXXXX-XXXXX 또는 프로모 코드" />
+          </label>
+          <label>
+            발송일
+            <input id="matrixSentAt" type="date" />
+          </label>
+          <label>
+            엠바고 (KST)
+            <input id="matrixEmbargo" placeholder="2026-05-29 00:00" />
+          </label>
+          <label>
+            메모
+            <input id="matrixNote" />
+          </label>
+          <div class="result-line" id="matrixUsage"></div>
+        </div>
+        <div class="csv-modal-actions">
+          <button type="button" class="secondary-button danger" id="matrixDeleteBtn" hidden>삭제</button>
+          <button type="button" class="secondary-button" id="matrixCheckBtn">사용여부 조회</button>
+          <button type="button" class="secondary-button" id="matrixDraftBtn">메일 보내기</button>
+          <button type="button" class="secondary-button" data-matrix-close>닫기</button>
+          <button type="button" id="matrixSaveBtn">저장</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="mailModal" class="csv-modal wide">
+      <div class="csv-modal-inner">
+        <div class="csv-modal-head">
+          <h3 id="mailModalTitle">메일 보내기</h3>
+          <button type="button" class="csv-modal-close" data-mail-close aria-label="닫기">✕</button>
+        </div>
+        <div class="csv-modal-body">
+          <label>
+            받는 사람
+            <input id="mailTo" type="email" placeholder="email@example.com" />
+          </label>
+          <label>
+            제목
+            <input id="mailSubject" />
+          </label>
+          <label>
+            본문
+            <textarea id="mailBody" rows="11"></textarea>
+          </label>
+          <div class="mail-utm">추적 링크: <a id="mailUtm" target="_blank" rel="noreferrer"></a> <button type="button" class="secondary-button mini" id="mailCopyUtm">복사</button></div>
+          <div class="result-line" id="mailStatusHint"></div>
+        </div>
+        <div class="csv-modal-actions">
+          <button type="button" class="secondary-button" data-mail-close>닫기</button>
+          <button type="button" class="secondary-button" id="mailCopyBody">본문 복사</button>
+          <button type="button" class="secondary-button" id="mailSmtpBtn">SMTP 발송</button>
+          <button type="button" id="mailOpenBtn">메일 앱으로 열기</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="profileModal" class="csv-modal">
+      <div class="csv-modal-inner">
+        <div class="csv-modal-head">
+          <h3 id="profileModalTitle">크리에이터 추가</h3>
+          <button type="button" class="csv-modal-close" data-profile-close aria-label="닫기">✕</button>
+        </div>
+        <div class="csv-modal-body">
+          <form class="form-row creator-db-form" id="creatorProfileForm">
+            <input type="hidden" name="id" />
+            <label>
+              크리에이터명
+              <input name="channelName" placeholder="Odd Hallways" required />
+            </label>
+            <label class="field-full">
+              채널 링크 (여러 개면 줄바꿈/쉼표로 구분 — 플랫폼 자동 인식)
+              <textarea name="links" rows="2" placeholder="https://youtube.com/@handle&#10;https://tiktok.com/@handle"></textarea>
+            </label>
+            <label>
+              이메일
+              <input name="email" type="email" placeholder="business@example.com" />
+            </label>
+            <label>
+              국가
+              <input name="country" placeholder="US" />
+            </label>
+            <label>
+              태그
+              <input name="tags" placeholder="anomaly, backrooms" />
+            </label>
+            <label>
+              평균 조회수
+              <input name="averageViews" type="number" min="0" placeholder="18000" />
+            </label>
+            <label>
+              적합도
+              <input name="fitScore" type="number" min="0" max="100" placeholder="85" />
+            </label>
+            <div class="button-row field-full">
+              <button type="submit" id="creatorProfileSubmit">추가</button>
+              <button type="button" class="secondary-button" data-profile-close>취소</button>
+              <button type="button" class="secondary-button" data-open-csv="profiles">CSV로 가져오기</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </dialog>
     <!-- Entry point: the auth gate boots /app.js after a valid login. -->
     <script type="module" src="/auth.js?v=__ASSET_VERSION__"></script>
   </body>

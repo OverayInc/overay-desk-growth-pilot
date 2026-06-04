@@ -68,17 +68,102 @@ const DISABLE_SYNC_SCHEDULER = process.env.DISABLE_SYNC_SCHEDULER === "true";
 const SYNC_SCHEDULER_INTERVAL_MS = Number(process.env.SYNC_SCHEDULER_INTERVAL_MS || 60_000);
 const DEFAULT_SYNC_LOOKBACK_DAYS = Number(process.env.DEFAULT_SYNC_LOOKBACK_DAYS || 7);
 
-const STATUS_OPTIONS = new Set([
-  "uncontacted",
-  "drafted",
-  "first_sent",
-  "replied",
-  "key_sent",
-  "video_uploaded",
-  "paused",
-]);
+// Simplified per-game creator status. Steam "used / unused" is tracked separately on
+// steamActivation (querycdkey), not here. "리뷰"/"기타" detail goes in the note field.
+const STATUS_OPTIONS = new Set(["uncontacted", "sent", "review", "other"]);
 
-const KEY_STATUS_OPTIONS = new Set(["reserved", "sent", "claimed", "video_uploaded", "revoked"]);
+// 대상 구분 (Excel: 유튜버/스트리머/리뷰어/매체/큐레이터/기타). Stored canonical, displayed via labels on the client.
+const KEY_RECIPIENT_TYPE_OPTIONS = new Set(["youtuber", "streamer", "reviewer", "press", "curator", "other"]);
+
+// Maps the Korean labels used in the legacy spreadsheet tracker to the canonical values above.
+const KEY_RECIPIENT_TYPE_ALIASES = {
+  유튜버: "youtuber",
+  유투버: "youtuber",
+  youtube: "youtuber",
+  youtuber: "youtuber",
+  스트리머: "streamer",
+  streamer: "streamer",
+  twitch: "streamer",
+  리뷰어: "reviewer",
+  reviewer: "reviewer",
+  매체: "press",
+  언론: "press",
+  press: "press",
+  media: "press",
+  큐레이터: "curator",
+  curator: "curator",
+  기타: "other",
+  other: "other",
+};
+
+// Maps Korean labels, the spreadsheet vocabulary, and legacy canonical statuses to the
+// simplified set (uncontacted / sent / review / other). Usage (사용됨/미사용) is NOT a status —
+// it comes from the Steam activation query — so "사용됨" maps to "sent".
+const CREATOR_STATUS_ALIASES = {
+  미접촉: "uncontacted",
+  uncontacted: "uncontacted",
+  미발송: "uncontacted",
+  예약: "uncontacted",
+  키미발송: "uncontacted",
+  reserved: "uncontacted",
+  초안: "uncontacted",
+  초안작성: "uncontacted",
+  drafted: "uncontacted",
+  발송: "sent",
+  발송됨: "sent",
+  키발송: "sent",
+  메일발송: "sent",
+  메일보냄: "sent",
+  first_sent: "sent",
+  회신: "sent",
+  회신옴: "sent",
+  답장: "sent",
+  replied: "sent",
+  미사용: "sent",
+  사용됨: "sent",
+  사용: "sent",
+  claimed: "sent",
+  key_sent: "sent",
+  sent: "sent",
+  리뷰: "review",
+  리뷰완료: "review",
+  review: "review",
+  영상: "review",
+  영상업로드: "review",
+  video_uploaded: "review",
+  기타: "other",
+  other: "other",
+  보류: "other",
+  paused: "other",
+  회수: "other",
+  회수필요: "other",
+  회수완료: "other",
+  revoked: "other",
+  반려: "other",
+  무응답: "other",
+  반려무응답: "other",
+  bounced: "other",
+};
+
+function normalizeRecipientType(value) {
+  // Normalize to NFC: Korean text can arrive decomposed (NFD) from some OSes / clients,
+  // which would otherwise never match the precomposed alias-table keys.
+  const raw = String(value || "").trim().normalize("NFC");
+  if (!raw) return "youtuber";
+  const lower = raw.toLowerCase();
+  if (KEY_RECIPIENT_TYPE_OPTIONS.has(lower)) return lower;
+  const compact = raw.replace(/[\s/]+/g, "").toLowerCase();
+  return KEY_RECIPIENT_TYPE_ALIASES[raw] || KEY_RECIPIENT_TYPE_ALIASES[compact] || KEY_RECIPIENT_TYPE_ALIASES[lower] || "other";
+}
+
+function normalizeCreatorStatus(value, fallback = "uncontacted") {
+  const raw = String(value || "").trim().normalize("NFC");
+  if (!raw) return fallback;
+  const lower = raw.toLowerCase();
+  if (STATUS_OPTIONS.has(lower)) return lower;
+  const compact = raw.replace(/[\s/·]+/g, "").toLowerCase();
+  return CREATOR_STATUS_ALIASES[raw] || CREATOR_STATUS_ALIASES[compact] || CREATOR_STATUS_ALIASES[lower] || fallback;
+}
 
 const STORE_PLATFORM_LABELS = {
   steam: "Steam",
@@ -204,6 +289,9 @@ function defaultData() {
     integrationSettings: {
       steamFinancialApiKeyEncrypted: "",
       steamFinancialApiKeyMasked: "",
+      steamPartnerCookieEncrypted: "",
+      steamPartnerCookieMasked: "",
+      steamPartnerCookieUpdatedAt: "",
       youtubeApiKeyEncrypted: "",
       youtubeApiKeyMasked: "",
       smtpHost: "",
@@ -294,6 +382,9 @@ function normalizeData(data) {
   data.integrationSettings ||= seeded.integrationSettings;
   data.integrationSettings.steamFinancialApiKeyEncrypted ||= "";
   data.integrationSettings.steamFinancialApiKeyMasked ||= "";
+  data.integrationSettings.steamPartnerCookieEncrypted ||= "";
+  data.integrationSettings.steamPartnerCookieMasked ||= "";
+  data.integrationSettings.steamPartnerCookieUpdatedAt ||= "";
   data.integrationSettings.youtubeApiKeyEncrypted ||= "";
   data.integrationSettings.youtubeApiKeyMasked ||= "";
   data.integrationSettings.youtubeClientId ||= "";
@@ -376,8 +467,18 @@ function normalizeData(data) {
 
   for (const creator of data.creators) {
     creator.tags = toList(creator.tags);
-    creator.status = STATUS_OPTIONS.has(creator.status) ? creator.status : "uncontacted";
+    creator.status = normalizeCreatorStatus(creator.status, "uncontacted");
     creator.creatorProfileId ||= upsertCreatorProfile(data, creator).id;
+    // Per-game record now also carries the Steam key + distribution tracking (merged from
+    // the former influencerKeys collection): one creator per game = one row.
+    creator.recipientType = normalizeRecipientType(creator.recipientType || creator.platform);
+    creator.channelUrl ||= "";
+    creator.sentAt ||= "";
+    creator.embargoAt ||= "";
+    creator.steamKeyEncrypted ||= "";
+    creator.steamKeyMasked ||= "";
+    creator.steamActivation ||= null;
+    creator.countedAsSent = Boolean(creator.countedAsSent);
   }
 
   for (const collection of [data.campaigns, data.creators, data.influencerKeys, data.steamDailyMetrics, data.outreachLogs]) {
@@ -440,9 +541,18 @@ function maskSteamKey(value) {
   return `${clean.slice(0, 4)}****${clean.slice(-4)}`;
 }
 
-function sanitizeKey(record) {
+// Per-game creator records now hold the encrypted Steam key; never return it to the client.
+function sanitizeCreator(record) {
   const { steamKeyEncrypted, ...safe } = record;
   return safe;
+}
+
+// Creators that have a Steam key attached, and the subset whose key has been sent.
+function keyedCreators(creators) {
+  return creators.filter((creator) => creator.steamKeyMasked);
+}
+function sentKeyCreators(creators) {
+  return creators.filter((creator) => creator.steamKeyMasked && ["sent", "review"].includes(creator.status));
 }
 
 function activeGames(data) {
@@ -693,7 +803,6 @@ function buildPortfolio(data) {
       const metrics = scopedItems(data.steamDailyMetrics, game.id);
       const campaigns = scopedItems(data.campaigns, game.id);
       const creators = scopedItems(data.creators, game.id);
-      const keys = scopedItems(data.influencerKeys, game.id);
       const listings = storeListingsForGame(data, game.id, { includeArchived: true }).map((listing) =>
         sanitizeStoreListing(data, listing),
       );
@@ -709,8 +818,8 @@ function buildPortfolio(data) {
           .map((listing) => ({ key: listing.platform, label: listing.platformLabel, status: listing.status })),
         campaigns: campaigns.length,
         creators: creators.length,
-        keys: keys.length,
-        keysSent: keys.filter((key) => ["sent", "claimed", "video_uploaded"].includes(key.status)).length,
+        keys: keyedCreators(creators).length,
+        keysSent: sentKeyCreators(creators).length,
         visits: totals.visits,
         wishlists: totals.wishlists,
         purchases: totals.purchases,
@@ -727,7 +836,6 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
   const metrics = scopedItems(data.steamDailyMetrics, gameId);
   const campaigns = scopedItems(data.campaigns, gameId);
   const creators = scopedItems(data.creators, gameId);
-  const keys = scopedItems(data.influencerKeys, gameId);
   const latestDate = latestMetricDate(metrics);
   // The headline cards report YESTERDAY specifically (Steam financials lag ~1 day);
   // empty when yesterday has no data. Use the caller's local date if provided.
@@ -775,7 +883,7 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
     .slice(0, 8);
 
   const contactQueue = creators
-    .filter((creator) => ["uncontacted", "drafted", "first_sent", "replied"].includes(creator.status))
+    .filter((creator) => creator.status === "uncontacted")
     .sort((a, b) => toNumber(b.fitScore) - toNumber(a.fitScore))
     .slice(0, 12);
 
@@ -842,9 +950,9 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
       games: activeGames(data).length,
       campaigns: campaigns.length,
       creators: creators.length,
-      keys: keys.length,
-      keysSent: keys.filter((key) => ["sent", "claimed", "video_uploaded"].includes(key.status)).length,
-      videosUploaded: creators.filter((creator) => creator.status === "video_uploaded").length,
+      keys: keyedCreators(creators).length,
+      keysSent: sentKeyCreators(creators).length,
+      videosUploaded: creators.filter((creator) => creator.status === "review").length,
     },
   };
 }
@@ -888,7 +996,9 @@ function normalizeCreatorProfile(profile) {
   profile.id ||= makeId("profile", profile.channelName || profile.handle || profile.email || "creator");
   profile.channelName ||= profile.name || profile.handle || profile.email || "Untitled Creator";
   profile.handle ||= creatorSlug(profile);
-  profile.platform ||= "YouTube";
+  profile.channels = normalizeChannels(profile.channels);
+  // Primary platform reflects the first channel when present.
+  profile.platform = profile.channels[0]?.platform || profile.platform || "YouTube";
   profile.email ||= "";
   profile.country ||= "";
   profile.tags = toList(profile.tags || profile.niche);
@@ -945,6 +1055,7 @@ function upsertCreatorProfile(data, input = {}) {
     profile.averageViews ||= toNumber(input.averageViews);
     profile.fitScore = Math.max(toNumber(profile.fitScore), Math.max(0, Math.min(100, toNumber(input.fitScore))));
     profile.note ||= input.note || input.notes || "";
+    profile.channels = normalizeChannels([...(profile.channels || []), ...channelsFromInput(input)]);
     profile.updatedAt = now;
     normalizeCreatorProfile(profile);
     return profile;
@@ -955,6 +1066,7 @@ function upsertCreatorProfile(data, input = {}) {
     channelName: String(input.channelName || input.name || input.recipientName || input.handle || input.email || "Untitled Creator").trim(),
     handle: input.handle || input.creatorHandle || "",
     platform: input.platform || "YouTube",
+    channels: channelsFromInput(input),
     email: input.email || input.recipientEmail || "",
     country: input.country || "",
     tags: toList(input.tags || input.niche),
@@ -969,6 +1081,78 @@ function upsertCreatorProfile(data, input = {}) {
   normalizeCreatorProfile(created);
   data.creatorProfiles.push(created);
   return created;
+}
+
+function platformFromRecipientType(type) {
+  switch (normalizeRecipientType(type)) {
+    case "streamer":
+      return "Twitch";
+    case "curator":
+      return "Steam";
+    case "press":
+      return "Web";
+    default:
+      return "YouTube";
+  }
+}
+
+// A creator may run several channels (YouTube + TikTok + Twitch …) under one profile.
+function platformFromUrl(url) {
+  const u = String(url || "").toLowerCase();
+  if (/youtube\.com|youtu\.be/.test(u)) return "YouTube";
+  if (/tiktok\.com/.test(u)) return "TikTok";
+  if (/twitch\.tv/.test(u)) return "Twitch";
+  if (/steampowered\.com|steamcommunity\.com/.test(u)) return "Steam";
+  if (/twitter\.com|x\.com/.test(u)) return "X";
+  if (/instagram\.com/.test(u)) return "Instagram";
+  if (/reddit\.com/.test(u)) return "Reddit";
+  if (/discord\.(gg|com)/.test(u)) return "Discord";
+  if (/facebook\.com/.test(u)) return "Facebook";
+  return "Web";
+}
+
+// Normalizes a profile's channels into a deduped [{platform, url}] list. Accepts an array of
+// objects/strings or a delimited string (newline/comma/pipe).
+function normalizeChannels(value) {
+  let items = [];
+  if (Array.isArray(value)) {
+    items = value.map((c) => (typeof c === "string" ? { url: c } : c || {}));
+  } else if (value) {
+    items = String(value)
+      .split(/[\n,|]/)
+      .map((u) => ({ url: u }));
+  }
+  const seen = new Set();
+  const out = [];
+  for (const c of items) {
+    const url = String(c.url || c.href || "").trim();
+    if (!url) continue;
+    const key = url.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ platform: c.platform ? String(c.platform) : platformFromUrl(url), url });
+  }
+  return out;
+}
+
+function channelsFromInput(input) {
+  return normalizeChannels(input.channels || input.links || input.channelUrls || input.channelUrl || input.url || []);
+}
+
+// Increments the campaign's keysSent counter once per creator whose key has been sent
+// (guarded by creator.countedAsSent so later status edits can't double-count).
+function applyCreatorKeySideEffects(data, creator) {
+  const isSent = creator.steamKeyMasked && ["sent", "review"].includes(creator.status);
+  if (isSent && !creator.countedAsSent) {
+    creator.countedAsSent = true;
+    if (creator.campaignId) {
+      const campaign = data.campaigns.find((item) => item.id === creator.campaignId && item.gameId === creator.gameId);
+      if (campaign) {
+        campaign.keysSent = toNumber(campaign.keysSent) + 1;
+        campaign.updatedAt = nowIso();
+      }
+    }
+  }
 }
 
 function creatorProfileStats(data, profile) {
@@ -1068,6 +1252,7 @@ function buildEmailDraft(data, input = {}) {
 function effectiveIntegrationConfig(data) {
   const settings = data.integrationSettings || {};
   const storedSteamKey = decryptSecret(settings.steamFinancialApiKeyEncrypted);
+  const storedSteamPartnerCookie = decryptSecret(settings.steamPartnerCookieEncrypted);
   const storedYoutubeKey = decryptSecret(settings.youtubeApiKeyEncrypted);
   const storedYoutubeSecret = decryptSecret(settings.youtubeClientSecretEncrypted);
   const storedYoutubeRefresh = decryptSecret(settings.youtubeRefreshTokenEncrypted);
@@ -1077,6 +1262,8 @@ function effectiveIntegrationConfig(data) {
   return {
     steamFinancialApiKey: storedSteamKey || STEAM_FINANCIAL_API_KEY,
     steamKeySource: storedSteamKey ? "web" : STEAM_FINANCIAL_API_KEY ? "env" : "missing",
+    steamPartnerCookie: storedSteamPartnerCookie,
+    steamPartnerCookieConfigured: Boolean(storedSteamPartnerCookie),
     smtpHost: settings.smtpHost || SMTP_HOST,
     smtpPort: toNumber(settings.smtpPort || SMTP_PORT, SMTP_PORT || 587),
     smtpUser,
@@ -1110,6 +1297,9 @@ function publicSettings(data) {
       configured: Boolean(config.steamFinancialApiKey),
       source: config.steamKeySource,
       keyMasked: config.steamKeyMasked,
+      partnerCookieConfigured: config.steamPartnerCookieConfigured,
+      partnerCookieMasked: settings.steamPartnerCookieMasked || "",
+      partnerCookieUpdatedAt: settings.steamPartnerCookieUpdatedAt || "",
     },
     youtube: {
       configured: Boolean(config.youtubeApiKey),
@@ -1145,6 +1335,17 @@ function updateIntegrationSettings(data, input = {}) {
   } else if (input.steamFinancialApiKey) {
     settings.steamFinancialApiKeyEncrypted = encryptSecret(input.steamFinancialApiKey);
     settings.steamFinancialApiKeyMasked = maskSecret(input.steamFinancialApiKey);
+  }
+
+  if (input.clearSteamPartnerCookie) {
+    settings.steamPartnerCookieEncrypted = "";
+    settings.steamPartnerCookieMasked = "";
+    settings.steamPartnerCookieUpdatedAt = "";
+  } else if (input.steamPartnerCookie) {
+    const cookie = normalizeSteamCookie(input.steamPartnerCookie);
+    settings.steamPartnerCookieEncrypted = encryptSecret(cookie);
+    settings.steamPartnerCookieMasked = maskSecret(cookie.replace(/\s+/g, ""));
+    settings.steamPartnerCookieUpdatedAt = nowIso();
   }
 
   if (input.clearYoutubeApiKey) {
@@ -1374,8 +1575,8 @@ function addOutreachLog(data, input) {
 function applyEmailSentEffects(data, log) {
   if (!["sent", "logged"].includes(log.status)) return;
   const creator = log.creatorId ? data.creators.find((item) => item.id === log.creatorId) : undefined;
-  if (creator && ["uncontacted", "drafted"].includes(creator.status)) {
-    creator.status = "first_sent";
+  if (creator && creator.status === "uncontacted") {
+    creator.status = "sent";
     creator.updatedAt = nowIso();
   }
   const campaign = log.campaignId ? data.campaigns.find((item) => item.id === log.campaignId && (!log.gameId || item.gameId === log.gameId)) : undefined;
@@ -1435,13 +1636,6 @@ async function sendOutreachEmail(data, input = {}) {
     });
     return { status: "failed", log, message: log.error };
   }
-}
-
-function validateKey(input) {
-  if (!(input.recipientName || input.creatorHandle || input.recipientEmail || input.key || input.code || input.value || input.steamKey)) {
-    return "Recipient name is required.";
-  }
-  return "";
 }
 
 function requireGame(data, gameId) {
@@ -1661,6 +1855,7 @@ function creatorInputFromCsvRow(row, index = 0) {
     fitScore: firstValue(row, ["fitScore", "score", "fit_score"]),
     status: firstValue(row, ["status"]) || "active",
     note: firstValue(row, ["note", "notes"]),
+    links: firstValue(row, ["channels", "links", "channelurl", "channelurls", "url", "urls", "link"]),
   };
 }
 
@@ -1672,8 +1867,20 @@ function creatorProfilePreviewIdentity(input) {
   return `name:${String(input.channelName || "").trim().toLowerCase()}`;
 }
 
+// The shared-DB importer uses ascii-normalized headers, so a Korean key-tracker CSV
+// (No,Key,대상,…) collapses to a "key" column with no recognizable creator column. Detect
+// that and redirect the user instead of emitting one "missing channelName" warning per row.
+function assertNotKeyTrackerCsv(rows) {
+  const cols = new Set(Object.keys(rows[0] || {}));
+  const hasCreatorCol = ["channelname", "channel", "name", "creator", "handle", "username", "email", "mail", "contact"].some((c) => cols.has(c));
+  if (cols.has("key") && !hasCreatorCol) {
+    throw new Error("이 CSV는 키 트래커(엑셀) 형식입니다. '게임별 크리에이터'의 CSV 가져오기를 사용하세요.");
+  }
+}
+
 function previewCreatorCsv(data, csvText) {
   const rows = parseCsv(csvText);
+  assertNotKeyTrackerCsv(rows);
   const columns = Object.keys(rows[0] || {});
   const seen = new Set();
   let newRows = 0;
@@ -1719,6 +1926,7 @@ function previewCreatorCsv(data, csvText) {
 
 function importCreatorCsv(data, csvText) {
   const rows = parseCsv(csvText);
+  assertNotKeyTrackerCsv(rows);
   const seen = new Set();
   let imported = 0;
   let updated = 0;
@@ -1738,6 +1946,211 @@ function importCreatorCsv(data, csvText) {
     else imported += 1;
   });
 
+  return { imported, updated, skippedDuplicates, totalRows: rows.length };
+}
+
+// Maps a single CSV header cell (Korean spreadsheet headers included) to a key field name.
+// normalizeHeader strips non-ascii, so Korean headers need their own resolver here.
+function keyCsvField(header) {
+  const h = String(header || "")
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/()·.\-_]+/g, "");
+  const map = {
+    key: "steamKey", 키: "steamKey", 스팀키: "steamKey", steamkey: "steamKey", cdkey: "steamKey", code: "steamKey", 코드: "steamKey",
+    대상: "recipientName", 채널: "recipientName", 채널명: "recipientName", name: "recipientName", creator: "recipientName", recipient: "recipientName", recipientname: "recipientName", 수신자: "recipientName",
+    대상구분: "recipientType", 구분: "recipientType", 유형: "recipientType", type: "recipientType", recipienttype: "recipientType",
+    연락처: "recipientEmail", 이메일: "recipientEmail", email: "recipientEmail", contact: "recipientEmail", mail: "recipientEmail", recipientemail: "recipientEmail",
+    국가언어: "country", 국가: "country", 언어: "country", country: "country", region: "country", language: "country", lang: "country",
+    발송일: "sentAt", 발송: "sentAt", senddate: "sentAt", sentdate: "sentAt", sent: "sentAt", sentat: "sentAt", 발송날짜: "sentAt",
+    엠바고kst: "embargoAt", 엠바고: "embargoAt", embargo: "embargoAt", embargoat: "embargoAt", embargokst: "embargoAt",
+    상태: "status", status: "status", state: "status",
+    채널프로필url: "channelUrl", 채널url: "channelUrl", 프로필url: "channelUrl", url: "channelUrl", channelurl: "channelUrl", link: "channelUrl", 링크: "channelUrl", profile: "channelUrl", 프로필: "channelUrl",
+    메모: "note", note: "note", notes: "note", memo: "note", comment: "note", 비고: "note",
+  };
+  return map[h] || "";
+}
+
+// Parses an Excel-exported key tracker CSV into field-keyed row objects. Tolerant of leading
+// title rows: it scans for the first row that looks like a header (has Key or a labelled
+// recipient column), so a raw export with banner rows above the table still imports.
+function parseKeyCsv(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) {
+    throw new Error("CSV에 헤더와 최소 1개 데이터 행이 필요합니다.");
+  }
+  const headerIdx = lines.findIndex((line) => {
+    const fields = parseCsvLine(line).map(keyCsvField);
+    return fields.includes("steamKey") || (fields.includes("recipientName") && fields.filter(Boolean).length >= 2);
+  });
+  if (headerIdx < 0) {
+    throw new Error("CSV 헤더를 인식하지 못했습니다. (Key / 대상 / 상태 등 컬럼이 필요합니다)");
+  }
+  const headers = parseCsvLine(lines[headerIdx]).map(keyCsvField);
+  return lines
+    .slice(headerIdx + 1)
+    .map((line) => {
+      const values = parseCsvLine(line);
+      const row = {};
+      headers.forEach((field, index) => {
+        if (field && !row[field]) row[field] = (values[index] ?? "").trim();
+      });
+      return row;
+    })
+    .filter((row) => row.steamKey || row.recipientName || row.recipientEmail);
+}
+
+function keyInputFromCsvRow(row) {
+  const rawKey = String(row.steamKey || "").trim();
+  return {
+    channelName: String(row.recipientName || row.recipientEmail || "Unassigned recipient").trim(),
+    email: String(row.recipientEmail || "").trim(),
+    recipientType: normalizeRecipientType(row.recipientType),
+    country: String(row.country || "").trim(),
+    channelUrl: String(row.channelUrl || "").trim(),
+    sentAt: String(row.sentAt || "").trim(),
+    embargoAt: String(row.embargoAt || "").trim(),
+    status: normalizeCreatorStatus(row.status, "uncontacted"),
+    note: String(row.note || "").trim(),
+    steamKey: rawKey,
+    steamKeyMasked: rawKey ? maskSteamKey(rawKey) : "",
+  };
+}
+
+// Finds an existing per-game creator that matches an imported row, so re-imports update in
+// place rather than duplicating. Matches on the (masked) Steam key first, then channel name.
+function findExistingGameCreator(data, gameId, input) {
+  const masked = input.steamKeyMasked;
+  if (masked) {
+    const byKey = data.creators.find((c) => c.gameId === gameId && c.steamKeyMasked && c.steamKeyMasked === masked);
+    if (byKey) return byKey;
+  }
+  const name = input.channelName.trim().toLowerCase();
+  if (name && name !== "unassigned recipient") {
+    return data.creators.find((c) => c.gameId === gameId && String(c.channelName || "").trim().toLowerCase() === name);
+  }
+  return undefined;
+}
+
+function previewKeyCsv(data, gameId, csvText) {
+  const rows = parseKeyCsv(csvText);
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const seen = new Set();
+  let newRows = 0;
+  let updateRows = 0;
+  let duplicateRows = 0;
+  const warnings = [];
+  const previewRows = [];
+  rows.forEach((row, index) => {
+    const input = keyInputFromCsvRow(row);
+    if (!input.steamKey && !input.channelName) {
+      warnings.push(`행 ${index + 1}: Key 또는 대상이 비어 건너뜁니다.`);
+      return;
+    }
+    const identity = (input.steamKeyMasked || input.channelName).toLowerCase();
+    if (seen.has(identity)) {
+      duplicateRows += 1;
+      return;
+    }
+    seen.add(identity);
+    if (findExistingGameCreator(data, gameId, input)) updateRows += 1;
+    else newRows += 1;
+    previewRows.push({
+      channelName: input.channelName,
+      recipientType: input.recipientType,
+      email: input.email,
+      country: input.country,
+      sentAt: input.sentAt,
+      embargoAt: input.embargoAt,
+      status: input.status,
+      channelUrl: input.channelUrl,
+      steamKeyMasked: input.steamKeyMasked || "(없음)",
+      note: input.note,
+    });
+  });
+  return { columns, totalRows: rows.length, newRows, updateRows, duplicateRows, warnings, previewRows: previewRows.slice(0, 8) };
+}
+
+function importKeyCsv(data, gameId, csvText) {
+  const rows = parseKeyCsv(csvText);
+  const seen = new Set();
+  let imported = 0;
+  let updated = 0;
+  let skippedDuplicates = 0;
+  rows.forEach((row) => {
+    const input = keyInputFromCsvRow(row);
+    if (!input.steamKey && !input.channelName) return;
+    const identity = (input.steamKeyMasked || input.channelName).toLowerCase();
+    if (seen.has(identity)) {
+      skippedDuplicates += 1;
+      return;
+    }
+    seen.add(identity);
+    // Keep the shared creator DB (creatorProfiles) in sync — pass profile-only fields, never status.
+    const profile = upsertCreatorProfile(data, {
+      channelName: input.channelName,
+      name: input.channelName,
+      email: input.email,
+      country: input.country,
+      platform: platformFromRecipientType(input.recipientType),
+    });
+    const existing = findExistingGameCreator(data, gameId, input);
+    if (existing) {
+      existing.channelName = input.channelName || existing.channelName;
+      existing.email = input.email || existing.email;
+      existing.recipientType = input.recipientType;
+      existing.country = input.country || existing.country;
+      existing.channelUrl = input.channelUrl || existing.channelUrl;
+      existing.sentAt = input.sentAt || existing.sentAt;
+      existing.embargoAt = input.embargoAt || existing.embargoAt;
+      existing.note = input.note || existing.note;
+      existing.status = input.status;
+      existing.creatorProfileId ||= profile.id;
+      if (input.steamKey) {
+        existing.steamKeyEncrypted = encryptSteamKey(input.steamKey);
+        existing.steamKeyMasked = input.steamKeyMasked;
+      }
+      existing.updatedAt = nowIso();
+      applyCreatorKeySideEffects(data, existing);
+      updated += 1;
+      return;
+    }
+    const creator = {
+      id: makeId("creator", input.channelName),
+      creatorProfileId: profile.id,
+      gameId,
+      channelName: input.channelName,
+      handle: profile.handle || "",
+      platform: platformFromRecipientType(input.recipientType),
+      recipientType: input.recipientType,
+      email: input.email,
+      country: input.country,
+      channelUrl: input.channelUrl,
+      tags: [],
+      subscribers: 0,
+      averageViews: 0,
+      fitScore: 0,
+      status: input.status,
+      campaignId: "",
+      utmLink: "",
+      sentAt: input.sentAt || (["sent", "review"].includes(input.status) ? toDateString(new Date()) : ""),
+      embargoAt: input.embargoAt,
+      steamKeyEncrypted: input.steamKey ? encryptSteamKey(input.steamKey) : "",
+      steamKeyMasked: input.steamKeyMasked,
+      steamActivation: null,
+      countedAsSent: false,
+      note: input.note,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    data.creators.push(creator);
+    applyCreatorKeySideEffects(data, creator);
+    imported += 1;
+  });
   return { imported, updated, skippedDuplicates, totalRows: rows.length };
 }
 
@@ -1809,6 +2222,139 @@ async function steamGet(pathname, params) {
     throw new Error(body?.error || body?.response?.error || `Steam API ${pathname} failed with ${response.status}`);
   }
   return body?.response || body || {};
+}
+
+const STEAM_QUERY_CDKEY_URL = "https://partner.steamgames.com/querycdkey/cdkey";
+const STEAM_PARTNER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+// Accepts either a raw Cookie header string (sessionid=...; steamLoginSecure=...; ...) or a
+// single cookie line copied from devtools, and normalizes it to a clean one-line header.
+function normalizeSteamCookie(value) {
+  return String(value || "")
+    .replace(/^cookie:\s*/i, "")
+    .replace(/\s*[\r\n]+\s*/g, "; ")
+    .replace(/;\s*;+/g, "; ")
+    .trim()
+    .replace(/;$/, "");
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Parses the HTML returned by the partner querycdkey page. The activation table lives under
+// an "Activation Details" heading; the first cell is the status ("Activated" / "Not Activated"
+// / "Key not found"), the second (when activated) is the owning Steam account.
+function parseCdKeyHtml(html) {
+  const text = String(html || "");
+  // Detect being bounced to a login page (expired / missing session cookie).
+  if (/login|sign in|steamcommunity\.com\/openid|j_username/i.test(text) && !/Activation Details/i.test(text)) {
+    return { authError: true };
+  }
+  const marker = text.split(/<h2[^>]*>\s*Activation Details\s*<\/h2>/i)[1];
+  if (!marker) {
+    // Some responses report an unknown/foreign key inline without the table.
+    if (/not been activated|has not been activated/i.test(text)) return { activated: false, account: "", status: "Not activated" };
+    if (/not a valid|invalid|not found|isn't a valid/i.test(text)) return { activated: false, account: "", status: "Key not found", notFound: true };
+    return { activated: false, account: "", status: stripHtml(text).slice(0, 120) || "Unknown" };
+  }
+  const cells = [...marker.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => stripHtml(match[1]));
+  const status = cells[0] || "";
+  const activated = /^activated/i.test(status);
+  return {
+    activated,
+    account: activated ? cells[1] || "" : "",
+    status: status || (activated ? "Activated" : "Not activated"),
+  };
+}
+
+// Queries a single Steam CD key against the partner site using the stored session cookie.
+// Returns { ok, authError, activated, account, status } — never throws for HTTP/parse issues.
+async function querySteamCdKey(cookie, cdkey) {
+  const clean = String(cdkey || "").trim();
+  if (!clean) return { ok: false, error: "키 값이 없습니다." };
+  const url = new URL(STEAM_QUERY_CDKEY_URL);
+  url.searchParams.set("cdkey", clean);
+  url.searchParams.set("method", "Query");
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Cookie: cookie,
+        "User-Agent": STEAM_PARTNER_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "manual",
+    });
+  } catch (error) {
+    return { ok: false, error: `Steam 요청 실패: ${error.message}` };
+  }
+  // 30x to a login host means the session cookie is missing/expired.
+  if (response.status >= 300 && response.status < 400) {
+    return { ok: false, authError: true, error: "Steam 파트너 세션이 만료되었습니다. 쿠키를 다시 붙여넣어 주세요." };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, authError: true, error: "Steam 파트너 인증 실패. 쿠키를 다시 붙여넣어 주세요." };
+  }
+  const body = await response.text().catch(() => "");
+  const parsed = parseCdKeyHtml(body);
+  if (parsed.authError) {
+    return { ok: false, authError: true, error: "Steam 파트너 세션이 만료되었습니다. 쿠키를 다시 붙여넣어 주세요." };
+  }
+  return { ok: true, activated: parsed.activated, account: parsed.account, status: parsed.status, notFound: parsed.notFound };
+}
+
+// Runs querySteamCdKey across a list of creator records that have a Steam key (sequentially,
+// with a small delay so we don't hammer the partner site) and writes the result onto each
+// creator's steamActivation field.
+async function checkActivationForCreators(data, creators) {
+  const config = effectiveIntegrationConfig(data);
+  const cookie = config.steamPartnerCookie;
+  if (!cookie) {
+    return { ok: false, authError: true, message: "Steam 파트너 세션 쿠키가 설정되지 않았습니다. 설정 탭에서 등록하세요.", checked: 0, activated: 0, total: creators.length };
+  }
+  let checked = 0;
+  let activatedCount = 0;
+  let lastError = "";
+  for (const creator of creators) {
+    const cdkey = decryptSecret(creator.steamKeyEncrypted);
+    if (!cdkey) continue;
+    const result = await querySteamCdKey(cookie, cdkey);
+    if (result.authError) {
+      return { ok: false, authError: true, message: result.error, checked, activated: activatedCount, total: creators.length };
+    }
+    if (!result.ok) {
+      lastError = result.error || "조회 실패";
+      continue;
+    }
+    creator.steamActivation = {
+      activated: result.activated,
+      account: result.account || "",
+      status: result.status || "",
+      notFound: Boolean(result.notFound),
+      checkedAt: nowIso(),
+      source: "steam",
+    };
+    creator.updatedAt = nowIso();
+    checked += 1;
+    if (result.activated) activatedCount += 1;
+    // Gentle pacing between requests.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  return {
+    ok: true,
+    checked,
+    activated: activatedCount,
+    total: creators.length,
+    message: lastError && !checked ? lastError : "",
+    error: lastError && !checked ? lastError : "",
+  };
 }
 
 function wishlistSummaryToMetric(game, date, country, summary, source = "steam_wishlist_api") {
@@ -2052,7 +2598,7 @@ function gameReadiness(data, game) {
   const metrics = scopedItems(data.steamDailyMetrics, game.id);
   const campaigns = scopedItems(data.campaigns, game.id);
   const creators = scopedItems(data.creators, game.id);
-  const keys = scopedItems(data.influencerKeys, game.id);
+  const keys = keyedCreators(creators);
   const latestSync = latestSyncRunForGame(data, game.id);
   const listings = storeListingsForGame(data, game.id);
   const steamListing = primaryStoreListing(data, game.id, "steam");
@@ -2527,8 +3073,8 @@ function safeExportData(data, type = "all") {
     storeListings: data.storeListings.map((listing) => sanitizeStoreListing(data, listing)),
     campaigns: data.campaigns,
     creatorProfiles: data.creatorProfiles,
-    creators: data.creators,
-    keys: data.influencerKeys.map(sanitizeKey),
+    creators: data.creators.map(sanitizeCreator),
+    keys: keyedCreators(data.creators).map(sanitizeCreator),
     metrics: data.steamDailyMetrics,
     outreachLogs: data.outreachLogs,
     syncSchedule: data.syncSchedule,
@@ -3166,6 +3712,39 @@ async function handleApi(req, res, url) {
     return respondJson(res, 201, { ...profile, stats: creatorProfileStats(data, profile) });
   }
 
+  const profileRoute = url.pathname.match(/^\/api\/creator-profiles\/([^/]+)$/);
+  if (profileRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const id = decodeURIComponent(profileRoute[1]);
+    const profile = data.creatorProfiles.find((p) => p.id === id);
+    if (!profile) return respondError(res, 404, "프로필을 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.channelName !== undefined) profile.channelName = String(input.channelName).trim() || profile.channelName;
+    if (input.email !== undefined) profile.email = String(input.email).trim();
+    if (input.country !== undefined) profile.country = String(input.country).trim();
+    if (input.tags !== undefined) profile.tags = toList(input.tags);
+    if (input.note !== undefined) profile.note = String(input.note);
+    if (input.subscribers !== undefined) profile.subscribers = toNumber(input.subscribers);
+    if (input.averageViews !== undefined) profile.averageViews = toNumber(input.averageViews);
+    if (input.fitScore !== undefined) profile.fitScore = Math.max(0, Math.min(100, toNumber(input.fitScore)));
+    if (input.status !== undefined) profile.status = String(input.status).trim() || profile.status;
+    // Replace channel list when any channel input is supplied.
+    if (input.channels !== undefined || input.links !== undefined || input.channelUrl !== undefined || input.channelUrls !== undefined || input.url !== undefined) {
+      profile.channels = channelsFromInput(input);
+    }
+    profile.updatedAt = nowIso();
+    normalizeCreatorProfile(profile);
+    await writeData(data);
+    return respondJson(res, 200, { ...profile, stats: creatorProfileStats(data, profile) });
+  }
+  if (profileRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(profileRoute[1]);
+    const index = data.creatorProfiles.findIndex((p) => p.id === id);
+    if (index < 0) return respondError(res, 404, "프로필을 찾지 못했습니다.");
+    data.creatorProfiles.splice(index, 1);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: id });
+  }
+
   if (route === "POST /api/import/creator-csv/preview") {
     const input = await readJson(req);
     if (!input.csvText) return respondError(res, 400, "csvText is required.");
@@ -3191,6 +3770,35 @@ async function handleApi(req, res, url) {
     return respondJson(res, 201, { ...result, creatorProfiles: creatorProfilesWithStats(data) });
   }
 
+  if (route === "POST /api/import/key-csv/preview") {
+    const input = await readJson(req);
+    if (!input.csvText) return respondError(res, 400, "csvText is required.");
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    let preview;
+    try {
+      preview = previewKeyCsv(data, gameId, input.csvText);
+    } catch (error) {
+      return respondError(res, 400, error.message || "Key CSV preview failed.");
+    }
+    return respondJson(res, 200, preview);
+  }
+
+  if (route === "POST /api/import/key-csv") {
+    const input = await readJson(req);
+    if (!input.csvText) return respondError(res, 400, "csvText is required.");
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    const gameError = requireGame(data, gameId);
+    if (gameError) return respondError(res, 400, gameError);
+    let result;
+    try {
+      result = importKeyCsv(data, gameId, input.csvText);
+    } catch (error) {
+      return respondError(res, 400, error.message || "Key CSV import failed.");
+    }
+    await writeData(data);
+    return respondJson(res, 201, result);
+  }
+
   if (route === "GET /api/creators") {
     const gameId = requestedGameId(url);
     return respondJson(
@@ -3198,7 +3806,10 @@ async function handleApi(req, res, url) {
       200,
       scopedItems(data.creators, gameId)
         .map((creator) => ({
-          ...creator,
+          ...sanitizeCreator(creator),
+          // Operators need the actual code to send it; return the decrypted value to the
+          // authenticated client (kept encrypted at rest; never included in exports).
+          steamKey: decryptSecret(creator.steamKeyEncrypted),
           gameName: gameNameFor(data, creator.gameId),
           campaignName: campaignNameFor(data, creator.campaignId, "", creator.gameId),
         }))
@@ -3220,12 +3831,23 @@ async function handleApi(req, res, url) {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
+    // Profile-only fields — never pass the engagement status, which would clobber the shared
+    // profile's own "active" status with a per-game lifecycle value.
     const profile = upsertCreatorProfile(data, {
-      ...input,
+      creatorProfileId: input.creatorProfileId || "",
       channelName,
       platform,
       handle: input.handle || creatorSlug,
+      email: input.email || "",
+      country: input.country || "",
+      tags: input.tags || input.niche,
+      subscribers: input.subscribers || input.followers,
+      averageViews: input.averageViews,
+      fitScore: input.fitScore,
+      note: input.note,
     });
+    const rawSteamKey = input.steamKey || input.key || input.code || input.value || "";
+    const status = normalizeCreatorStatus(input.status, "uncontacted");
     const creator = {
       id: input.id || makeId("creator", channelName),
       creatorProfileId: profile.id,
@@ -3233,13 +3855,15 @@ async function handleApi(req, res, url) {
       channelName: profile.channelName || channelName,
       handle: input.handle || profile.handle || creatorSlug,
       platform,
+      recipientType: normalizeRecipientType(input.recipientType || platform),
       email: input.email || profile.email || "",
       country: input.country || profile.country || "",
+      channelUrl: String(input.channelUrl || input.url || "").trim(),
       tags: toList(input.tags || input.niche || profile.tags),
       subscribers: toNumber(input.subscribers || input.followers || profile.subscribers),
       averageViews: toNumber(input.averageViews || profile.averageViews),
       fitScore: Math.max(0, Math.min(100, toNumber(input.fitScore || profile.fitScore))),
-      status: STATUS_OPTIONS.has(input.status) ? input.status : "uncontacted",
+      status,
       campaignId,
       utmLink:
         input.utmLink ||
@@ -3252,13 +3876,93 @@ async function handleApi(req, res, url) {
               content: creatorSlug,
             })
           : ""),
+      sentAt: input.sentAt || (["sent", "review"].includes(status) ? toDateString(new Date()) : ""),
+      embargoAt: input.embargoAt || "",
+      steamKeyEncrypted: rawSteamKey ? encryptSteamKey(rawSteamKey) : "",
+      steamKeyMasked: rawSteamKey ? maskSteamKey(rawSteamKey) : "",
+      steamActivation: null,
+      countedAsSent: false,
       note: input.note || "",
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
     data.creators.push(creator);
+    applyCreatorKeySideEffects(data, creator);
     await writeData(data);
-    return respondJson(res, 201, creator);
+    return respondJson(res, 201, sanitizeCreator(creator));
+  }
+
+  const creatorRoute = url.pathname.match(/^\/api\/creators\/([^/]+)$/);
+  if (creatorRoute && req.method === "DELETE") {
+    const creatorId = decodeURIComponent(creatorRoute[1]);
+    const index = data.creators.findIndex((item) => item.id === creatorId);
+    if (index < 0) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    data.creators.splice(index, 1);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: creatorId });
+  }
+  if (creatorRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const creatorId = decodeURIComponent(creatorRoute[1]);
+    const creator = data.creators.find((item) => item.id === creatorId);
+    if (!creator) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.channelName !== undefined) creator.channelName = String(input.channelName).trim() || creator.channelName;
+    if (input.email !== undefined) creator.email = String(input.email).trim();
+    if (input.recipientType !== undefined) creator.recipientType = normalizeRecipientType(input.recipientType);
+    if (input.country !== undefined) creator.country = String(input.country).trim();
+    if (input.channelUrl !== undefined) creator.channelUrl = String(input.channelUrl).trim();
+    if (input.tags !== undefined) creator.tags = toList(input.tags);
+    if (input.fitScore !== undefined) creator.fitScore = Math.max(0, Math.min(100, toNumber(input.fitScore)));
+    if (input.sentAt !== undefined) creator.sentAt = String(input.sentAt).trim();
+    if (input.embargoAt !== undefined) creator.embargoAt = String(input.embargoAt).trim();
+    if (input.note !== undefined) creator.note = String(input.note);
+    if (input.utmLink !== undefined) creator.utmLink = String(input.utmLink).trim();
+    if (input.campaignId !== undefined) creator.campaignId = String(input.campaignId).trim();
+    // When a key field is explicitly provided (even as empty), set it — empty clears the key.
+    if (input.steamKey !== undefined || input.key !== undefined || input.code !== undefined || input.value !== undefined) {
+      const rawSteamKey = String(input.steamKey || input.key || input.code || input.value || "").trim();
+      creator.steamKeyEncrypted = rawSteamKey ? encryptSteamKey(rawSteamKey) : "";
+      creator.steamKeyMasked = rawSteamKey ? maskSteamKey(rawSteamKey) : "";
+      creator.steamActivation = null;
+    }
+    if (input.status !== undefined) {
+      creator.status = normalizeCreatorStatus(input.status, creator.status);
+      if (creator.status === "sent" && !creator.sentAt) creator.sentAt = toDateString(new Date());
+      applyCreatorKeySideEffects(data, creator);
+    }
+    // Manual override of the Steam "used / unused" flag without a live query.
+    if (input.activated !== undefined) {
+      creator.steamActivation = {
+        activated: input.activated === true || input.activated === "true",
+        account: String(input.activationAccount || "").trim(),
+        checkedAt: nowIso(),
+        source: "manual",
+      };
+    }
+    creator.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, sanitizeCreator(creator));
+  }
+
+  if (route === "POST /api/creators/check-activation") {
+    const input = await readJson(req);
+    const gameId = requestedGameId(url) || input.gameId || "all";
+    const targets = scopedItems(data.creators, gameId).filter((creator) => decryptSecret(creator.steamKeyEncrypted));
+    const summary = await checkActivationForCreators(data, targets);
+    await writeData(data);
+    return respondJson(res, 200, summary);
+  }
+
+  const creatorActivationRoute = url.pathname.match(/^\/api\/creators\/([^/]+)\/check-activation$/);
+  if (creatorActivationRoute && req.method === "POST") {
+    const creatorId = decodeURIComponent(creatorActivationRoute[1]);
+    const creator = data.creators.find((item) => item.id === creatorId);
+    if (!creator) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    const summary = await checkActivationForCreators(data, [creator]);
+    await writeData(data);
+    if (summary.authError) return respondError(res, 502, summary.message);
+    if (summary.error) return respondError(res, 400, summary.message);
+    return respondJson(res, 200, { ...sanitizeCreator(creator), checked: summary.checked });
   }
 
   if (route === "POST /api/email-drafts") {
@@ -3298,74 +4002,6 @@ async function handleApi(req, res, url) {
         campaignName: campaignNameFor(data, log.campaignId, "", log.gameId),
       })),
     );
-  }
-
-  if (route === "GET /api/keys") {
-    const gameId = requestedGameId(url);
-    return respondJson(
-      res,
-      200,
-      scopedItems(data.influencerKeys, gameId).map((key) => ({
-        ...sanitizeKey(key),
-        gameName: gameNameFor(data, key.gameId),
-        campaignName: campaignNameFor(data, key.campaignId, "", key.gameId),
-      })),
-    );
-  }
-
-  if (route === "POST /api/keys") {
-    const input = await readJson(req);
-    const validationError = validateKey(input);
-    if (validationError) return respondError(res, 400, validationError);
-    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
-    const gameError = requireGame(data, gameId);
-    if (gameError) return respondError(res, 400, gameError);
-    const rawSteamKey = input.steamKey || input.key || input.code || input.value || "";
-    const recipientName =
-      input.recipientName ||
-      input.creatorHandle ||
-      input.recipientEmail ||
-      (input.creatorId ? data.creators.find((item) => item.id === input.creatorId && item.gameId === gameId)?.channelName : "") ||
-      "Unassigned recipient";
-    const campaignId =
-      input.campaignId ||
-      (input.campaignName ? data.campaigns.find((campaign) => campaign.name === input.campaignName && campaign.gameId === gameId)?.id : "") ||
-      "";
-    const key = {
-      id: input.id || makeId("key", recipientName),
-      gameId,
-      recipientName: String(recipientName).trim(),
-      recipientEmail: input.recipientEmail || "",
-      creatorId: input.creatorId || "",
-      campaignId,
-      status: KEY_STATUS_OPTIONS.has(input.status) ? input.status : input.status === "available" ? "reserved" : "reserved",
-      steamKeyEncrypted: rawSteamKey ? encryptSteamKey(rawSteamKey) : "",
-      steamKeyMasked: rawSteamKey ? maskSteamKey(rawSteamKey) : input.steamKeyMasked || "",
-      utmLink: input.utmLink || "",
-      note: input.note || input.notes || "",
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    };
-    data.influencerKeys.push(key);
-
-    if (key.campaignId) {
-      const campaign = data.campaigns.find((item) => item.id === key.campaignId && item.gameId === key.gameId);
-      if (campaign && ["sent", "claimed", "video_uploaded"].includes(key.status)) {
-        campaign.keysSent = toNumber(campaign.keysSent) + 1;
-        campaign.updatedAt = nowIso();
-      }
-    }
-
-    if (key.creatorId && ["sent", "claimed", "video_uploaded"].includes(key.status)) {
-      const creator = data.creators.find((item) => item.id === key.creatorId && item.gameId === key.gameId);
-      if (creator && creator.status !== "video_uploaded") {
-        creator.status = "key_sent";
-        creator.updatedAt = nowIso();
-      }
-    }
-
-    await writeData(data);
-    return respondJson(res, 201, sanitizeKey(key));
   }
 
   if (route === "GET /api/steam-metrics") {

@@ -102,7 +102,7 @@ test('returns dashboard and list resources', async () => {
   assertObject(dashboard, 'GET /api/dashboard');
   assertArray(dashboard.portfolio, 'GET /api/dashboard portfolio');
 
-  for (const path of ['/api/games', '/api/store-listings', '/api/creator-profiles', '/api/creators', '/api/campaigns', '/api/keys', '/api/steam-metrics', '/api/outreach-logs']) {
+  for (const path of ['/api/games', '/api/store-listings', '/api/creator-profiles', '/api/creators', '/api/campaigns', '/api/steam-metrics', '/api/outreach-logs']) {
     const body = await requestOk(path);
     assertArray(body, `GET ${path}`);
   }
@@ -335,30 +335,31 @@ test('creates growth records and exposes them through list APIs', async () => {
   assertArray(outreachLogs, 'GET /api/outreach-logs after email send');
   assert(containsDeep(outreachLogs, draft.subject), 'Email send should create an outreach log.');
 
-  const keyPayload = {
+  // Steam keys now live on the per-game creator record (creators + keys unified).
+  const keyedCreatorPayload = {
     gameId: game.id,
-    key: `QA-${RUN_ID.toUpperCase()}-STEAM-001`,
-    code: `QA-${RUN_ID.toUpperCase()}-STEAM-001`,
-    value: `QA-${RUN_ID.toUpperCase()}-STEAM-001`,
-    platform: 'Steam',
-    status: 'available',
-    creatorHandle: creatorPayload.handle,
-    campaignName: campaignPayload.name,
-    notes: 'Created by API smoke test',
+    channelName: `Key Recipient ${RUN_ID}`,
+    recipientType: 'youtuber',
+    email: `key-${RUN_ID}@example.com`,
+    country: 'EN',
+    steamKey: `QA-${RUN_ID.toUpperCase()}-STEAM-001`,
+    status: '발송',
+    note: 'Created by API smoke test',
   };
 
-  const key = await requestOk('/api/keys', {
+  const keyedCreator = await requestOk('/api/creators', {
     method: 'POST',
-    body: keyPayload,
+    body: keyedCreatorPayload,
   });
-  assertObject(key, 'POST /api/keys');
-  assert(!containsDeep(key, 'steamKeyEncrypted'), 'POST /api/keys should not expose encrypted Steam key material.');
-  assert(containsDeep(key, 'steamKeyMasked'), 'POST /api/keys should return a masked Steam key.');
+  assertObject(keyedCreator, 'POST /api/creators with Steam key');
+  assert(!containsDeep(keyedCreator, 'steamKeyEncrypted'), 'POST /api/creators should not expose encrypted Steam key material.');
+  assert(containsDeep(keyedCreator, 'steamKeyMasked'), 'POST /api/creators should return a masked Steam key.');
+  assert(keyedCreator.status === 'sent', `Korean key status should normalize to sent. Got: ${preview(keyedCreator.status)}`);
 
-  const keys = await requestOk('/api/keys');
-  assertArray(keys, 'GET /api/keys after create');
-  assert(containsDeep(keys, key.steamKeyMasked), 'Created key should be visible in GET /api/keys as a masked key.');
-  assert(!containsDeep(keys, 'steamKeyEncrypted'), 'GET /api/keys should not expose encrypted Steam key material.');
+  const creatorsAfter = await requestOk('/api/creators');
+  assertArray(creatorsAfter, 'GET /api/creators after key create');
+  assert(containsDeep(creatorsAfter, keyedCreator.steamKeyMasked), 'Created key should be visible in GET /api/creators as a masked key.');
+  assert(!containsDeep(creatorsAfter, 'steamKeyEncrypted'), 'GET /api/creators should not expose encrypted Steam key material.');
 });
 
 test('generates UTM links', async () => {
