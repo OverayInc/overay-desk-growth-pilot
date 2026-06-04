@@ -307,11 +307,11 @@ function defaultEmailTemplates() {
     ),
     t(
       "tmpl_horror",
-      "호러·분위기 게임",
-      "A horror experience for your channel — {{game}}",
-      `Hi {{creator}},\n\n{{game}} is an atmospheric horror experience, and your reactions would do it justice. We're Immersed Player by Overay Inc.\n\nWe'd be happy to send a Steam key for a playthrough or first-impressions. Best with headphones, in the dark. :)\n\n{{utm}}\n\n${sigEn}`,
-      "채널에 어울릴 호러 — {{game}}",
-      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 분위기로 몰입시키는 호러 게임이라, {{creator}}님의 리액션과 정말 잘 맞을 것 같아요. 저희는 오버레이의 Immersed Player 팀입니다.\n\n플레이 영상이나 첫인상용으로 Steam 키를 보내드릴게요. 헤드폰 끼고 어두운 데서 하시길 추천해요. :)\n\n{{utm}}\n\n${sigKo}`,
+      "이상현상·몰입형 (Exit 8 류)",
+      "An immersive anomaly experience for your channel — {{game}}",
+      `Hi {{creator}},\n\n{{game}} is an immersive first-person experience about reading a space and spotting what's "off" — eerie and tense, but easy to pick up. We're Immersed Player by Overay Inc.\n\nThe observe-and-react loop tends to play really well on camera, so we thought of your channel. We'd be glad to send a Steam key for a playthrough or first-impressions.\n\n{{utm}}\n\n${sigEn}`,
+      "채널에 어울릴 몰입형 이상현상 게임 — {{game}}",
+      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 공간을 살피며 '뭔가 이상한 점'을 찾아내는 1인칭 몰입형 경험이에요. 오싹하고 긴장감 있지만 진입장벽은 낮습니다. 저희는 오버레이(Overay Inc.)의 Immersed Player 팀이에요.\n\n관찰하고 반응하는 흐름이 화면에 특히 잘 담겨서 {{creator}}님 채널이 떠올랐어요. 플레이 영상이나 첫인상용으로 Steam 키를 보내드릴게요.\n\n{{utm}}\n\n${sigKo}`,
     ),
     t(
       "tmpl_streamer",
