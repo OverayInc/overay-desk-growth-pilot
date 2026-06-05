@@ -9,6 +9,7 @@ const state = {
   creatorProfiles: [],
   creators: [],
   keys: [],
+  keyPool: [],
   metrics: [],
   syncStatus: null,
   syncSchedule: null,
@@ -1495,12 +1496,16 @@ function renderCsvModalPreview(preview, type) {
   const head =
     type === "profiles"
       ? "<th>채널</th><th>플랫폼</th><th>이메일</th><th>태그</th><th>조회수</th><th>적합도</th>"
-      : "<th>대상</th><th>구분</th><th>연락처</th><th>국가</th><th>Key</th><th>발송일</th><th>상태</th>";
-  const colspan = type === "profiles" ? 6 : 7;
+      : type === "pool"
+        ? "<th>Key</th><th>유형</th><th>라벨</th><th>메모</th>"
+        : "<th>대상</th><th>구분</th><th>연락처</th><th>국가</th><th>Key</th><th>발송일</th><th>상태</th>";
+  const colspan = type === "profiles" ? 6 : type === "pool" ? 4 : 7;
   const rowHtml = (row) =>
     type === "profiles"
       ? `<tr><td>${escapeHtml(row.channelName)}</td><td>${escapeHtml(row.platform)}</td><td>${escapeHtml(row.email || "-")}</td><td>${escapeHtml((row.tags || []).join(", "))}</td><td class="num">${number(row.averageViews)}</td><td class="num">${number(row.fitScore)}</td></tr>`
-      : `<tr><td>${escapeHtml(row.channelName)}</td><td>${escapeHtml(KEY_TYPE_LABELS[row.recipientType] || row.recipientType || "-")}</td><td>${escapeHtml(row.email || "-")}</td><td>${escapeHtml(row.country || "-")}</td><td><code>${escapeHtml(row.steamKeyMasked)}</code></td><td>${escapeHtml(row.sentAt || "-")}</td><td>${escapeHtml(CREATOR_STATUS_LABELS[row.status] || row.status)}</td></tr>`;
+      : type === "pool"
+        ? `<tr><td><code>${escapeHtml(row.masked)}</code></td><td>${escapeHtml(row.type)}</td><td>${escapeHtml(row.label || "-")}</td><td>${escapeHtml(row.note || "-")}</td></tr>`
+        : `<tr><td>${escapeHtml(row.channelName)}</td><td>${escapeHtml(KEY_TYPE_LABELS[row.recipientType] || row.recipientType || "-")}</td><td>${escapeHtml(row.email || "-")}</td><td>${escapeHtml(row.country || "-")}</td><td><code>${escapeHtml(row.steamKeyMasked)}</code></td><td>${escapeHtml(row.sentAt || "-")}</td><td>${escapeHtml(CREATOR_STATUS_LABELS[row.status] || row.status)}</td></tr>`;
   $("#csvModalPreview").innerHTML = `
     <div class="preview-grid">
       <div class="preview-stats">
@@ -2029,6 +2034,51 @@ function renderAll() {
   renderYoutube();
   renderRedditPosts();
   renderDiscovery();
+  renderKeyPool();
+}
+
+// Per-game key pool table in the distribution tab.
+function poolTypeLabel(entry) {
+  if (entry.type === "single") return "1회용";
+  if (entry.maxUses == null) return "다회용·무제한";
+  return `다회용·상한 ${entry.maxUses}`;
+}
+
+function renderKeyPool() {
+  const wrap = $("#keyPoolTableWrap");
+  if (!wrap) return;
+  const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
+  const rows = state.keyPool.filter((e) => e.gameId === gameId);
+  const avail = rows.filter((e) => e.available).length;
+  const summary = $("#keyPoolSummary");
+  if (summary) summary.textContent = rows.length ? `키 ${number(rows.length)}개 · 가용 ${number(avail)}` : "키 없음";
+  if (!rows.length) {
+    wrap.innerHTML = '<table><tbody><tr><td><span class="empty">등록된 키가 없습니다. "키 추가" 또는 CSV로 등록하세요.</span></td></tr></tbody></table>';
+    return;
+  }
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>작업</th></tr></thead>
+      <tbody>
+        ${rows
+          .map((e) => {
+            const total = e.maxUses == null ? "∞" : e.maxUses;
+            const badge = e.available
+              ? '<span class="pool-badge available">가용</span>'
+              : '<span class="pool-badge exhausted">소진</span>';
+            return `<tr>
+              <td data-label="Key"><span class="matrix-chip" data-copy="${escapeHtml(e.value || e.masked)}" data-tip="🔑 ${escapeHtml(e.value || e.masked)}\n클릭하여 복사">🔑</span> <code>${escapeHtml(e.masked)}</code></td>
+              <td data-label="유형">${escapeHtml(poolTypeLabel(e))}</td>
+              <td data-label="사용" class="num">${number(e.assignedCount)} / ${total}</td>
+              <td data-label="상태">${badge}</td>
+              <td data-label="라벨">${escapeHtml(e.label || "-")}</td>
+              <td data-label="배정 대상">${e.assignedTo?.length ? escapeHtml(e.assignedTo.join(", ")) : "-"}</td>
+              <td data-label="작업"><button type="button" class="secondary-button table-button danger-button" data-del-pool="${escapeHtml(e.id)}">삭제</button></td>
+            </tr>`;
+          })
+          .join("")}
+      </tbody>
+    </table>`;
 }
 
 async function setGameScope(gameId) {
@@ -2060,6 +2110,7 @@ async function loadAll() {
     redditPosts,
     emailTemplates,
     discovery,
+    keyPool,
   ] = await Promise.all([
     api("/api/health"),
     api("/api/games"),
@@ -2080,7 +2131,9 @@ async function loadAll() {
     api("/api/email-templates"),
     // Discovery is optional/best-effort — a failure here must not blank the app.
     api("/api/discovery").catch(() => state.discovery),
+    api("/api/key-pool?gameId=all").catch(() => state.keyPool),
   ]);
+  state.keyPool = keyPool;
   state.games = games;
   state.storeListings = storeListings;
   state.dashboard = dashboard;
@@ -2159,6 +2212,13 @@ function initCsvImportModal() {
       previewPath: "/api/import/creator-csv/preview",
       importPath: "/api/import/creator-csv",
       placeholder: "channelName,platform,email,country,tags,averageViews,fitScore",
+    },
+    pool: {
+      title: "키 풀 CSV 일괄 등록",
+      game: true,
+      previewPath: "/api/import/key-pool/preview",
+      importPath: "/api/import/key-pool",
+      placeholder: "value,type,maxUses,label,note  (헤더 없이 키만 한 줄씩 붙여넣어도 됨)",
     },
   };
   let current = "keys";
@@ -2248,10 +2308,12 @@ function initMatrixModal() {
     const profile = state.creatorProfiles.find((p) => p.id === profileId);
     const game = state.games.find((g) => g.id === gameId);
     const rec = state.creators.find((c) => c.creatorProfileId === profileId && c.gameId === gameId);
-    ctx = { profileId, gameId, recordId: rec?.id || null };
+    ctx = { profileId, gameId, recordId: rec?.id || null, keyPoolId: rec?.keyPoolId || "" };
     $("#matrixModalTitle").textContent = `${profile?.channelName || "크리에이터"} · ${game?.name || "게임"}`;
     $("#matrixStatus").value = rec?.status || "uncontacted";
     $("#matrixKey").value = rec?.steamKey || "";
+    // A pool-assigned key is managed by the pool — show it read-only (회수 to switch to manual).
+    $("#matrixKey").readOnly = Boolean(rec?.keyPoolId);
     $("#matrixKeyCopy").hidden = !rec?.steamKey;
     $("#matrixSentAt").value = rec?.sentAt || "";
     $("#matrixEmbargo").value = rec?.embargoAt || "";
@@ -2263,10 +2325,82 @@ function initMatrixModal() {
       : "사용여부: 미확인";
     $("#matrixDeleteBtn").hidden = !rec;
     $("#matrixCheckBtn").disabled = !rec?.steamKeyMasked;
-    modal.showModal();
+    // Key-pool assignment controls.
+    const poolKeys = state.keyPool.filter((e) => e.gameId === gameId);
+    const pickable = poolKeys.filter((e) => e.available || e.id === rec?.keyPoolId);
+    $("#matrixPoolSelect").innerHTML =
+      '<option value="">— 풀 키 선택 —</option>' +
+      pickable
+        .map(
+          (e) =>
+            `<option value="${escapeHtml(e.id)}"${e.id === rec?.keyPoolId ? " selected" : ""}>${escapeHtml(e.masked)} · ${escapeHtml(poolTypeLabel(e))} · ${e.assignedCount}/${e.maxUses == null ? "∞" : e.maxUses}</option>`,
+        )
+        .join("");
+    const remaining = poolKeys.filter((e) => e.available).length;
+    $("#matrixPoolRemaining").textContent = poolKeys.length
+      ? `풀 잔여 ${remaining}개 / 전체 ${poolKeys.length}개`
+      : "이 게임의 풀에 키가 없습니다 (배포·링크 탭에서 등록).";
+    $("#matrixUnassignBtn").hidden = !rec?.keyPoolId;
+    if (!modal.open) modal.showModal();
   }
 
   openMatrixCell = openCell; // expose so the per-game table's 편집 button can reuse this editor
+
+  // Assigning a pool key needs a creator record to attach to — create one on demand.
+  async function ensureMatrixRecord() {
+    if (ctx.recordId) return ctx.recordId;
+    const profile = state.creatorProfiles.find((p) => p.id === ctx.profileId);
+    const created = await api("/api/creators", {
+      method: "POST",
+      body: {
+        gameId: ctx.gameId,
+        creatorProfileId: ctx.profileId,
+        channelName: profile?.channelName || "",
+        email: profile?.email || "",
+        country: profile?.country || "",
+        platform: profile?.platform || "",
+      },
+    });
+    ctx.recordId = created.id;
+    return created.id;
+  }
+
+  async function assignPoolKey(keyPoolId) {
+    const id = await ensureMatrixRecord();
+    await api(`/api/creators/${encodeURIComponent(id)}/assign-key`, { method: "POST", body: keyPoolId ? { keyPoolId } : {} });
+    showToast("키를 배정했습니다.");
+    await loadAll();
+    openCell(ctx.profileId, ctx.gameId);
+  }
+
+  $("#matrixAutoAssignBtn").addEventListener("click", async () => {
+    try {
+      await assignPoolKey("");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $("#matrixPoolSelect").addEventListener("change", async (event) => {
+    const keyPoolId = event.target.value;
+    if (!keyPoolId) return;
+    try {
+      await assignPoolKey(keyPoolId);
+    } catch (error) {
+      showToast(error.message);
+      openCell(ctx.profileId, ctx.gameId);
+    }
+  });
+  $("#matrixUnassignBtn").addEventListener("click", async () => {
+    if (!ctx.recordId) return;
+    try {
+      await api(`/api/creators/${encodeURIComponent(ctx.recordId)}/unassign-key`, { method: "POST", body: {} });
+      showToast("키를 회수했습니다.");
+      await loadAll();
+      openCell(ctx.profileId, ctx.gameId);
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
 
   $("#creatorMatrixWrap").addEventListener("click", async (event) => {
     // Click an email to copy it to the clipboard.
@@ -2320,8 +2454,10 @@ function initMatrixModal() {
         sentAt: $("#matrixSentAt").value,
         embargoAt: $("#matrixEmbargo").value,
         note: $("#matrixNote").value,
-        steamKey: $("#matrixKey").value.trim(), // always sent — empty clears the key
       };
+      // Only send a manual key when no pool key is assigned — otherwise saving would
+      // detach the pool assignment. (Use 회수 to switch back to manual entry.)
+      if (!ctx.keyPoolId) body.steamKey = $("#matrixKey").value.trim();
       const used = $("#matrixUsed").value; // "" = 자동, "true"/"false" = 수동 사용여부
       if (used !== "") body.activated = used === "true";
       if (ctx.recordId) {
@@ -2823,6 +2959,51 @@ function initForms() {
       showToast("UTM 링크를 생성했습니다.");
     } catch (error) {
       showToast(error.message);
+    }
+  });
+
+  // ---- Key pool (distribution tab) ----
+  bindForm("#keyPoolForm", (data) => {
+    const raw = data.type; // single | multi | multi-unlimited
+    const type = raw === "single" ? "single" : "multi";
+    const maxUses = raw === "multi" ? data.maxUses : ""; // single/unlimited → no cap
+    return api("/api/key-pool", {
+      method: "POST",
+      body: { value: data.value, type, maxUses, label: data.label, note: data.note, gameId: $("#keyPoolGame")?.value || selectedGameForForms() },
+    });
+  });
+  $("#keyPoolType")?.addEventListener("change", (event) => {
+    $("#keyPoolMaxWrap").hidden = event.target.value !== "multi";
+  });
+  $("#keyPoolForm")?.addEventListener("reset", () => {
+    $("#keyPoolMaxWrap").hidden = true;
+  });
+  $("#keyPoolGame")?.addEventListener("change", renderKeyPool);
+  $("#keyPoolTableWrap")?.addEventListener("click", async (event) => {
+    const copyEl = event.target.closest("[data-copy]");
+    if (copyEl) {
+      try {
+        await navigator.clipboard.writeText(copyEl.getAttribute("data-copy"));
+        showToast("클립보드에 복사했습니다.");
+      } catch {
+        showToast("복사 실패 — 직접 선택해 복사하세요.");
+      }
+      return;
+    }
+    const del = event.target.closest("[data-del-pool]");
+    if (del) {
+      const id = del.getAttribute("data-del-pool");
+      const entry = state.keyPool.find((e) => e.id === id);
+      const assigned = entry?.assignedCount || 0;
+      if (assigned > 0 && !confirm(`${assigned}명에게 배정된 키입니다. 회수하고 삭제할까요?`)) return;
+      try {
+        await api(`/api/key-pool/${encodeURIComponent(id)}${assigned > 0 ? "?force=1" : ""}`, { method: "DELETE" });
+        showToast("키를 삭제했습니다.");
+        await loadAll();
+      } catch (error) {
+        showToast(error.message);
+      }
+      return;
     }
   });
 

@@ -408,6 +408,7 @@ function defaultData() {
     creatorProfiles: [],
     creators: [],
     influencerKeys: [],
+    keyPool: [],
     emailTemplates: defaultEmailTemplates(),
     steamDailyMetrics: [],
     outreachLogs: [],
@@ -522,6 +523,16 @@ function normalizeData(data) {
   data.creatorProfiles ||= [];
   data.creators ||= [];
   data.influencerKeys ||= [];
+  data.keyPool ||= [];
+  for (const entry of data.keyPool) {
+    entry.assignedTo ||= [];
+    entry.type = entry.type === "multi" ? "multi" : "single";
+    entry.maxUses = entry.type === "single" ? 1 : entry.maxUses == null ? null : Math.max(1, toNumber(entry.maxUses, 1));
+    entry.gameId ||= data.meta.primaryGameId || "";
+    entry.batchId ||= "";
+    entry.label ||= "";
+    entry.note ||= "";
+  }
   data.emailTemplates ||= [];
   if (!data.emailTemplates.length) data.emailTemplates = defaultEmailTemplates();
   data.steamDailyMetrics ||= [];
@@ -647,10 +658,11 @@ function normalizeData(data) {
     creator.steamKeyEncrypted ||= "";
     creator.steamKeyMasked ||= "";
     creator.steamActivation ||= null;
+    creator.keyPoolId ||= "";
     creator.countedAsSent = Boolean(creator.countedAsSent);
   }
 
-  for (const collection of [data.campaigns, data.creators, data.influencerKeys, data.steamDailyMetrics, data.outreachLogs]) {
+  for (const collection of [data.campaigns, data.creators, data.influencerKeys, data.keyPool, data.steamDailyMetrics, data.outreachLogs]) {
     for (const record of collection) {
       record.gameId ||= data.meta.primaryGameId || data.games[0]?.id || "";
     }
@@ -714,6 +726,173 @@ function maskSteamKey(value) {
 function sanitizeCreator(record) {
   const { steamKeyEncrypted, ...safe } = record;
   return safe;
+}
+
+// ---- Key pool: per-game key inventory assigned to creators ----
+// A pool entry holds one key (single-use, or multi-use with an optional cap) and the
+// list of creator ids currently holding it. Availability and counts are derived.
+function poolKeyAvailable(entry) {
+  if (!entry) return false;
+  const used = (entry.assignedTo || []).length;
+  if (entry.type === "single") return used === 0;
+  if (entry.maxUses == null) return true; // multi, unlimited
+  return used < entry.maxUses; // multi, capped
+}
+
+function nextAvailablePoolKey(data, gameId) {
+  return data.keyPool
+    .filter((entry) => entry.gameId === gameId && poolKeyAvailable(entry))
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))[0] || null;
+}
+
+// Never returns the raw encrypted value; maps assigned creator ids to display names.
+function sanitizePoolKey(data, entry) {
+  const used = (entry.assignedTo || []).length;
+  return {
+    id: entry.id,
+    gameId: entry.gameId,
+    type: entry.type,
+    maxUses: entry.maxUses,
+    masked: entry.masked,
+    label: entry.label || "",
+    note: entry.note || "",
+    batchId: entry.batchId || "",
+    assignedCount: used,
+    available: poolKeyAvailable(entry),
+    assignedTo: (entry.assignedTo || []).map((id) => data.creators.find((c) => c.id === id)?.channelName || id),
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+  };
+}
+
+// Attach a pool key to a creator: the pool stays the single source of the secret, so the
+// creator only stores keyPoolId + the masked value for display (steamKeyEncrypted left empty).
+function assignPoolKeyToCreator(data, entry, creator) {
+  if (!entry.assignedTo.includes(creator.id)) entry.assignedTo.push(creator.id);
+  creator.keyPoolId = entry.id;
+  creator.steamKeyMasked = entry.masked;
+  creator.steamKeyEncrypted = "";
+  creator.steamActivation = null;
+  entry.updatedAt = nowIso();
+  creator.updatedAt = nowIso();
+}
+
+// Return a creator's pool key to the pool (single-use becomes available again).
+function releaseCreatorPoolKey(data, creator) {
+  if (!creator.keyPoolId) return;
+  const entry = data.keyPool.find((e) => e.id === creator.keyPoolId);
+  if (entry) {
+    entry.assignedTo = (entry.assignedTo || []).filter((id) => id !== creator.id);
+    entry.updatedAt = nowIso();
+  }
+  creator.keyPoolId = "";
+  creator.steamKeyMasked = "";
+}
+
+function normalizePoolType(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "multi" || s === "m" || s.includes("다회") || s.includes("multi")) return "multi";
+  return "single";
+}
+
+// Build a normalized pool entry. single => maxUses 1; multi with a number => that cap;
+// multi with empty/0/unlimited => null (unlimited).
+function makePoolEntry(gameId, value, input = {}, batchId = "") {
+  const type = normalizePoolType(input.type);
+  let maxUses = null;
+  if (type === "single") {
+    maxUses = 1;
+  } else {
+    const raw = String(input.maxUses ?? "").trim().toLowerCase();
+    if (raw && raw !== "0" && raw !== "unlimited" && raw !== "무제한") maxUses = Math.max(1, toNumber(raw, 1));
+  }
+  return {
+    id: makeId("pkey", String(value)),
+    gameId,
+    valueEncrypted: encryptSecret(value),
+    masked: maskSteamKey(value),
+    type,
+    maxUses,
+    assignedTo: [],
+    batchId,
+    label: String(input.label || "").trim(),
+    note: String(input.note || "").trim(),
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+}
+
+function poolCsvField(header) {
+  const h = String(header || "").normalize("NFC").trim().toLowerCase().replace(/[\s/()·.\-_]+/g, "");
+  const map = {
+    value: "value", key: "value", 키: "value", steamkey: "value", code: "value", 코드: "value", cdkey: "value",
+    type: "type", 유형: "type", 타입: "type", 구분: "type",
+    maxuses: "maxUses", 상한: "maxUses", 인원: "maxUses", uses: "maxUses", max: "maxUses", 사용인원: "maxUses",
+    label: "label", 라벨: "label", batch: "label", 배치: "label",
+    note: "note", 메모: "note", notes: "note", memo: "note", 비고: "note",
+  };
+  return map[h] || "";
+}
+
+// Parse a key-pool CSV. With a recognizable header, maps columns; otherwise treats each
+// non-empty line as a bare key value (so a plain list of keys just works).
+function parsePoolCsv(text) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) throw new Error("CSV에 키가 없습니다.");
+  const headerIdx = lines.findIndex((line) => parseCsvLine(line).map(poolCsvField).includes("value"));
+  if (headerIdx < 0) {
+    return lines.map((line) => ({ value: (parseCsvLine(line)[0] ?? line).trim() })).filter((r) => r.value);
+  }
+  const headers = parseCsvLine(lines[headerIdx]).map(poolCsvField);
+  return lines
+    .slice(headerIdx + 1)
+    .map((line) => {
+      const values = parseCsvLine(line);
+      const row = {};
+      headers.forEach((field, i) => { if (field && !row[field]) row[field] = (values[i] ?? "").trim(); });
+      return row;
+    })
+    .filter((row) => row.value);
+}
+
+function previewPoolCsv(data, gameId, text) {
+  const rows = parsePoolCsv(text);
+  const seen = new Set();
+  const existing = new Set(data.keyPool.filter((e) => e.gameId === gameId).map((e) => e.masked));
+  let newRows = 0;
+  let duplicateRows = 0;
+  const warnings = [];
+  const previewRows = [];
+  rows.forEach((row, i) => {
+    const value = String(row.value || "").trim();
+    if (!value) { warnings.push(`행 ${i + 1}: 키 값이 비어 건너뜁니다.`); return; }
+    const masked = maskSteamKey(value);
+    if (seen.has(masked) || existing.has(masked)) { duplicateRows += 1; return; }
+    seen.add(masked);
+    newRows += 1;
+    const type = normalizePoolType(row.type);
+    const typeLabel = type === "multi" ? (String(row.maxUses ?? "").trim() && !/0|unlimited|무제한/i.test(row.maxUses) ? `다회(${row.maxUses})` : "다회(무제한)") : "1회용";
+    previewRows.push({ masked, type: typeLabel, label: row.label || "", note: row.note || "" });
+  });
+  return { columns: ["value", "type", "maxUses", "label", "note"], totalRows: rows.length, newRows, updateRows: 0, duplicateRows, warnings, previewRows: previewRows.slice(0, 8) };
+}
+
+function importPoolCsv(data, gameId, text) {
+  const rows = parsePoolCsv(text);
+  const batchId = makeId("batch", `pool-${gameId}`);
+  const existing = new Set(data.keyPool.filter((e) => e.gameId === gameId).map((e) => e.masked));
+  let imported = 0;
+  let skippedDuplicates = 0;
+  for (const row of rows) {
+    const value = String(row.value || "").trim();
+    if (!value) { skippedDuplicates += 1; continue; }
+    const masked = maskSteamKey(value);
+    if (existing.has(masked)) { skippedDuplicates += 1; continue; }
+    existing.add(masked);
+    data.keyPool.push(makePoolEntry(gameId, value, { type: row.type, maxUses: row.maxUses, label: row.label, note: row.note }, batchId));
+    imported += 1;
+  }
+  return { imported, updated: 0, skippedDuplicates, totalRows: rows.length };
 }
 
 // Creators that have a Steam key attached, and the subset whose key has been sent.
@@ -4433,8 +4612,11 @@ async function handleApi(req, res, url) {
         .map((creator) => ({
           ...sanitizeCreator(creator),
           // Operators need the actual code to send it; return the decrypted value to the
-          // authenticated client (kept encrypted at rest; never included in exports).
-          steamKey: decryptSecret(creator.steamKeyEncrypted),
+          // authenticated client (kept encrypted at rest; never included in exports). A
+          // pool-assigned key lives in the pool, so resolve it from there.
+          steamKey: creator.keyPoolId
+            ? decryptSecret(data.keyPool.find((e) => e.id === creator.keyPoolId)?.valueEncrypted)
+            : decryptSecret(creator.steamKeyEncrypted),
           gameName: gameNameFor(data, creator.gameId),
           campaignName: campaignNameFor(data, creator.campaignId, "", creator.gameId),
         }))
@@ -4553,8 +4735,10 @@ async function handleApi(req, res, url) {
     if (input.utmLink !== undefined) creator.utmLink = String(input.utmLink).trim();
     if (input.campaignId !== undefined) creator.campaignId = String(input.campaignId).trim();
     // When a key field is explicitly provided (even as empty), set it — empty clears the key.
+    // A manual key replaces any pool-assigned key, so return the pool slot first.
     if (input.steamKey !== undefined || input.key !== undefined || input.code !== undefined || input.value !== undefined) {
       const rawSteamKey = String(input.steamKey || input.key || input.code || input.value || "").trim();
+      releaseCreatorPoolKey(data, creator);
       creator.steamKeyEncrypted = rawSteamKey ? encryptSteamKey(rawSteamKey) : "";
       creator.steamKeyMasked = rawSteamKey ? maskSteamKey(rawSteamKey) : "";
       creator.steamActivation = null;
@@ -4573,6 +4757,120 @@ async function handleApi(req, res, url) {
         source: "manual",
       };
     }
+    creator.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, sanitizeCreator(creator));
+  }
+
+  // ---- Key pool routes ----
+  if (route === "GET /api/key-pool") {
+    const gameId = requestedGameId(url);
+    return respondJson(
+      res,
+      200,
+      scopedItems(data.keyPool, gameId)
+        .map((entry) => ({
+          ...sanitizePoolKey(data, entry),
+          // Operators need the actual code to send it; decrypted only on this authed read.
+          value: decryptSecret(entry.valueEncrypted),
+        }))
+        .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
+    );
+  }
+
+  if (route === "POST /api/key-pool") {
+    const input = await readJson(req);
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    const gameError = requireGame(data, gameId);
+    if (gameError) return respondError(res, 400, gameError);
+    const value = String(input.value || input.key || input.code || "").trim();
+    if (!value) return respondError(res, 400, "키 값이 필요합니다.");
+    if (data.keyPool.some((e) => e.gameId === gameId && e.masked === maskSteamKey(value))) {
+      return respondError(res, 409, "이미 등록된 키입니다.");
+    }
+    const entry = makePoolEntry(gameId, value, input);
+    data.keyPool.push(entry);
+    await writeData(data);
+    return respondJson(res, 201, sanitizePoolKey(data, entry));
+  }
+
+  if (route === "POST /api/import/key-pool/preview") {
+    const input = await readJson(req);
+    if (!input.csvText) return respondError(res, 400, "csvText is required.");
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    try {
+      return respondJson(res, 200, previewPoolCsv(data, gameId, input.csvText));
+    } catch (error) {
+      return respondError(res, 400, error.message || "키 풀 CSV 미리보기 실패.");
+    }
+  }
+
+  if (route === "POST /api/import/key-pool") {
+    const input = await readJson(req);
+    if (!input.csvText) return respondError(res, 400, "csvText is required.");
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    const gameError = requireGame(data, gameId);
+    if (gameError) return respondError(res, 400, gameError);
+    let result;
+    try {
+      result = importPoolCsv(data, gameId, input.csvText);
+    } catch (error) {
+      return respondError(res, 400, error.message || "키 풀 CSV 가져오기 실패.");
+    }
+    await writeData(data);
+    return respondJson(res, 201, result);
+  }
+
+  const poolDeleteRoute = url.pathname.match(/^\/api\/key-pool\/([^/]+)$/);
+  if (poolDeleteRoute && req.method === "DELETE") {
+    const entryId = decodeURIComponent(poolDeleteRoute[1]);
+    const entry = data.keyPool.find((e) => e.id === entryId);
+    if (!entry) return respondError(res, 404, "키를 찾지 못했습니다.");
+    const holders = entry.assignedTo || [];
+    const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+    if (holders.length && !force) {
+      const names = holders.map((id) => data.creators.find((c) => c.id === id)?.channelName || id);
+      return respondError(res, 409, `배정된 키는 삭제할 수 없습니다 (${names.join(", ")}). 먼저 회수하세요.`);
+    }
+    // force: clear the key off every holder.
+    for (const id of holders) {
+      const creator = data.creators.find((c) => c.id === id);
+      if (creator) { creator.keyPoolId = ""; creator.steamKeyMasked = ""; creator.updatedAt = nowIso(); }
+    }
+    data.keyPool = data.keyPool.filter((e) => e.id !== entryId);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: entryId });
+  }
+
+  const assignRoute = url.pathname.match(/^\/api\/creators\/([^/]+)\/assign-key$/);
+  if (assignRoute && req.method === "POST") {
+    const creatorId = decodeURIComponent(assignRoute[1]);
+    const creator = data.creators.find((c) => c.id === creatorId);
+    if (!creator) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    const input = await readJson(req);
+    releaseCreatorPoolKey(data, creator); // return any prior key (manual or pool) first
+    let entry;
+    if (input.keyPoolId) {
+      entry = data.keyPool.find((e) => e.id === input.keyPoolId);
+      if (!entry || entry.gameId !== creator.gameId) return respondError(res, 400, "해당 게임의 키가 아닙니다.");
+      if (!poolKeyAvailable(entry)) return respondError(res, 409, "이미 모두 배정된 키입니다.");
+    } else {
+      entry = nextAvailablePoolKey(data, creator.gameId);
+      if (!entry) return respondError(res, 409, "배정 가능한 키가 없습니다.");
+    }
+    assignPoolKeyToCreator(data, entry, creator);
+    applyCreatorKeySideEffects(data, creator);
+    await writeData(data);
+    return respondJson(res, 200, sanitizeCreator(creator));
+  }
+
+  const unassignRoute = url.pathname.match(/^\/api\/creators\/([^/]+)\/unassign-key$/);
+  if (unassignRoute && req.method === "POST") {
+    const creatorId = decodeURIComponent(unassignRoute[1]);
+    const creator = data.creators.find((c) => c.id === creatorId);
+    if (!creator) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    releaseCreatorPoolKey(data, creator);
+    creator.steamActivation = null;
     creator.updatedAt = nowIso();
     await writeData(data);
     return respondJson(res, 200, sanitizeCreator(creator));

@@ -1386,6 +1386,15 @@ tbody tr:last-child td { border-bottom: 0; }
   font-family: inherit; font-size: 13.5px; line-height: 1.5;
 }
 
+/* Key pool (distribution tab) */
+.key-pool-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.key-pool-tools select { min-width: 180px; }
+.pool-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 650; }
+.pool-badge.available { background: var(--success-soft); color: var(--success-text); }
+.pool-badge.exhausted { background: var(--surface-muted); color: var(--text-muted); }
+.matrix-pool-row { display: flex; gap: 8px; align-items: flex-end; }
+.matrix-pool-row select { flex: 1; }
+
 /* Floating instant tooltip (fixed-position so it never clips in scroll areas). */
 .hover-tip {
   position: fixed; z-index: 300; display: none;
