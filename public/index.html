@@ -675,6 +675,57 @@
               </div>
               <div class="result-line" id="utmResult"></div>
             </section>
+
+            <section class="band" id="keys">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Key Pool</p>
+                  <h2>게임별 키 풀</h2>
+                </div>
+                <div class="key-pool-tools">
+                  <select id="keyPoolGame" data-game-select></select>
+                  <button type="button" class="secondary-button" data-open-csv="pool">CSV 일괄 등록</button>
+                </div>
+              </div>
+              <details class="action-panel">
+                <summary><span>키 추가</span><span class="summary-icon"></span></summary>
+                <form class="form-row key-pool-form" id="keyPoolForm">
+                  <input type="hidden" name="gameId" data-game-select />
+                  <label class="field-wide">
+                    키 / 프로모 코드
+                    <input name="value" placeholder="XXXXX-XXXXX-XXXXX 또는 프로모 코드" autocomplete="off" required />
+                  </label>
+                  <label>
+                    유형
+                    <select name="type" id="keyPoolType">
+                      <option value="single">1회용 (1명)</option>
+                      <option value="multi">다회용 (상한)</option>
+                      <option value="multi-unlimited">다회용 (무제한)</option>
+                    </select>
+                  </label>
+                  <label id="keyPoolMaxWrap" hidden>
+                    사용 인원 상한
+                    <input name="maxUses" type="number" min="1" placeholder="예: 10" />
+                  </label>
+                  <label>
+                    라벨 (선택)
+                    <input name="label" placeholder="배치명 등" />
+                  </label>
+                  <label class="field-wide">
+                    메모 (선택)
+                    <input name="note" placeholder="비고" />
+                  </label>
+                  <button type="submit">키 추가</button>
+                </form>
+              </details>
+              <div class="panel">
+                <div class="panel-title">
+                  <h3>등록된 키</h3>
+                  <span id="keyPoolSummary">-</span>
+                </div>
+                <div class="table-wrap scroll-y" id="keyPoolTableWrap"></div>
+              </div>
+            </section>
           </div>
 
           <!-- ============================ DATA & SYNC ============================ -->
@@ -1264,7 +1315,16 @@
             </select>
           </label>
           <label>
-            Steam Key / 프로모 코드 <button type="button" class="secondary-button mini" id="matrixKeyCopy" hidden>복사</button>
+            풀에서 배정 (배포·링크 탭에서 등록한 키)
+            <div class="matrix-pool-row">
+              <select id="matrixPoolSelect"><option value="">— 풀 키 선택 —</option></select>
+              <button type="button" class="secondary-button" id="matrixAutoAssignBtn">키 배정</button>
+              <button type="button" class="secondary-button danger-button" id="matrixUnassignBtn" hidden>회수</button>
+            </div>
+            <span class="image-picker__hint" id="matrixPoolRemaining"></span>
+          </label>
+          <label>
+            Steam Key / 프로모 코드 <span class="muted" style="font-weight:500">(풀 미사용 시 직접 입력)</span> <button type="button" class="secondary-button mini" id="matrixKeyCopy" hidden>복사</button>
             <input id="matrixKey" placeholder="XXXXX-XXXXX-XXXXX 또는 프로모 코드" />
           </label>
           <label>

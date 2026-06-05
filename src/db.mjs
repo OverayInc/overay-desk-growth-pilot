@@ -18,6 +18,7 @@ const COLLECTIONS = [
   "creatorProfiles",
   "creators",
   "influencerKeys",
+  "keyPool",
   "emailTemplates",
   "steamDailyMetrics",
   "outreachLogs",
