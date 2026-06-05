@@ -2373,14 +2373,14 @@ function initMatrixModal() {
     openCell(ctx.profileId, ctx.gameId);
   }
 
-  $("#matrixAutoAssignBtn").addEventListener("click", async () => {
+  $("#matrixAutoAssignBtn")?.addEventListener("click", async () => {
     try {
       await assignPoolKey("");
     } catch (error) {
       showToast(error.message);
     }
   });
-  $("#matrixPoolSelect").addEventListener("change", async (event) => {
+  $("#matrixPoolSelect")?.addEventListener("change", async (event) => {
     const keyPoolId = event.target.value;
     if (!keyPoolId) return;
     try {
@@ -2390,7 +2390,7 @@ function initMatrixModal() {
       openCell(ctx.profileId, ctx.gameId);
     }
   });
-  $("#matrixUnassignBtn").addEventListener("click", async () => {
+  $("#matrixUnassignBtn")?.addEventListener("click", async () => {
     if (!ctx.recordId) return;
     try {
       await api(`/api/creators/${encodeURIComponent(ctx.recordId)}/unassign-key`, { method: "POST", body: {} });
