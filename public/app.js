@@ -1786,8 +1786,8 @@ function initMailModal() {
     const email = state.settings?.email || {};
     $("#mailSmtpBtn").disabled = !email.configured;
     $("#mailStatusHint").textContent = email.configured
-      ? `SMTP 발송 가능 (${email.mode || "smtp"})`
-      : "SMTP 미설정 — '메일 앱으로 열기'로 보내세요.";
+      ? `메일 발송 가능 (${email.mode || "smtp"})`
+      : "메일 발송 미설정 — '메일 앱으로 열기'로 보내세요.";
     await loadDraft();
     modal.showModal();
   }
@@ -2301,12 +2301,6 @@ function initMatrixModal() {
     } finally {
       btn.disabled = false;
     }
-  });
-
-  $("#matrixDraftBtn").addEventListener("click", () => {
-    const { profileId, gameId } = ctx;
-    modal.close();
-    if (openMailModal) openMailModal(profileId, gameId);
   });
 
   $("#matrixKeyCopy").addEventListener("click", async () => {

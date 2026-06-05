@@ -1272,7 +1272,6 @@
         <div class="csv-modal-actions">
           <button type="button" class="secondary-button danger" id="matrixDeleteBtn" hidden>삭제</button>
           <button type="button" class="secondary-button" id="matrixCheckBtn">사용여부 조회</button>
-          <button type="button" class="secondary-button" id="matrixDraftBtn">메일 보내기</button>
           <button type="button" class="secondary-button" data-matrix-close>닫기</button>
           <button type="button" id="matrixSaveBtn">저장</button>
         </div>
@@ -1311,13 +1310,14 @@
             <input id="mailSubject" />
           </label>
           <div class="mail-body-cols">
-            <label class="mail-body-col">
-              본문 (보내는 내용)
-              <textarea id="mailBody" rows="14"></textarea>
-            </label>
+            <div class="mail-body-col">
+              <div class="mail-ko-head"><span class="mail-col-title">본문 (실제 보내는 내용)</span></div>
+              <textarea id="mailBody" class="mail-body-main" rows="14"></textarea>
+              <span class="mail-ko-status" aria-hidden="true"></span>
+            </div>
             <div class="mail-body-col">
               <div class="mail-ko-head">
-                <span>한글 보기 / 편집</span>
+                <span class="mail-col-title">한글 보기 / 편집</span>
                 <div class="button-row">
                   <button type="button" class="secondary-button mini" id="mailToKo">본문 → 한글 번역</button>
                   <button type="button" class="secondary-button mini" id="mailFromKo">한글 → 본문 반영</button>
@@ -1333,8 +1333,8 @@
         <div class="csv-modal-actions">
           <button type="button" class="secondary-button" data-mail-close>닫기</button>
           <button type="button" class="secondary-button" id="mailCopyBody">본문 복사</button>
-          <button type="button" class="secondary-button" id="mailSmtpBtn">SMTP 발송</button>
-          <button type="button" id="mailOpenBtn">메일 앱으로 열기</button>
+          <button type="button" class="secondary-button" id="mailOpenBtn">메일 앱으로 열기</button>
+          <button type="button" id="mailSmtpBtn">메일 발송</button>
         </div>
       </div>
     </dialog>
