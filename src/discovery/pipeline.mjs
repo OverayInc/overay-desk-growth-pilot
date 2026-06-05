@@ -72,7 +72,7 @@ async function processCandidate(c, { config, gameContext, analyze, enrich }) {
   const record = { ...c };
   try {
     if (enrich) {
-      const e = await enrichCandidate(c, { fetchImpl: config.fetchImpl, renderImpl: config.renderImpl });
+      const e = await enrichCandidate(c, { fetchImpl: config.fetchImpl, renderImpl: config.renderImpl, signal: config.signal });
       record.scrapedText = e.scrapedText;
       record.scrapedEmail = e.scrapedEmail;
       record.scrapedUrls = e.scrapedUrls;
@@ -85,6 +85,7 @@ async function processCandidate(c, { config, gameContext, analyze, enrich }) {
         recentTitles: c.recentTitles,
         scrapedText: record.scrapedText || "",
         ...(gameContext ? { gameContext } : {}),
+        signal: config.signal,
       });
       record.email = a.email || record.scrapedEmail || "";
       record.channelType = a.channelType;
@@ -139,13 +140,17 @@ export async function runDiscovery(seeds, opts = {}) {
     maxAnalyze = 60,
     deadline = Infinity,
     now = () => Date.now(),
+    shouldStop = () => false,
     onProgress = () => {},
   } = opts;
 
   const seedList = (Array.isArray(seeds) ? seeds : [seeds]).map((s) => String(s).trim()).filter(Boolean);
   if (!seedList.length) throw new Error("검색 시드(키워드)가 최소 한 개 필요합니다.");
 
-  const timeLeft = () => now() < deadline;
+  // `active` is false once the deadline passes OR a stop is requested — checked
+  // frequently (between searches and between candidates) so a stop bails fast.
+  const active = () => now() < deadline && !shouldStop();
+  const timeLeft = active;
   const seenSeeds = new Set();
   const queue = []; // { query, depth }
   const enqueue = (query, depth) => {
@@ -161,7 +166,7 @@ export async function runDiscovery(seeds, opts = {}) {
   if (expandCount > 0 && analyze && timeLeft()) {
     try {
       onProgress("질의 확장 (gemma)…");
-      const extra = await expandSeeds({ gameContext: gameContext || "", existingSeeds: seedList, count: expandCount });
+      const extra = await expandSeeds({ gameContext: gameContext || "", existingSeeds: seedList, count: expandCount, signal: config.signal });
       for (const q of extra) enqueue(q, 0);
       if (extra.length) onProgress(`확장 시드 +${extra.length}`);
     } catch (err) {
@@ -182,6 +187,7 @@ export async function runDiscovery(seeds, opts = {}) {
     let found;
     try {
       found = await discoverAll(query, {
+        signal: config.signal,
         youtube: { max: perSeed, ...(config.youtube || {}) },
         twitch: { max: perSeed, ...(config.twitch || {}) },
         web: { max: perSeed, ...(config.web || {}) },
@@ -219,6 +225,7 @@ export async function runDiscovery(seeds, opts = {}) {
             audience: record.audience,
             contentTone: record.contentTone,
             recentTitles: record.recentTitles,
+            signal: config.signal,
           });
           for (const q of leads) enqueue(q, depth + 1);
           if (leads.length) onProgress(`단서 +${leads.length} (from ${record.channelName})`);

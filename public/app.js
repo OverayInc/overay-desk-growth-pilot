@@ -3221,6 +3221,15 @@ function discoveryStatusLabel(value) {
   return DISCOVERY_STATUS_LABELS[value] || value || "-";
 }
 
+function formatDiscoveryElapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}시간 ${m}분`;
+  if (m > 0) return `${m}분 ${s % 60}초`;
+  return `${s % 60}초`;
+}
+
 function getDiscoverySeeds() {
   const raw = $("#discoverySeeds")?.value || "";
   return raw
@@ -3230,6 +3239,8 @@ function getDiscoverySeeds() {
 }
 
 let discoveryPollTimer = 0;
+let discoveryStopping = false;
+let discoveryLastStatus = "";
 function stopDiscoveryPolling() {
   if (discoveryPollTimer) {
     window.clearInterval(discoveryPollTimer);
@@ -3238,9 +3249,10 @@ function stopDiscoveryPolling() {
 }
 function startDiscoveryPolling() {
   if (discoveryPollTimer) return;
+  // Poll fast while a session runs so logs + progress feel live.
   discoveryPollTimer = window.setInterval(() => {
     loadDiscovery().catch(() => {});
-  }, 5000);
+  }, 2000);
 }
 
 async function loadDiscovery() {
@@ -3261,13 +3273,24 @@ function renderDiscovery() {
   const sources = d.sources || {};
   const anySource = sources.youtube || sources.twitch || sources.web;
 
+  // Toast on a fresh error result (status flipped to "error" since last render).
+  if (st.lastStatus === "error" && discoveryLastStatus !== "error" && st.lastMessage) {
+    showToast(`찾아봇 오류: ${st.lastMessage}`);
+  }
+  discoveryLastStatus = st.lastStatus;
+
   const runState = $("#discoveryRunState");
   if (runState) {
-    runState.textContent = running
-      ? "● 실행 중"
-      : st.lastStatus === "never_run"
-        ? "대기"
-        : `마지막: ${discoveryStatusLabel(st.lastStatus)}`;
+    const label = runState.querySelector(".discovery-runstate-label");
+    const spinner = runState.querySelector(".discovery-spinner");
+    if (label) {
+      label.textContent = running
+        ? "실행 중"
+        : st.lastStatus === "never_run"
+          ? "대기"
+          : `마지막: ${discoveryStatusLabel(st.lastStatus)}`;
+    }
+    if (spinner) spinner.hidden = !running;
     runState.classList.toggle("running", running);
   }
 
@@ -3289,8 +3312,13 @@ function renderDiscovery() {
   const grid = $("#discoveryStatusGrid");
   if (grid) {
     const stats = st.lastStats || {};
+    // Live elapsed while running: prefer the wall-clock since startedAt.
+    let elapsed = "-";
+    if (running && st.startedAt) elapsed = formatDiscoveryElapsed(Date.now() - new Date(st.startedAt).getTime());
+    else if (st.elapsedMs) elapsed = formatDiscoveryElapsed(st.elapsedMs);
     const rows = [
       ["상태", discoveryStatusLabel(st.lastStatus)],
+      ["경과 시간", elapsed],
       ["검색 수행", numberFormat.format(stats.seedsSearched || 0)],
       ["분석", numberFormat.format(stats.analyzed || 0)],
       ["이메일 확보", numberFormat.format(stats.withEmail || 0)],
@@ -3304,10 +3332,20 @@ function renderDiscovery() {
   const found = $("#discoverySessionFound");
   if (found) found.textContent = `누적 신규 ${numberFormat.format(st.sessionFound || 0)}명`;
   const progress = $("#discoveryProgress");
-  if (progress) progress.textContent = st.progress ? `· ${st.progress}` : st.lastMessage ? `· ${st.lastMessage}` : "";
+  if (progress) {
+    progress.textContent = st.progress ? st.progress : st.lastMessage ? st.lastMessage : "";
+    progress.classList.toggle("live", running);
+  }
+
+  renderDiscoveryLog(d.logs || []);
 
   const stopBtn = $("#discoveryStop");
-  if (stopBtn) stopBtn.hidden = !running;
+  if (stopBtn) {
+    stopBtn.hidden = !running;
+    if (!running) discoveryStopping = false;
+    stopBtn.disabled = discoveryStopping;
+    stopBtn.textContent = discoveryStopping ? "중지 중…" : "중지";
+  }
   for (const btn of document.querySelectorAll("#discoveryQuickRun, [data-discovery-minutes]")) {
     btn.disabled = running || !anySource;
   }
@@ -3317,6 +3355,27 @@ function renderDiscovery() {
   else stopDiscoveryPolling();
 
   renderDiscoveryQueue();
+}
+
+function renderDiscoveryLog(logs) {
+  const panel = $("#discoveryLogPanel");
+  if (!panel) return;
+  const count = $("#discoveryLogCount");
+  if (count) count.textContent = logs.length ? `${logs.length}줄` : "로그 없음";
+  if (!logs.length) {
+    panel.innerHTML = `<p class="empty-state">아직 로그가 없습니다. 검색을 실행하면 여기에 진행 상황이 실시간으로 표시됩니다.</p>`;
+    return;
+  }
+  // Stick to bottom only if the user is already near the bottom (don't yank the
+  // scroll while they're reading older lines).
+  const atBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 40;
+  panel.innerHTML = logs
+    .map((l) => {
+      const t = l.at ? new Date(l.at).toLocaleTimeString("ko-KR", { hour12: false }) : "";
+      return `<div class="log-line log-${escapeHtml(l.level || "info")}"><span class="log-time">${escapeHtml(t)}</span><span class="log-msg">${escapeHtml(l.msg || "")}</span></div>`;
+    })
+    .join("");
+  if (atBottom) panel.scrollTop = panel.scrollHeight;
 }
 
 function renderDiscoveryQueue() {
@@ -3407,12 +3466,18 @@ function initDiscovery() {
   }
 
   $("#discoveryStop")?.addEventListener("click", async () => {
+    discoveryStopping = true;
+    renderDiscovery();
     try {
       await api("/api/discovery/stop", { method: "POST", body: {} });
-      showToast("세션을 중지합니다…");
+      showToast("세션을 중지합니다… 진행 중인 단계가 끝나면 멈춥니다.");
+      // Keep polling so the button vanishes once `running` flips false.
+      startDiscoveryPolling();
       await loadDiscovery();
     } catch (error) {
       showToast(error.message);
+      discoveryStopping = false;
+      renderDiscovery();
     }
   });
 
@@ -3473,7 +3538,7 @@ const VIEW_META = {
   overview: { eyebrow: "Growth Overview", title: "그로스 대시보드" },
   campaigns: { eyebrow: "Campaign Performance", title: "캠페인 성과" },
   creators: { eyebrow: "Creator Relations", title: "크리에이터 & 섭외" },
-  discovery: { eyebrow: "Discovery Bot", title: "크리에이터 발견 봇" },
+  discovery: { eyebrow: "Discovery Bot", title: "크리에이터 찾아봇 🤖" },
   youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
   reddit: { eyebrow: "Reddit Log", title: "레딧 글 기록" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },

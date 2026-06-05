@@ -83,14 +83,18 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
               <span>캠페인</span>
             </a>
-            <a class="nav-item" data-view="creators" href="#creators">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <span>크리에이터</span>
-            </a>
-            <a class="nav-item" data-view="discovery" href="#discovery">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
-              <span>발견 봇</span>
-            </a>
+            <div class="nav-item-group">
+              <a class="nav-item" data-view="creators" href="#creators">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>크리에이터</span>
+              </a>
+              <div class="nav-sub">
+                <a class="nav-item nav-subitem" data-view="discovery" href="#discovery">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                  <span>찾아봇</span>
+                </a>
+              </div>
+            </div>
             <a class="nav-item" data-view="youtube" href="#youtube">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
               <span>YouTube</span>
@@ -360,9 +364,9 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Discovery Bot</p>
-                  <h2>크리에이터 발견 봇</h2>
+                  <h2>크리에이터 찾아봇 🤖</h2>
                 </div>
-                <span class="muted" id="discoveryRunState">-</span>
+                <span class="discovery-runstate" id="discoveryRunState"><span class="discovery-spinner" hidden></span><span class="discovery-runstate-label">-</span></span>
               </div>
               <p class="muted matrix-legend">
                 gemma4가 검색어를 확장하고 단서를 추적해 크리에이터를 찾고, 채널 성격·이메일·적합도를 정리합니다.
@@ -396,8 +400,16 @@
                     <span id="discoverySessionFound">-</span>
                   </div>
                   <div class="sync-status-grid" id="discoveryStatusGrid"></div>
-                  <p class="muted discovery-progress" id="discoveryProgress"></p>
+                  <p class="discovery-progress" id="discoveryProgress"></p>
                 </div>
+              </div>
+
+              <div class="panel discovery-log-panel">
+                <div class="panel-title">
+                  <h3>실시간 로그</h3>
+                  <span id="discoveryLogCount">-</span>
+                </div>
+                <div class="discovery-log" id="discoveryLogPanel"></div>
               </div>
             </section>
 

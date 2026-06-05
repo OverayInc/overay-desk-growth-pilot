@@ -1842,3 +1842,55 @@ tbody tr:last-child td { border-bottom: 0; }
 .mini-button.ghost:hover { background: var(--surface-muted); }
 .mini-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status-pill.small { font-size: 11px; padding: 2px 9px; }
+
+/* Nested nav: 찾아봇 lives under 크리에이터 and reveals only when that group is active. */
+.nav-item-group { display: grid; gap: 3px; }
+.nav-sub {
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0 4px 19px;
+  padding-left: 11px;
+  border-left: 1.5px solid var(--border);
+}
+.nav-item-group:has(.nav-item.active) .nav-sub { display: flex; }
+.nav-subitem { min-height: 34px; font-size: 12.5px; padding-left: 9px; }
+.nav-subitem svg { width: 16px; height: 16px; }
+.nav-subitem.active::before { display: none; }
+
+/* Discovery: live run-state spinner */
+.discovery-runstate { display: inline-flex; align-items: center; gap: 7px; }
+.discovery-runstate.running { color: var(--success-text); font-weight: 700; }
+.discovery-spinner {
+  width: 13px; height: 13px;
+  border: 2px solid var(--success-line);
+  border-top-color: var(--success-text);
+  border-radius: 50%;
+  animation: discovery-spin 0.7s linear infinite;
+}
+.discovery-spinner[hidden] { display: none; }
+@keyframes discovery-spin { to { transform: rotate(360deg); } }
+
+/* Live "current activity" line — gently pulses while running */
+.discovery-progress { margin-top: 10px; min-height: 18px; font-size: 12.5px; color: var(--text-secondary); font-style: italic; }
+.discovery-progress.live { color: var(--brand-strong); animation: discovery-pulse 1.4s ease-in-out infinite; }
+@keyframes discovery-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* Live log panel */
+.discovery-log-panel { margin-top: 14px; }
+.discovery-log {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.log-line { display: flex; gap: 10px; padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+.log-time { flex: 0 0 auto; color: var(--text-faint); }
+.log-msg { flex: 1 1 auto; color: var(--text-secondary); }
+.log-line.log-warn .log-msg { color: var(--warning-text); }
+.log-line.log-error .log-msg { color: var(--danger-text); font-weight: 600; }
