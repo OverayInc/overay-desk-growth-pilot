@@ -1502,6 +1502,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .email-settings-fields .field-half { grid-column: span 3; }
 .email-settings-fields .field-third { grid-column: span 2; }
 .email-settings-fields .check-row { grid-column: span 3; }
+/* label{display:grid} (author) beats the UA [hidden] rule, so hide explicitly. */
+.email-settings-fields [hidden] { display: none; }
 
 .settings-actions { display: flex; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 16px; margin-top: auto; }
 .settings-actions button { width: min(220px, 100%); }

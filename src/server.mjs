@@ -67,6 +67,14 @@ const SMTP_STARTTLS = process.env.SMTP_STARTTLS !== "false";
 const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER || "";
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "";
 const EMAIL_SEND_MODE = process.env.EMAIL_SEND_MODE || "smtp";
+// Microsoft Graph app-only (client credentials) mail sending. Falls back to the
+// login app's tenant/client when a dedicated Graph app isn't configured.
+const GRAPH_TENANT_ID = process.env.GRAPH_TENANT_ID || process.env.MS_TENANT_ID || "";
+const GRAPH_CLIENT_ID = process.env.GRAPH_CLIENT_ID || process.env.MS_CLIENT_ID || "";
+const GRAPH_CLIENT_SECRET = process.env.GRAPH_CLIENT_SECRET || "";
+const GRAPH_SEND_MAILBOX = process.env.GRAPH_SEND_MAILBOX || "";
+const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
+const graphTokenUrl = (tenantId) => `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 const DISABLE_SYNC_SCHEDULER = process.env.DISABLE_SYNC_SCHEDULER === "true";
 const SYNC_SCHEDULER_INTERVAL_MS = Number(process.env.SYNC_SCHEDULER_INTERVAL_MS || 60_000);
 // Creator-discovery bot. Off by default (run manually via the dashboard first).
@@ -415,6 +423,13 @@ function defaultData() {
       emailFrom: "",
       emailReplyTo: "",
       emailSendMode: "smtp",
+      graphTenantId: "",
+      graphClientId: "",
+      graphClientSecretEncrypted: "",
+      graphClientSecretMasked: "",
+      graphSendMailbox: "",
+      graphAccessToken: "",
+      graphAccessTokenExpiry: 0,
       youtubeClientId: "",
       youtubeClientSecretEncrypted: "",
       youtubeClientSecretMasked: "",
@@ -532,6 +547,13 @@ function normalizeData(data) {
   data.integrationSettings.emailFrom ||= "";
   data.integrationSettings.emailReplyTo ||= "";
   data.integrationSettings.emailSendMode ||= "smtp";
+  data.integrationSettings.graphTenantId ||= "";
+  data.integrationSettings.graphClientId ||= "";
+  data.integrationSettings.graphClientSecretEncrypted ||= "";
+  data.integrationSettings.graphClientSecretMasked ||= "";
+  data.integrationSettings.graphSendMailbox ||= "";
+  data.integrationSettings.graphAccessToken ||= "";
+  data.integrationSettings.graphAccessTokenExpiry ||= 0;
   data.integrationSettings.updatedAt ||= "";
   data.syncSchedule ||= seeded.syncSchedule;
   data.syncSchedule.enabled = Boolean(data.syncSchedule.enabled);
@@ -1432,7 +1454,12 @@ function effectiveIntegrationConfig(data) {
   const storedYoutubeRefresh = decryptSecret(settings.youtubeRefreshTokenEncrypted);
   const storedRedditSecret = decryptSecret(settings.redditClientSecretEncrypted);
   const storedSmtpPass = decryptSecret(settings.smtpPassEncrypted);
+  const storedGraphSecret = decryptSecret(settings.graphClientSecretEncrypted);
   const smtpUser = settings.smtpUser || SMTP_USER;
+  const graphTenantId = settings.graphTenantId || GRAPH_TENANT_ID;
+  const graphClientId = settings.graphClientId || GRAPH_CLIENT_ID;
+  const graphClientSecret = storedGraphSecret || GRAPH_CLIENT_SECRET;
+  const graphSendMailbox = settings.graphSendMailbox || GRAPH_SEND_MAILBOX;
   return {
     steamFinancialApiKey: storedSteamKey || STEAM_FINANCIAL_API_KEY,
     steamKeySource: storedSteamKey ? "web" : STEAM_FINANCIAL_API_KEY ? "env" : "missing",
@@ -1448,6 +1475,12 @@ function effectiveIntegrationConfig(data) {
     emailReplyTo: settings.emailReplyTo || EMAIL_REPLY_TO,
     emailSendMode: settings.emailSendMode || EMAIL_SEND_MODE || "smtp",
     smtpSource: settings.smtpHost || settings.emailFrom || settings.smtpUser || storedSmtpPass ? "web" : SMTP_HOST || EMAIL_FROM ? "env" : "missing",
+    graphTenantId,
+    graphClientId,
+    graphClientSecret,
+    graphSendMailbox,
+    graphClientSecretMasked: settings.graphClientSecretMasked || (GRAPH_CLIENT_SECRET ? maskSecret(GRAPH_CLIENT_SECRET) : ""),
+    graphConfigured: Boolean(graphTenantId && graphClientId && graphClientSecret && graphSendMailbox),
     steamKeyMasked: settings.steamFinancialApiKeyMasked || (STEAM_FINANCIAL_API_KEY ? maskSecret(STEAM_FINANCIAL_API_KEY) : ""),
     smtpPassMasked: settings.smtpPassMasked || (SMTP_PASS ? maskSecret(SMTP_PASS) : ""),
     youtubeApiKey: storedYoutubeKey || YOUTUBE_API_KEY,
@@ -1494,6 +1527,10 @@ function publicSettings(data) {
       emailFrom: settings.emailFrom || "",
       emailReplyTo: settings.emailReplyTo || "",
       emailSendMode: settings.emailSendMode || "smtp",
+      graphTenantId: settings.graphTenantId || "",
+      graphClientId: settings.graphClientId || "",
+      graphSendMailbox: settings.graphSendMailbox || "",
+      graphClientSecretMasked: settings.graphClientSecretMasked || "",
       steamFinancialApiKeyMasked: settings.steamFinancialApiKeyMasked || "",
       smtpPassMasked: settings.smtpPassMasked || "",
       updatedAt: settings.updatedAt || "",
@@ -1567,29 +1604,54 @@ function updateIntegrationSettings(data, input = {}) {
   if (input.smtpStarttls !== undefined) settings.smtpStarttls = input.smtpStarttls === true || input.smtpStarttls === "true" || input.smtpStarttls === "on";
   if (input.emailFrom !== undefined) settings.emailFrom = String(input.emailFrom).trim();
   if (input.emailReplyTo !== undefined) settings.emailReplyTo = String(input.emailReplyTo).trim();
-  if (input.emailSendMode !== undefined) settings.emailSendMode = ["smtp", "log"].includes(input.emailSendMode) ? input.emailSendMode : "smtp";
+  if (input.emailSendMode !== undefined) settings.emailSendMode = ["smtp", "log", "graph"].includes(input.emailSendMode) ? input.emailSendMode : "smtp";
+
+  if (input.graphTenantId !== undefined) settings.graphTenantId = String(input.graphTenantId).trim();
+  if (input.graphClientId !== undefined) settings.graphClientId = String(input.graphClientId).trim();
+  if (input.graphSendMailbox !== undefined) settings.graphSendMailbox = String(input.graphSendMailbox).trim();
+  if (input.clearGraphClientSecret) {
+    settings.graphClientSecretEncrypted = "";
+    settings.graphClientSecretMasked = "";
+    settings.graphAccessToken = "";
+    settings.graphAccessTokenExpiry = 0;
+  } else if (input.graphClientSecret) {
+    settings.graphClientSecretEncrypted = encryptSecret(input.graphClientSecret);
+    settings.graphClientSecretMasked = maskSecret(input.graphClientSecret);
+    settings.graphAccessToken = "";
+    settings.graphAccessTokenExpiry = 0;
+  }
+  // Tenant/client/mailbox changes also invalidate any cached app token.
+  if (input.graphTenantId !== undefined || input.graphClientId !== undefined) {
+    settings.graphAccessToken = "";
+    settings.graphAccessTokenExpiry = 0;
+  }
   settings.updatedAt = nowIso();
   return publicSettings(data);
 }
 
 function emailConfigured(dataOrConfig) {
   const config = dataOrConfig?.smtpHost !== undefined ? dataOrConfig : effectiveIntegrationConfig(dataOrConfig || {});
+  if (config.emailSendMode === "graph") return Boolean(config.graphConfigured);
   return Boolean(config.smtpHost && config.smtpPort && config.emailFrom);
 }
 
 function buildEmailStatus(data) {
   const config = effectiveIntegrationConfig(data || {});
+  const isGraph = config.emailSendMode === "graph";
   return {
     configured: emailConfigured(config),
     mode: config.emailSendMode,
-    source: config.smtpSource,
-    host: config.smtpHost ? config.smtpHost : "missing",
-    port: config.smtpPort,
-    from: config.emailFrom ? config.emailFrom : "missing",
-    auth: config.smtpUser && config.smtpPass ? "configured" : "not_configured",
-    secure: config.smtpSecure,
-    starttls: config.smtpStarttls,
-    passwordMasked: config.smtpPassMasked,
+    source: isGraph ? (config.graphConfigured ? "graph" : "missing") : config.smtpSource,
+    host: isGraph ? "graph.microsoft.com" : config.smtpHost ? config.smtpHost : "missing",
+    port: isGraph ? 443 : config.smtpPort,
+    from: isGraph ? config.graphSendMailbox || "missing" : config.emailFrom ? config.emailFrom : "missing",
+    auth: isGraph ? (config.graphConfigured ? "app-only" : "not_configured") : config.smtpUser && config.smtpPass ? "configured" : "not_configured",
+    secure: isGraph ? true : config.smtpSecure,
+    starttls: isGraph ? true : config.smtpStarttls,
+    passwordMasked: isGraph ? config.graphClientSecretMasked : config.smtpPassMasked,
+    graphMailbox: config.graphSendMailbox || "",
+    graphTenantId: config.graphTenantId || "",
+    graphClientId: config.graphClientId || "",
   };
 }
 
@@ -1724,6 +1786,68 @@ async function sendEmailViaSmtp(config, { to, subject, body }) {
   }
 }
 
+// Microsoft Graph app-only (client credentials) token, cached on settings until
+// ~1 min before expiry. Mirrors ensureRedditToken.
+async function ensureGraphToken(data) {
+  const settings = data.integrationSettings;
+  const config = effectiveIntegrationConfig(data);
+  if (!config.graphTenantId || !config.graphClientId || !config.graphClientSecret) return "";
+  if (settings.graphAccessToken && settings.graphAccessTokenExpiry && Date.now() < settings.graphAccessTokenExpiry - 60000) {
+    return settings.graphAccessToken;
+  }
+  const response = await fetch(graphTokenUrl(config.graphTenantId), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.graphClientId,
+      client_secret: config.graphClientSecret,
+      scope: "https://graph.microsoft.com/.default",
+      grant_type: "client_credentials",
+    }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.access_token) {
+    throw new Error(body?.error_description || body?.error || `Graph 토큰 발급 실패 (${response.status})`);
+  }
+  settings.graphAccessToken = body.access_token;
+  settings.graphAccessTokenExpiry = Date.now() + toNumber(body.expires_in, 3600) * 1000;
+  return settings.graphAccessToken;
+}
+
+// Send via Graph `sendMail` from a fixed mailbox (Application Mail.Send permission,
+// scoped to that mailbox with an ApplicationAccessPolicy). 202 = accepted.
+async function sendEmailViaGraph(data, config, { to, subject, body }) {
+  const token = await ensureGraphToken(data);
+  if (!token) throw new Error("Graph 발송 설정이 없습니다.");
+  const mailbox = config.graphSendMailbox;
+  if (!mailbox) throw new Error("Graph 발신 사서함이 설정되지 않았습니다.");
+  const payload = {
+    message: {
+      subject: subject || "",
+      body: { contentType: "Text", content: body || "" },
+      toRecipients: [{ emailAddress: { address: addressOnly(to) } }],
+      ...(config.emailReplyTo ? { replyTo: [{ emailAddress: { address: addressOnly(config.emailReplyTo) } }] } : {}),
+    },
+    saveToSentItems: true,
+  };
+  const response = await fetch(`${GRAPH_API_BASE}/users/${encodeURIComponent(mailbox)}/sendMail`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 202) {
+    return { provider: "graph", response: `Graph accepted (${mailbox})` };
+  }
+  const errText = await response.text().catch(() => "");
+  let detail = errText;
+  try {
+    detail = JSON.parse(errText)?.error?.message || errText;
+  } catch {
+    /* keep raw text */
+  }
+  throw new Error(`Graph sendMail 실패 (${response.status}): ${String(detail).slice(0, 300)}`);
+}
+
 function addOutreachLog(data, input) {
   const log = {
     id: input.id || makeId("outreach", input.subject || input.to || "email"),
@@ -1782,17 +1906,21 @@ async function sendOutreachEmail(data, input = {}) {
     applyEmailSentEffects(data, log);
     return { status: "logged", log, message: log.message };
   }
+  const isGraph = config.emailSendMode === "graph";
+  const provider = isGraph ? "graph" : "smtp";
   if (!emailConfigured(config)) {
     const log = addOutreachLog(data, {
       ...draft,
       status: "blocked",
-      provider: "smtp",
-      message: "SMTP 설정이 없어 실제 발송하지 않았습니다.",
+      provider,
+      message: isGraph
+        ? "Graph 발송 설정이 없어 실제 발송하지 않았습니다."
+        : "SMTP 설정이 없어 실제 발송하지 않았습니다.",
     });
     return { status: "blocked", log, message: log.message, emailStatus: buildEmailStatus(data) };
   }
   try {
-    const result = await sendEmailViaSmtp(config, draft);
+    const result = isGraph ? await sendEmailViaGraph(data, config, draft) : await sendEmailViaSmtp(config, draft);
     const log = addOutreachLog(data, {
       ...draft,
       status: "sent",
@@ -1805,8 +1933,8 @@ async function sendOutreachEmail(data, input = {}) {
     const log = addOutreachLog(data, {
       ...draft,
       status: "failed",
-      provider: "smtp",
-      error: error.message || "SMTP send failed.",
+      provider,
+      error: error.message || (isGraph ? "Graph send failed." : "SMTP send failed."),
     });
     return { status: "failed", log, message: log.error };
   }

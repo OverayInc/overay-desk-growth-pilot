@@ -1009,60 +1009,85 @@
                   <div class="settings-panel-head">
                     <div>
                       <p class="eyebrow">Email Sender</p>
-                      <h3>SMTP 발송</h3>
+                      <h3>메일 발송</h3>
                     </div>
                     <span class="status-pill" id="emailSettingsStatus">missing</span>
                   </div>
                   <div class="settings-meta" id="emailSettingsMeta">-</div>
                   <div class="settings-fields email-settings-fields">
-                    <label class="field-host">
+                    <label class="field-full">
+                      발송 모드
+                      <select name="emailSendMode" id="emailSendModeSelect">
+                        <option value="smtp">smtp (직접 SMTP 서버)</option>
+                        <option value="graph">graph (Microsoft 365 사서함)</option>
+                        <option value="log">log (발송 없이 기록만)</option>
+                      </select>
+                    </label>
+
+                    <label class="field-host smtp-only">
                       Host
                       <input name="smtpHost" placeholder="smtp.example.com" />
                     </label>
-                    <label class="field-port">
+                    <label class="field-port smtp-only">
                       Port
                       <input name="smtpPort" type="number" min="1" max="65535" placeholder="587" />
                     </label>
-                    <label class="field-half">
+                    <label class="field-half smtp-only">
                       User
                       <input name="smtpUser" autocomplete="off" />
                     </label>
-                    <label class="field-half">
+                    <label class="field-half smtp-only">
                       Password
                       <input name="smtpPass" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
                     </label>
-                    <label class="field-half">
+                    <label class="field-half smtp-only">
                       From
                       <input name="emailFrom" placeholder="mailer@example.com" />
                     </label>
-                    <label class="field-half">
-                      Reply-To
-                      <input name="emailReplyTo" placeholder="team@example.com" />
-                    </label>
-                    <label class="field-third">
-                      발송 모드
-                      <select name="emailSendMode">
-                        <option value="smtp">smtp</option>
-                        <option value="log">log</option>
-                      </select>
-                    </label>
-                    <label class="field-third">
+                    <label class="field-third smtp-only">
                       Secure
                       <select name="smtpSecure">
                         <option value="false">false</option>
                         <option value="true">true</option>
                       </select>
                     </label>
-                    <label class="field-third">
+                    <label class="field-third smtp-only">
                       STARTTLS
                       <select name="smtpStarttls">
                         <option value="true">true</option>
                         <option value="false">false</option>
                       </select>
                     </label>
-                    <label class="check-row">
+                    <label class="check-row smtp-only">
                       <input name="clearSmtpPass" type="checkbox" />
                       저장된 패스워드 삭제
+                    </label>
+
+                    <label class="field-half graph-only">
+                      발신 사서함
+                      <input name="graphSendMailbox" placeholder="hello@yourcompany.com" autocomplete="off" />
+                    </label>
+                    <label class="field-half graph-only">
+                      Tenant ID
+                      <input name="graphTenantId" placeholder="비우면 로그인 테넌트 사용" autocomplete="off" />
+                    </label>
+                    <label class="field-half graph-only">
+                      Client ID (앱)
+                      <input name="graphClientId" placeholder="비우면 로그인 앱 사용" autocomplete="off" />
+                    </label>
+                    <label class="field-half graph-only">
+                      Client Secret
+                      <input name="graphClientSecret" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
+                    </label>
+                    <label class="check-row graph-only">
+                      <input name="clearGraphClientSecret" type="checkbox" />
+                      저장된 Secret 삭제
+                    </label>
+                    <span class="image-picker__hint field-full graph-only">Azure 앱에 <strong>Application 권한 Mail.Send</strong> + 관리자 동의, 그리고 이 사서함만 허용하는 ApplicationAccessPolicy가 필요합니다. 로그인한 사람과 무관하게 위 사서함에서 발송됩니다.</span>
+
+                    <label class="field-half">
+                      Reply-To
+                      <input name="emailReplyTo" placeholder="team@example.com" />
                     </label>
                   </div>
                   <div class="settings-actions">

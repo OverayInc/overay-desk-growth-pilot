@@ -1594,7 +1594,9 @@ function renderSettings() {
   emailStatus.className = `status-pill ${email.configured ? "ok" : "fail"}`;
   $("#emailSettingsMeta").textContent = email.configured
     ? `${email.host}:${email.port} · ${email.from} · auth ${email.auth}`
-    : "smtp not configured";
+    : email.mode === "graph"
+      ? "graph not configured"
+      : "smtp not configured";
 
   $("#settingsResult").innerHTML = `
     ${[
@@ -1633,6 +1635,23 @@ function renderSettings() {
   form.elements.smtpSecure.value = String(Boolean(values.smtpSecure));
   form.elements.smtpStarttls.value = String(values.smtpStarttls !== false);
   form.elements.clearSmtpPass.checked = false;
+  form.elements.graphSendMailbox.value = values.graphSendMailbox || "";
+  form.elements.graphTenantId.value = values.graphTenantId || "";
+  form.elements.graphClientId.value = values.graphClientId || "";
+  form.elements.graphClientSecret.value = "";
+  form.elements.clearGraphClientSecret.checked = false;
+  toggleEmailModeFields(form);
+}
+
+// Show only the fields relevant to the selected send mode (smtp / graph / log).
+function toggleEmailModeFields(form) {
+  const mode = form.elements.emailSendMode.value || "smtp";
+  form.querySelectorAll(".smtp-only").forEach((el) => {
+    el.hidden = mode !== "smtp";
+  });
+  form.querySelectorAll(".graph-only").forEach((el) => {
+    el.hidden = mode !== "graph";
+  });
 }
 
 function renderOutreachLogs() {
@@ -2706,10 +2725,14 @@ function initForms() {
           smtpSecure: data.smtpSecure === "true",
           smtpStarttls: data.smtpStarttls === "true",
           clearSmtpPass: form.elements.clearSmtpPass.checked,
+          clearGraphClientSecret: form.elements.clearGraphClientSecret.checked,
         },
       }),
     { keepValues: true },
   );
+  $("#emailSendModeSelect")?.addEventListener("change", (event) => {
+    toggleEmailModeFields(event.currentTarget.form);
+  });
 
   $("#csvPreviewButton").addEventListener("click", async () => {
     try {
