@@ -8,8 +8,8 @@ import {
   htmlToText,
 } from "../src/discovery/enrich.mjs";
 import { candidateKey, dedupeCandidates, markKnown } from "../src/discovery/pipeline.mjs";
-import { normalizeCreatorAnalysis } from "../src/marketingAgent.mjs";
-import { discoverySeeds, discoveryConfigFromEnv } from "../src/discovery/config.mjs";
+import { normalizeCreatorAnalysis, normalizeSeedList } from "../src/marketingAgent.mjs";
+import { discoverySeeds, discoveryConfigFromEnv, parseHhmm, discoveryWindow, inWindow, clampSessionMinutes } from "../src/discovery/config.mjs";
 
 // --- enrich: email extraction ----------------------------------------------
 test("extractEmails finds a plain address and lowercases it", () => {
@@ -138,4 +138,58 @@ test("discoveryConfigFromEnv maps env into source configs", () => {
   assert.equal(cfg.youtube.apiKey, "k");
   assert.equal(cfg.web.provider, "brave");
   assert.equal(cfg.twitch.clientId, "");
+});
+
+// --- hybrid: seed-list normalizer -------------------------------------------
+test("normalizeSeedList trims, dedupes, drops noise, and caps", () => {
+  const out = normalizeSeedList(["  Exit 8  ", "exit 8", "", "x".repeat(200), "관찰 게임"], { max: 5 });
+  assert.deepEqual(out, ["Exit 8", "관찰 게임"]);
+});
+
+test("normalizeSeedList caps to max", () => {
+  assert.equal(normalizeSeedList(["a", "b", "c", "d"], { max: 2 }).length, 2);
+});
+
+test("normalizeSeedList tolerates non-array input", () => {
+  assert.deepEqual(normalizeSeedList(undefined), []);
+  assert.deepEqual(normalizeSeedList("not an array"), []);
+});
+
+// --- scheduling window ------------------------------------------------------
+test("parseHhmm parses valid times and rejects bad ones", () => {
+  assert.equal(parseHhmm("02:00"), 120);
+  assert.equal(parseHhmm("09:30"), 570);
+  assert.equal(parseHhmm("24:00"), null);
+  assert.equal(parseHhmm("9am"), null);
+});
+
+test("discoveryWindow defaults to 02:00-09:00 (no crossing)", () => {
+  const w = discoveryWindow({});
+  assert.equal(w.startMin, 120);
+  assert.equal(w.endMin, 540);
+  assert.equal(w.crossesMidnight, false);
+});
+
+test("inWindow handles a normal window", () => {
+  const w = discoveryWindow({ DISCOVERY_WINDOW_START: "02:00", DISCOVERY_WINDOW_END: "09:00" });
+  assert.equal(inWindow(3 * 60, w), true); // 03:00 inside
+  assert.equal(inWindow(9 * 60, w), false); // 09:00 is the exclusive end
+  assert.equal(inWindow(1 * 60, w), false); // 01:00 before
+});
+
+test("inWindow handles a midnight-crossing window", () => {
+  const w = discoveryWindow({ DISCOVERY_WINDOW_START: "22:00", DISCOVERY_WINDOW_END: "06:00" });
+  assert.equal(w.crossesMidnight, true);
+  assert.equal(inWindow(23 * 60, w), true); // 23:00 inside
+  assert.equal(inWindow(2 * 60, w), true); // 02:00 inside
+  assert.equal(inWindow(12 * 60, w), false); // noon outside
+});
+
+test("clampSessionMinutes clamps to 5..360 and rejects junk", () => {
+  assert.equal(clampSessionMinutes(30), 30);
+  assert.equal(clampSessionMinutes(180), 180);
+  assert.equal(clampSessionMinutes(1000), 360);
+  assert.equal(clampSessionMinutes(2), 5);
+  assert.equal(clampSessionMinutes(0), 0);
+  assert.equal(clampSessionMinutes("nope"), 0);
 });

@@ -16,7 +16,16 @@ import {
 } from "./auth.mjs";
 import { generateEmailTemplate, translateText, aiConfig } from "./marketingAgent.mjs";
 import { runDiscovery } from "./discovery/pipeline.mjs";
-import { discoverySeeds, discoveryGameContext } from "./discovery/config.mjs";
+import { expandSeeds } from "./marketingAgent.mjs";
+import { makeRenderer, closeRenderer } from "./discovery/renderer.mjs";
+import {
+  discoverySeeds,
+  discoveryGameContext,
+  discoveryWindow,
+  inWindow,
+  discoveryUseRenderer,
+  clampSessionMinutes,
+} from "./discovery/config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,9 +86,12 @@ const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 const graphTokenUrl = (tenantId) => `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 const DISABLE_SYNC_SCHEDULER = process.env.DISABLE_SYNC_SCHEDULER === "true";
 const SYNC_SCHEDULER_INTERVAL_MS = Number(process.env.SYNC_SCHEDULER_INTERVAL_MS || 60_000);
-// Creator-discovery bot. Off by default (run manually via the dashboard first).
+// Creator-discovery bot. The nightly window scheduler is off by default (run
+// manually via the dashboard first); enable with DISABLE_DISCOVERY_SCHEDULER=false.
 const DISABLE_DISCOVERY_SCHEDULER = process.env.DISABLE_DISCOVERY_SCHEDULER !== "false";
-const DISCOVERY_SCHEDULER_INTERVAL_HOURS = Number(process.env.DISCOVERY_SCHEDULER_INTERVAL_HOURS || 24);
+const DISCOVERY_EXPAND_COUNT = Number(process.env.DISCOVERY_EXPAND_COUNT || 8);
+const DISCOVERY_LEAD_DEPTH = Number(process.env.DISCOVERY_LEAD_DEPTH || 2);
+const DISCOVERY_CHUNK_MS = Math.max(60_000, Number(process.env.DISCOVERY_CHUNK_MS || 300_000));
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || "";
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || "";
 const WEB_SEARCH_PROVIDER = process.env.WEB_SEARCH_PROVIDER || "";
@@ -471,7 +483,12 @@ function defaultData() {
       lastStatus: "never_run",
       lastMessage: "",
       lastStats: null,
-      nextRunAt: "",
+      running: false,
+      startedAt: "",
+      endsAt: "",
+      sessionFound: 0,
+      progress: "",
+      trigger: "",
     },
   };
 }
@@ -573,6 +590,12 @@ function normalizeData(data) {
   data.discoveryCandidates ||= [];
   data.discoveryState ||= seeded.discoveryState;
   data.discoveryState.lastStatus ||= "never_run";
+  data.discoveryState.sessionFound ||= 0;
+  data.discoveryState.progress ||= "";
+  data.discoveryState.startedAt ||= "";
+  data.discoveryState.endsAt ||= "";
+  data.discoveryState.trigger ||= "";
+  if (typeof data.discoveryState.running !== "boolean") data.discoveryState.running = false;
   data.youtubeChannels ||= [];
   data.youtubeSnapshots ||= [];
   data.redditPosts ||= [];
@@ -3491,6 +3514,255 @@ async function checkScheduledSync() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Creator discovery bot — server glue around src/discovery/*.
+// The bot SEARCHES (YouTube/Twitch/web) + gemma4 analyzes; it only fills a
+// review queue (data.discoveryCandidates). Sending stays manual by design.
+// ---------------------------------------------------------------------------
+function discoveryConfigForServer(data) {
+  const config = effectiveIntegrationConfig(data);
+  return {
+    youtube: { apiKey: config.youtubeApiKey },
+    twitch: { clientId: TWITCH_CLIENT_ID, clientSecret: TWITCH_CLIENT_SECRET },
+    web: { provider: WEB_SEARCH_PROVIDER, apiKey: WEB_SEARCH_API_KEY },
+  };
+}
+
+function discoverySourceFlags(data) {
+  const config = effectiveIntegrationConfig(data);
+  return {
+    youtube: Boolean(config.youtubeApiKey),
+    twitch: Boolean(TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET),
+    web: Boolean(WEB_SEARCH_PROVIDER && WEB_SEARCH_API_KEY),
+  };
+}
+
+// Stable identity for a candidate so re-runs update instead of duplicating.
+function discoveryStableKey(c) {
+  if (c.platform && c.externalId) return `${c.platform}:${c.externalId}`.toLowerCase();
+  if (c.url) return c.url.toLowerCase().replace(/\/+$/, "");
+  return `${c.platform || "?"}:${String(c.channelName || "").toLowerCase()}`;
+}
+
+// Persisted shape of a candidate — drops the bulky scrapedText, caps description.
+function sanitizeDiscoveryFields(c) {
+  return {
+    source: c.source || "",
+    sources: Array.isArray(c.sources) ? c.sources : c.source ? [c.source] : [],
+    platform: c.platform || "",
+    externalId: c.externalId || "",
+    channelName: c.channelName || "",
+    handle: c.handle || "",
+    url: c.url || "",
+    description: String(c.description || "").slice(0, 1000),
+    subscribers: toNumber(c.subscribers),
+    email: c.email || "",
+    channelType: c.channelType || "",
+    audience: c.audience || "",
+    contentTone: c.contentTone || "",
+    languages: c.languages || "",
+    fitScore: toNumber(c.fitScore),
+    fitReason: c.fitReason || "",
+    tags: Array.isArray(c.tags) ? c.tags : [],
+    isKnown: Boolean(c.isKnown),
+    scrapedUrls: Array.isArray(c.scrapedUrls) ? c.scrapedUrls : [],
+    error: c.error || "",
+  };
+}
+
+// Merge a run's candidates into the stored queue. Existing rows that are still
+// "discovered" get refreshed; "dismissed"/"approved" rows are left alone (so a
+// re-run never resurrects something the user already triaged).
+function mergeDiscoveryCandidates(data, found) {
+  const byKey = new Map((data.discoveryCandidates || []).map((c) => [c.key, c]));
+  for (const f of found) {
+    const key = discoveryStableKey(f);
+    const existing = byKey.get(key);
+    if (existing) {
+      if (existing.status === "discovered") {
+        Object.assign(existing, sanitizeDiscoveryFields(f), { key, id: existing.id, status: "discovered", updatedAt: nowIso() });
+      }
+      continue;
+    }
+    const row = {
+      id: makeId("disc", f.channelName || f.platform || "creator"),
+      key,
+      ...sanitizeDiscoveryFields(f),
+      status: "discovered",
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    data.discoveryCandidates.push(row);
+    byKey.set(key, row);
+  }
+}
+
+// One short, awaited pass — used by the dashboard's "quick run" button. Bounded
+// by a soft deadline so it never hangs the HTTP request for long.
+async function runDiscoveryQuick(data, { seeds = [], perSeed = 8, minFitScore = 0, expandCount = 0, leadDepth = 0, analyze = true } = {}) {
+  const seedList = seeds.length ? seeds : discoverySeeds([]);
+  const result = await runDiscovery(seedList, {
+    config: discoveryConfigForServer(data),
+    gameContext: discoveryGameContext(),
+    knownProfiles: data.creatorProfiles || [],
+    perSeed,
+    minFitScore,
+    expandCount,
+    leadDepth,
+    analyze,
+    enrich: analyze,
+    deadline: Date.now() + 120_000,
+  });
+  mergeDiscoveryCandidates(data, result.candidates);
+  data.discoveryState = {
+    ...data.discoveryState,
+    lastRunAt: nowIso(),
+    lastStatus: "ok",
+    lastMessage: `발견 ${result.stats.kept}명 · 이메일 ${result.stats.withEmail} · 신규 ${result.stats.newCreators}`,
+    lastStats: result.stats,
+  };
+  return result;
+}
+
+// --- Long / windowed background session -------------------------------------
+// A session keeps discovering until `overallDeadline` (e.g. "+3h" or "until
+// 09:00"). It works in chunks so progress persists incrementally and a crash
+// loses at most one chunk. When a chunk's queue drains, gemma proposes a fresh
+// seed batch so the bot stays productive across the whole window.
+let discoveryRunning = false; // authoritative at runtime (vs the persisted flag)
+let discoveryStop = false;
+
+async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 8, minFitScore = 0, trigger = "manual" } = {}) {
+  if (discoveryRunning) return { started: false, reason: "already_running" };
+  discoveryRunning = true;
+  discoveryStop = false;
+
+  let renderImpl = null;
+  if (discoveryUseRenderer()) {
+    try {
+      renderImpl = await makeRenderer();
+    } catch {
+      renderImpl = null;
+    }
+  }
+
+  const gameContext = discoveryGameContext();
+  const usedSeeds = [];
+  let seeds = baseSeeds.length ? baseSeeds : discoverySeeds([]);
+  usedSeeds.push(...seeds);
+  let expandCount = DISCOVERY_EXPAND_COUNT;
+  let sessionFound = 0;
+  let lastProgress = "";
+
+  // Mark running in the persisted state.
+  {
+    const data = await readData();
+    data.discoveryState = {
+      ...data.discoveryState,
+      running: true,
+      lastStatus: "running",
+      startedAt: nowIso(),
+      endsAt: new Date(overallDeadline).toISOString(),
+      sessionFound: 0,
+      progress: "세션 시작",
+      trigger,
+      lastMessage: "세션 시작",
+    };
+    await writeData(data);
+  }
+
+  let status = "ok";
+  try {
+    while (Date.now() < overallDeadline && !discoveryStop) {
+      const chunkDeadline = Math.min(overallDeadline, Date.now() + DISCOVERY_CHUNK_MS);
+      const data = await readData();
+      const result = await runDiscovery(seeds, {
+        config: { ...discoveryConfigForServer(data), renderImpl },
+        gameContext,
+        knownProfiles: data.creatorProfiles || [],
+        perSeed,
+        minFitScore,
+        expandCount,
+        leadDepth: DISCOVERY_LEAD_DEPTH,
+        deadline: chunkDeadline,
+        onProgress: (m) => {
+          lastProgress = m;
+        },
+      });
+      mergeDiscoveryCandidates(data, result.candidates);
+      sessionFound += result.stats.newCreators;
+      data.discoveryState = {
+        ...data.discoveryState,
+        running: true,
+        lastStatus: "running",
+        lastRunAt: nowIso(),
+        lastStats: result.stats,
+        sessionFound,
+        progress: lastProgress,
+        lastMessage: `세션 진행 — 누적 신규 ${sessionFound} · 검색 ${result.stats.seedsSearched}`,
+      };
+      await writeData(data);
+
+      if (discoveryStop || Date.now() >= overallDeadline) break;
+
+      // Queue drained → ask gemma for a fresh batch to keep the window busy.
+      let next = [];
+      try {
+        next = await expandSeeds({ gameContext: gameContext || "", existingSeeds: usedSeeds.slice(-25), count: 8 });
+      } catch {
+        next = [];
+      }
+      next = next.filter((q) => !usedSeeds.some((u) => u.toLowerCase() === q.toLowerCase()));
+      if (!next.length) {
+        status = "dry"; // nothing new to search — stop early
+        break;
+      }
+      usedSeeds.push(...next);
+      seeds = next;
+      expandCount = 0; // already expanded; fresh batch is the new base
+    }
+  } catch (error) {
+    status = "error";
+    console.error("Discovery session failed:", error.message || error);
+  } finally {
+    if (renderImpl) await closeRenderer();
+    discoveryRunning = false;
+    const data = await readData();
+    const finalStatus = discoveryStop ? "stopped" : status === "dry" ? "ok" : status;
+    data.discoveryState = {
+      ...data.discoveryState,
+      running: false,
+      lastStatus: finalStatus,
+      endsAt: "",
+      progress: "",
+      lastMessage: `세션 종료 (${finalStatus}) — 누적 신규 ${sessionFound}`,
+    };
+    await writeData(data);
+    console.log(`[discovery] session ${finalStatus} — new creators: ${sessionFound}`);
+  }
+  return { started: true };
+}
+
+// Nightly window scheduler: checks periodically and, while inside the window,
+// runs a session whose deadline is the window's end. The runtime `running`
+// guard prevents overlap, so it simply keeps the bot busy from start to end.
+async function checkScheduledDiscovery() {
+  if (discoveryRunning) return;
+  const win = discoveryWindow();
+  const now = new Date();
+  const minOfDay = now.getHours() * 60 + now.getMinutes();
+  if (!inWindow(minOfDay, win)) return;
+
+  // Deadline = next occurrence of the window-end time.
+  const end = new Date(now);
+  end.setHours(Math.floor(win.endMin / 60), win.endMin % 60, 0, 0);
+  if (end.getTime() <= now.getTime()) end.setDate(end.getDate() + 1);
+
+  runDiscoverySession({ overallDeadline: end.getTime(), trigger: "schedule" }).catch((error) =>
+    console.error("Scheduled discovery failed:", error.message || error),
+  );
+}
+
 // Routes reachable without a Microsoft login. `/api/auth/config` bootstraps the
 // browser login; the YouTube OAuth routes are full-page browser redirects that
 // cannot carry a bearer token (and are self-protected by Google OAuth + state).
@@ -4295,6 +4567,105 @@ async function handleApi(req, res, url) {
   if (route === "GET /api/ai/status") {
     return respondJson(res, 200, aiConfig());
   }
+
+  // --- Creator discovery bot ---
+  if (route === "GET /api/discovery") {
+    const win = discoveryWindow();
+    return respondJson(res, 200, {
+      candidates: data.discoveryCandidates,
+      // `running` from the live flag, not the persisted value (survives crashes).
+      state: { ...data.discoveryState, running: discoveryRunning },
+      sources: discoverySourceFlags(data),
+      seeds: discoverySeeds([]),
+      schedulerEnabled: !DISABLE_DISCOVERY_SCHEDULER,
+      window: { start: process.env.DISCOVERY_WINDOW_START || "02:00", end: process.env.DISCOVERY_WINDOW_END || "09:00", ...win },
+      rendererEnabled: discoveryUseRenderer(),
+      sessionMinuteChoices: [30, 60, 120, 180],
+    });
+  }
+  if (route === "POST /api/discovery/run") {
+    const input = await readJson(req);
+    const seeds = Array.isArray(input.seeds) ? input.seeds.map((s) => String(s).trim()).filter(Boolean) : toList(input.seeds);
+    const flags = discoverySourceFlags(data);
+    if (!flags.youtube && !flags.twitch && !flags.web) {
+      return respondError(res, 400, "검색 소스가 하나도 설정되지 않았습니다. YouTube 키 또는 Twitch/웹검색 키를 먼저 설정하세요.");
+    }
+    if (discoveryRunning) return respondError(res, 409, "이미 발견 세션이 실행 중입니다.");
+
+    const perSeed = Math.max(1, Math.min(25, toNumber(input.perSeed, 8)));
+    const minFitScore = Math.max(0, Math.min(100, toNumber(input.minFitScore, 0)));
+    const durationMinutes = clampSessionMinutes(input.durationMinutes);
+
+    // Time-boxed (30m/1h/2h/3h) → run in the BACKGROUND and return immediately;
+    // the client polls GET /api/discovery for progress + candidates.
+    if (durationMinutes > 0) {
+      const overallDeadline = Date.now() + durationMinutes * 60_000;
+      runDiscoverySession({ baseSeeds: seeds, overallDeadline, perSeed, minFitScore, trigger: "manual" }).catch((error) =>
+        console.error("Discovery session failed:", error.message || error),
+      );
+      return respondJson(res, 202, { started: true, durationMinutes, endsAt: new Date(overallDeadline).toISOString() });
+    }
+
+    // No duration → a single short, awaited "quick run".
+    try {
+      const result = await runDiscoveryQuick(data, {
+        seeds,
+        perSeed,
+        minFitScore,
+        expandCount: Math.max(0, Math.min(20, toNumber(input.expandSeeds, 0))),
+        leadDepth: Math.max(0, Math.min(3, toNumber(input.leadDepth, 0))),
+        analyze: input.analyze !== false,
+      });
+      await writeData(data);
+      return respondJson(res, 200, {
+        stats: result.stats,
+        skipped: result.skipped,
+        errors: result.errors,
+        candidates: data.discoveryCandidates,
+        state: data.discoveryState,
+      });
+    } catch (error) {
+      data.discoveryState = { ...data.discoveryState, lastRunAt: nowIso(), lastStatus: "error", lastMessage: error.message || "실패" };
+      await writeData(data);
+      return respondError(res, 502, error.message || "발견 실행에 실패했습니다.", aiConfig());
+    }
+  }
+  if (route === "POST /api/discovery/stop") {
+    if (!discoveryRunning) return respondJson(res, 200, { ok: true, running: false });
+    discoveryStop = true;
+    return respondJson(res, 200, { ok: true, stopping: true });
+  }
+  const discoveryApproveRoute = url.pathname.match(/^\/api\/discovery\/candidates\/([^/]+)\/approve$/);
+  if (discoveryApproveRoute && req.method === "POST") {
+    const id = decodeURIComponent(discoveryApproveRoute[1]);
+    const candidate = data.discoveryCandidates.find((c) => c.id === id);
+    if (!candidate) return respondError(res, 404, "후보를 찾지 못했습니다.");
+    const profile = upsertCreatorProfile(data, {
+      channelName: candidate.channelName,
+      platform: candidate.platform,
+      email: candidate.email,
+      channels: candidate.url ? [{ platform: candidate.platform, url: candidate.url }] : [],
+      subscribers: candidate.subscribers,
+      fitScore: candidate.fitScore,
+      tags: candidate.tags,
+      note: [candidate.channelType, candidate.audience, candidate.fitReason].filter(Boolean).join(" · "),
+    });
+    candidate.status = "approved";
+    candidate.creatorProfileId = profile.id;
+    candidate.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, candidate, profile });
+  }
+  const discoveryCandidateRoute = url.pathname.match(/^\/api\/discovery\/candidates\/([^/]+)$/);
+  if (discoveryCandidateRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(discoveryCandidateRoute[1]);
+    const candidate = data.discoveryCandidates.find((c) => c.id === id);
+    if (!candidate) return respondError(res, 404, "후보를 찾지 못했습니다.");
+    candidate.status = "dismissed";
+    candidate.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, id });
+  }
   if (route === "POST /api/ai/translate") {
     const input = await readJson(req);
     const text = String(input.text || "").trim();
@@ -4578,4 +4949,12 @@ createServer(handleRequest).listen(PORT, HOST, () => {
 
 if (!DISABLE_SYNC_SCHEDULER) {
   setInterval(checkScheduledSync, Math.max(10_000, SYNC_SCHEDULER_INTERVAL_MS));
+}
+
+// Discovery bot loop: checks every few minutes and, while inside the nightly
+// window (DISCOVERY_WINDOW_START–END, default 02:00–09:00), runs a session until
+// the window closes. Off unless DISABLE_DISCOVERY_SCHEDULER=false.
+if (!DISABLE_DISCOVERY_SCHEDULER) {
+  setInterval(checkScheduledDiscovery, 5 * 60 * 1000);
+  checkScheduledDiscovery().catch(() => {}); // also check right away on boot
 }

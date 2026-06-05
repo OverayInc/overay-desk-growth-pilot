@@ -87,6 +87,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               <span>크리에이터</span>
             </a>
+            <a class="nav-item" data-view="discovery" href="#discovery">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+              <span>발견 봇</span>
+            </a>
             <a class="nav-item" data-view="youtube" href="#youtube">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
               <span>YouTube</span>
@@ -347,6 +351,76 @@
                   </div>
                 </div>
               </div>
+            </section>
+          </div>
+
+          <!-- ============================ DISCOVERY ============================ -->
+          <div class="view" id="view-discovery">
+            <section class="band" id="discovery">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Discovery Bot</p>
+                  <h2>크리에이터 발견 봇</h2>
+                </div>
+                <span class="muted" id="discoveryRunState">-</span>
+              </div>
+              <p class="muted matrix-legend">
+                gemma4가 검색어를 확장하고 단서를 추적해 크리에이터를 찾고, 채널 성격·이메일·적합도를 정리합니다.
+                <strong>찾기만 자동</strong>이고, DB 추가(승인)와 메일 발송은 직접 결정합니다.
+              </p>
+
+              <div class="sync-grid">
+                <div class="panel">
+                  <div class="panel-title">
+                    <h3>검색 실행</h3>
+                    <span id="discoverySourceLine">소스 확인 중</span>
+                  </div>
+                  <label class="field">
+                    <span>시드 키워드 <span class="muted">(줄바꿈/쉼표로 구분, 비우면 기본값)</span></span>
+                    <textarea id="discoverySeeds" rows="3" placeholder="spot the anomaly game&#10;Exit 8 gameplay&#10;이상현상 찾기 게임"></textarea>
+                  </label>
+                  <div class="discovery-actions">
+                    <button type="button" id="discoveryQuickRun" class="secondary-button">빠른 실행 (1회)</button>
+                    <span class="discovery-sep">시간 박스:</span>
+                    <button type="button" class="chip-button" data-discovery-minutes="30">30분</button>
+                    <button type="button" class="chip-button" data-discovery-minutes="60">1시간</button>
+                    <button type="button" class="chip-button" data-discovery-minutes="120">2시간</button>
+                    <button type="button" class="chip-button" data-discovery-minutes="180">3시간</button>
+                    <button type="button" id="discoveryStop" class="danger-button" hidden>중지</button>
+                  </div>
+                  <p class="muted" id="discoveryWindowLine"></p>
+                </div>
+                <div class="panel">
+                  <div class="panel-title">
+                    <h3>세션 상태</h3>
+                    <span id="discoverySessionFound">-</span>
+                  </div>
+                  <div class="sync-status-grid" id="discoveryStatusGrid"></div>
+                  <p class="muted discovery-progress" id="discoveryProgress"></p>
+                </div>
+              </div>
+            </section>
+
+            <section class="band" id="discovery-queue">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Review Queue</p>
+                  <h2>검수 대기 큐</h2>
+                </div>
+                <div class="key-tracker-toolbar">
+                  <label class="matrix-sort">
+                    <span>상태</span>
+                    <select id="discoveryStatusFilter">
+                      <option value="discovered">검수 대기</option>
+                      <option value="approved">승인됨</option>
+                      <option value="dismissed">제외됨</option>
+                      <option value="all">전체</option>
+                    </select>
+                  </label>
+                  <span class="muted" id="discoveryQueueCount">-</span>
+                </div>
+              </div>
+              <div class="table-wrap scroll-y" id="discoveryQueueWrap"></div>
             </section>
           </div>
 

@@ -1743,3 +1743,73 @@ tbody tr:last-child td { border-bottom: 0; }
   .bar-item { grid-template-columns: 1fr; gap: 7px; }
   .bar-meta { text-align: left; }
 }
+
+/* ============================ Discovery bot ============================ */
+.discovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.discovery-sep { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
+.chip-button {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip-button:hover:not(:disabled) { background: var(--brand-soft); border-color: var(--brand-line); color: var(--brand-strong); }
+.chip-button:disabled, #discoveryQuickRun:disabled { opacity: 0.5; cursor: not-allowed; }
+#discoveryRunState.running { color: var(--success-text); font-weight: 700; }
+.discovery-progress { margin-top: 10px; min-height: 16px; font-style: italic; }
+
+.discovery-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.discovery-table th, .discovery-table td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.discovery-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.discovery-table td .small, .muted.small { font-size: 11.5px; color: var(--text-muted); }
+.discovery-reason { max-width: 320px; color: var(--text-secondary); }
+.discovery-actions-cell { white-space: nowrap; }
+
+.fit-badge {
+  display: inline-block;
+  min-width: 30px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 7px;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+.fit-badge.fit-high { background: var(--success-soft); color: var(--success-text); }
+.fit-badge.fit-mid { background: var(--warning-soft); color: var(--warning-text); }
+.fit-badge.fit-low { background: var(--surface-muted); color: var(--text-muted); }
+
+.tag-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  margin: 2px 2px 0 0;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+.mini-button {
+  background: var(--brand-fill);
+  color: var(--brand-contrast);
+  border: 1px solid var(--brand-line);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mini-button:hover:not(:disabled) { background: var(--brand-fill-hover); }
+.mini-button.ghost { background: var(--surface); color: var(--text-secondary); border-color: var(--border-strong); }
+.mini-button.ghost:hover { background: var(--surface-muted); }
+.mini-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.status-pill.small { font-size: 11px; padding: 2px 9px; }

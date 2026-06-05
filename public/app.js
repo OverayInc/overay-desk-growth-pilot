@@ -19,6 +19,8 @@ const state = {
   youtube: null,
   redditPosts: [],
   currentEmailDraft: null,
+  discovery: null,
+  discoveryStatusFilter: "discovered",
 };
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
@@ -1979,6 +1981,7 @@ function renderAll() {
   renderOutreachLogs();
   renderYoutube();
   renderRedditPosts();
+  renderDiscovery();
 }
 
 async function setGameScope(gameId) {
@@ -2009,6 +2012,7 @@ async function loadAll() {
     youtube,
     redditPosts,
     emailTemplates,
+    discovery,
   ] = await Promise.all([
     api("/api/health"),
     api("/api/games"),
@@ -2027,6 +2031,8 @@ async function loadAll() {
     api("/api/youtube"),
     api(`/api/reddit-posts?${query}`),
     api("/api/email-templates"),
+    // Discovery is optional/best-effort — a failure here must not blank the app.
+    api("/api/discovery").catch(() => state.discovery),
   ]);
   state.games = games;
   state.storeListings = storeListings;
@@ -2053,6 +2059,7 @@ async function loadAll() {
   };
   state.redditPosts = redditPosts;
   state.emailTemplates = emailTemplates;
+  if (discovery) state.discovery = discovery;
   status.textContent = health.ok ? "API 정상" : "API 응답 확인 필요";
   status.classList.add(health.ok ? "ok" : "fail");
   renderAll();
@@ -3142,7 +3149,247 @@ function initForms() {
   });
 }
 
-const VIEWS = ["overview", "campaigns", "creators", "youtube", "reddit", "distribution", "datasync", "admin"];
+// ============================ Discovery bot ============================
+const DISCOVERY_STATUS_LABELS = {
+  never_run: "미실행",
+  running: "실행 중",
+  ok: "완료",
+  error: "오류",
+  stopped: "중지됨",
+  discovered: "검수 대기",
+  approved: "승인됨",
+  dismissed: "제외됨",
+};
+function discoveryStatusLabel(value) {
+  return DISCOVERY_STATUS_LABELS[value] || value || "-";
+}
+
+function getDiscoverySeeds() {
+  const raw = $("#discoverySeeds")?.value || "";
+  return raw
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+let discoveryPollTimer = 0;
+function stopDiscoveryPolling() {
+  if (discoveryPollTimer) {
+    window.clearInterval(discoveryPollTimer);
+    discoveryPollTimer = 0;
+  }
+}
+function startDiscoveryPolling() {
+  if (discoveryPollTimer) return;
+  discoveryPollTimer = window.setInterval(() => {
+    loadDiscovery().catch(() => {});
+  }, 5000);
+}
+
+async function loadDiscovery() {
+  try {
+    const data = await api("/api/discovery");
+    if (data) state.discovery = data;
+  } catch (error) {
+    /* keep previous state on a transient failure */
+  }
+  renderDiscovery();
+}
+
+function renderDiscovery() {
+  const d = state.discovery;
+  if (!d) return;
+  const st = d.state || {};
+  const running = Boolean(st.running);
+  const sources = d.sources || {};
+  const anySource = sources.youtube || sources.twitch || sources.web;
+
+  const runState = $("#discoveryRunState");
+  if (runState) {
+    runState.textContent = running
+      ? "● 실행 중"
+      : st.lastStatus === "never_run"
+        ? "대기"
+        : `마지막: ${discoveryStatusLabel(st.lastStatus)}`;
+    runState.classList.toggle("running", running);
+  }
+
+  const srcLine = $("#discoverySourceLine");
+  if (srcLine) {
+    srcLine.textContent = [
+      `YouTube ${sources.youtube ? "✓" : "✕"}`,
+      `Twitch ${sources.twitch ? "✓" : "✕"}`,
+      `Web ${sources.web ? "✓" : "✕"}`,
+      `렌더 ${d.rendererEnabled ? "✓" : "✕"}`,
+    ].join("  ·  ");
+  }
+
+  const winLine = $("#discoveryWindowLine");
+  if (winLine && d.window) {
+    winLine.textContent = `새벽 자동 구동 ${d.window.start}–${d.window.end} · ${d.schedulerEnabled ? "켜짐" : "꺼짐 (서버 환경변수로 활성화)"}`;
+  }
+
+  const grid = $("#discoveryStatusGrid");
+  if (grid) {
+    const stats = st.lastStats || {};
+    const rows = [
+      ["상태", discoveryStatusLabel(st.lastStatus)],
+      ["검색 수행", numberFormat.format(stats.seedsSearched || 0)],
+      ["분석", numberFormat.format(stats.analyzed || 0)],
+      ["이메일 확보", numberFormat.format(stats.withEmail || 0)],
+      ["종료 예정", running && st.endsAt ? new Date(st.endsAt).toLocaleTimeString("ko-KR") : "-"],
+    ];
+    grid.innerHTML = rows
+      .map(([k, v]) => `<div class="sync-stat"><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`)
+      .join("");
+  }
+
+  const found = $("#discoverySessionFound");
+  if (found) found.textContent = `누적 신규 ${numberFormat.format(st.sessionFound || 0)}명`;
+  const progress = $("#discoveryProgress");
+  if (progress) progress.textContent = st.progress ? `· ${st.progress}` : st.lastMessage ? `· ${st.lastMessage}` : "";
+
+  const stopBtn = $("#discoveryStop");
+  if (stopBtn) stopBtn.hidden = !running;
+  for (const btn of document.querySelectorAll("#discoveryQuickRun, [data-discovery-minutes]")) {
+    btn.disabled = running || !anySource;
+  }
+
+  // Auto-manage the live poll: only while a session is running.
+  if (running) startDiscoveryPolling();
+  else stopDiscoveryPolling();
+
+  renderDiscoveryQueue();
+}
+
+function renderDiscoveryQueue() {
+  const wrap = $("#discoveryQueueWrap");
+  if (!wrap) return;
+  const all = state.discovery?.candidates || [];
+  const filter = state.discoveryStatusFilter || "discovered";
+  const rows = (filter === "all" ? all : all.filter((c) => c.status === filter)).slice().sort(
+    (a, b) => (b.fitScore || 0) - (a.fitScore || 0),
+  );
+
+  const count = $("#discoveryQueueCount");
+  if (count) count.textContent = `${rows.length}명`;
+
+  if (!rows.length) {
+    wrap.innerHTML = `<p class="empty-state">${filter === "discovered" ? "검수할 후보가 없습니다. 위에서 검색을 실행하세요." : "해당 상태의 후보가 없습니다."}</p>`;
+    return;
+  }
+
+  const body = rows
+    .map((c) => {
+      const fit = c.fitScore || 0;
+      const fitClass = fit >= 70 ? "fit-high" : fit >= 40 ? "fit-mid" : "fit-low";
+      const channel = c.url
+        ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.channelName || c.url)}</a>`
+        : escapeHtml(c.channelName || "-");
+      const email = c.email
+        ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
+        : '<span class="muted">없음</span>';
+      const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
+      const tags = (c.tags || []).slice(0, 4).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join(" ");
+      let actions;
+      if (c.status === "discovered") {
+        actions = `<button type="button" class="mini-button" data-discovery-approve="${escapeHtml(c.id)}">승인</button>
+          <button type="button" class="mini-button ghost" data-discovery-dismiss="${escapeHtml(c.id)}">제외</button>`;
+      } else {
+        actions = `<span class="status-pill small">${escapeHtml(discoveryStatusLabel(c.status))}</span>`;
+      }
+      return `<tr>
+        <td><span class="fit-badge ${fitClass}">${fit}</span></td>
+        <td>${escapeHtml(c.platform || "-")}</td>
+        <td>${channel}${known}<div class="muted small">${escapeHtml(c.channelType || "")}</div></td>
+        <td>${email}</td>
+        <td class="discovery-reason">${escapeHtml(c.fitReason || "")}<div>${tags}</div></td>
+        <td class="discovery-actions-cell">${actions}</td>
+      </tr>`;
+    })
+    .join("");
+
+  wrap.innerHTML = `<table class="discovery-table">
+    <thead><tr><th>적합도</th><th>플랫폼</th><th>채널</th><th>이메일</th><th>분석 · 태그</th><th>액션</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+async function startDiscoveryRun({ durationMinutes = 0 } = {}) {
+  const seeds = getDiscoverySeeds();
+  try {
+    const result = await api("/api/discovery/run", { method: "POST", body: { seeds, durationMinutes } });
+    if (result.started) {
+      showToast(`${durationMinutes}분 세션을 시작했습니다.`);
+      startDiscoveryPolling();
+      await loadDiscovery();
+    } else {
+      const s = result.stats || {};
+      showToast(`완료 — 채택 ${s.kept || 0} · 신규 ${s.newCreators || 0}`);
+      state.discovery = { ...state.discovery, candidates: result.candidates, state: result.state };
+      renderDiscovery();
+    }
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function initDiscovery() {
+  const quick = $("#discoveryQuickRun");
+  if (!quick) return; // view not present
+  quick.addEventListener("click", async () => {
+    quick.disabled = true;
+    quick.textContent = "검색 중…";
+    await startDiscoveryRun({ durationMinutes: 0 });
+    quick.textContent = "빠른 실행 (1회)";
+    renderDiscovery();
+  });
+
+  for (const btn of document.querySelectorAll("[data-discovery-minutes]")) {
+    btn.addEventListener("click", () => startDiscoveryRun({ durationMinutes: Number(btn.dataset.discoveryMinutes) }));
+  }
+
+  $("#discoveryStop")?.addEventListener("click", async () => {
+    try {
+      await api("/api/discovery/stop", { method: "POST", body: {} });
+      showToast("세션을 중지합니다…");
+      await loadDiscovery();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+
+  $("#discoveryStatusFilter")?.addEventListener("change", (event) => {
+    state.discoveryStatusFilter = event.target.value;
+    renderDiscoveryQueue();
+  });
+
+  $("#discoveryQueueWrap")?.addEventListener("click", async (event) => {
+    const approveBtn = event.target.closest("[data-discovery-approve]");
+    const dismissBtn = event.target.closest("[data-discovery-dismiss]");
+    if (approveBtn) {
+      approveBtn.disabled = true;
+      try {
+        await api(`/api/discovery/candidates/${encodeURIComponent(approveBtn.dataset.discoveryApprove)}/approve`, { method: "POST", body: {} });
+        showToast("승인 — 크리에이터 DB에 추가했습니다.");
+        await loadDiscovery();
+      } catch (error) {
+        showToast(error.message);
+        approveBtn.disabled = false;
+      }
+    } else if (dismissBtn) {
+      try {
+        await api(`/api/discovery/candidates/${encodeURIComponent(dismissBtn.dataset.discoveryDismiss)}`, { method: "DELETE" });
+        showToast("후보를 제외했습니다.");
+        await loadDiscovery();
+      } catch (error) {
+        showToast(error.message);
+      }
+    }
+  });
+}
+
+const VIEWS = ["overview", "campaigns", "creators", "discovery", "youtube", "reddit", "distribution", "datasync", "admin"];
 
 const VIEW_OF_SECTION = {
   today: "overview",
@@ -3152,6 +3399,8 @@ const VIEW_OF_SECTION = {
   "creator-db": "creators",
   creators: "creators",
   outreach: "creators",
+  discovery: "discovery",
+  "discovery-queue": "discovery",
   youtube: "youtube",
   reddit: "reddit",
   keys: "distribution",
@@ -3167,6 +3416,7 @@ const VIEW_META = {
   overview: { eyebrow: "Growth Overview", title: "그로스 대시보드" },
   campaigns: { eyebrow: "Campaign Performance", title: "캠페인 성과" },
   creators: { eyebrow: "Creator Relations", title: "크리에이터 & 섭외" },
+  discovery: { eyebrow: "Discovery Bot", title: "크리에이터 발견 봇" },
   youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
   reddit: { eyebrow: "Reddit Log", title: "레딧 글 기록" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },
@@ -3191,6 +3441,7 @@ function showView(view, sectionId) {
     $("#viewTitle").textContent = meta.title;
   }
   if (view === "youtube" && state.youtube) renderYoutube();
+  if (view === "discovery") loadDiscovery().catch(() => {});
   if (view === "overview" && state.dashboard) renderTrendChart(state.dashboard.trend);
   requestAnimationFrame(() => {
     const target = sectionId ? document.getElementById(sectionId) : null;
@@ -3237,6 +3488,7 @@ function setupShell() {
   } catch (error) {
     /* ignore */
   }
+  initDiscovery();
   window.addEventListener("hashchange", routeFromHash);
   routeFromHash();
   let trendResizeTimer = 0;

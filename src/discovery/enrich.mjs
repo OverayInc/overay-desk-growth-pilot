@@ -144,8 +144,13 @@ export async function fetchPageText(url, { fetchImpl = fetch, timeoutMs = 12000,
 
 // Build the text bundle + a best-guess email for one candidate. Scrapes up to
 // `maxPages` of the candidate's linked sites looking for a contact address.
+//
+// `renderImpl` (optional, async url => html) is the Playwright renderer. We only
+// invoke it as a SECOND pass on pages where plain fetch found no email — most
+// contact pages are static, so this keeps headless-browser launches rare.
+//
 // Returns { description, recentTitles, scrapedText, scrapedEmail, scrapedUrls }.
-export async function enrichCandidate(candidate, { fetchImpl = fetch, maxPages = 3, timeoutMs = 12000 } = {}) {
+export async function enrichCandidate(candidate, { fetchImpl = fetch, renderImpl = null, maxPages = 3, timeoutMs = 12000 } = {}) {
   const description = String(candidate.description || "");
   const recentTitles = Array.isArray(candidate.recentTitles) ? candidate.recentTitles : [];
 
@@ -155,7 +160,18 @@ export async function enrichCandidate(candidate, { fetchImpl = fetch, maxPages =
 
   const pages = [];
   for (const url of urls.slice(0, maxPages)) {
-    const text = await fetchPageText(url, { fetchImpl, timeoutMs });
+    let text = await fetchPageText(url, { fetchImpl, timeoutMs });
+    // JS-rendered contact pages (Linktree etc.) come back empty of emails —
+    // re-render with the headless browser if one was provided.
+    if (renderImpl && !extractEmails(text).length) {
+      try {
+        const html = await renderImpl(url);
+        const rendered = html ? htmlToText(html) : "";
+        if (rendered && (extractEmails(rendered).length || rendered.length > text.length)) text = rendered;
+      } catch {
+        /* keep the fetch result */
+      }
+    }
     if (text) pages.push({ url, text });
   }
 

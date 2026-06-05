@@ -201,6 +201,79 @@ export async function analyzeCreatorChannel({
   return normalizeCreatorAnalysis(extractJsonObject(content));
 }
 
+// --- Creator discovery: query expansion + lead-following --------------------
+// The "model-in-the-loop" half of the hybrid bot. gemma does NOT drive tools
+// (Gemma tool-calling is unreliable); instead it proposes the next *search
+// queries*, and our deterministic pipeline executes them. Single prompt each,
+// strict JSON out, so there is no fragile multi-step agent loop.
+
+// Dedupe/clean a list of search-query strings the model returned. Drops blanks,
+// dupes (case-insensitive), over-long noise, and caps the count.
+export function normalizeSeedList(value, { max = 12 } = {}) {
+  const arr = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const out = [];
+  for (const item of arr) {
+    const q = String(item || "").trim().replace(/\s+/g, " ");
+    if (!q || q.length > 80) continue;
+    const key = q.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(q);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+const SEED_SYSTEM_PROMPT = `You generate SEARCH QUERIES for finding game content creators (YouTubers, Twitch streamers, Steam curators) to offer free keys to.
+Given a game description and some existing queries, propose ADDITIONAL, DIVERSE queries that would surface NEW relevant creators — different genres-adjacent terms, comparable games, formats ("reaction", "no commentary", "playthrough"), and languages (include some Korean and English).
+Return ONE JSON object only: {"seeds": ["query 1", "query 2", ...]}. Each query is what you'd type into YouTube/Google search — short, no quotes. Do not repeat the existing queries.`;
+
+// Ask gemma for extra seed queries given the game context and current seeds.
+export async function expandSeeds({ gameContext = "", existingSeeds = [], count = 8 } = {}) {
+  const user = [
+    `Game: ${gameContext || "a first-person observation / 'spot the anomaly' indie game (Exit 8-like)"}`,
+    existingSeeds.length ? `Existing queries (do NOT repeat):\n- ${existingSeeds.join("\n- ")}` : "",
+    `Propose about ${count} new search queries.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const content = await chatCompletion(
+    [
+      { role: "system", content: SEED_SYSTEM_PROMPT },
+      { role: "user", content: user },
+    ],
+    { maxTokens: 400, temperature: 0.9 },
+  );
+  return normalizeSeedList(extractJsonObject(content).seeds, { max: count });
+}
+
+const LEADS_SYSTEM_PROMPT = `You are tracking leads to find MORE game creators similar to ones already found.
+You get a short profile of one promising creator (name, type, audience, tone, recent titles). Propose follow-up SEARCH QUERIES that would surface creators in the same niche: collaborators they mention, "channels like X", the sub-genre, recurring series formats, and the creator's language market.
+Return ONE JSON object only: {"queries": ["query 1", ...]} — at most 5, short, no quotes, no duplicates of the creator's own name unless useful.`;
+
+// Given one analyzed candidate, propose follow-up queries to chase its niche.
+export async function proposeLeads({ channelName = "", channelType = "", audience = "", contentTone = "", recentTitles = [] } = {}) {
+  const titles = Array.isArray(recentTitles) ? recentTitles.slice(0, 8) : [];
+  const user = [
+    channelName ? `Creator: ${channelName}` : "",
+    channelType ? `Type: ${channelType}` : "",
+    audience ? `Audience: ${audience}` : "",
+    contentTone ? `Tone: ${contentTone}` : "",
+    titles.length ? `Recent titles:\n- ${titles.join("\n- ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const content = await chatCompletion(
+    [
+      { role: "system", content: LEADS_SYSTEM_PROMPT },
+      { role: "user", content: user || "A game content creator." },
+    ],
+    { maxTokens: 300, temperature: 0.8 },
+  );
+  return normalizeSeedList(extractJsonObject(content).queries, { max: 5 });
+}
+
 const LANG_NAMES = { ko: "Korean", en: "English", ja: "Japanese", de: "German", zh: "Chinese (Simplified)" };
 
 // Translate an outreach email body into the target language, preserving tone,
