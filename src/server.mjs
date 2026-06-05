@@ -14,6 +14,9 @@ import {
   authenticateRequest,
   AuthError,
 } from "./auth.mjs";
+import { generateEmailTemplate, translateText, aiConfig } from "./marketingAgent.mjs";
+import { runDiscovery } from "./discovery/pipeline.mjs";
+import { discoverySeeds, discoveryGameContext } from "./discovery/config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,6 +69,13 @@ const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "";
 const EMAIL_SEND_MODE = process.env.EMAIL_SEND_MODE || "smtp";
 const DISABLE_SYNC_SCHEDULER = process.env.DISABLE_SYNC_SCHEDULER === "true";
 const SYNC_SCHEDULER_INTERVAL_MS = Number(process.env.SYNC_SCHEDULER_INTERVAL_MS || 60_000);
+// Creator-discovery bot. Off by default (run manually via the dashboard first).
+const DISABLE_DISCOVERY_SCHEDULER = process.env.DISABLE_DISCOVERY_SCHEDULER !== "false";
+const DISCOVERY_SCHEDULER_INTERVAL_HOURS = Number(process.env.DISCOVERY_SCHEDULER_INTERVAL_HOURS || 24);
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || "";
+const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || "";
+const WEB_SEARCH_PROVIDER = process.env.WEB_SEARCH_PROVIDER || "";
+const WEB_SEARCH_API_KEY = process.env.WEB_SEARCH_API_KEY || "";
 const DEFAULT_SYNC_LOOKBACK_DAYS = Number(process.env.DEFAULT_SYNC_LOOKBACK_DAYS || 7);
 
 // Simplified per-game creator status. Steam "used / unused" is tracked separately on
@@ -440,6 +450,14 @@ function defaultData() {
     youtubeChannels: [],
     youtubeSnapshots: [],
     redditPosts: [],
+    discoveryCandidates: [],
+    discoveryState: {
+      lastRunAt: "",
+      lastStatus: "never_run",
+      lastMessage: "",
+      lastStats: null,
+      nextRunAt: "",
+    },
   };
 }
 
@@ -530,6 +548,9 @@ function normalizeData(data) {
   data.syncSchedule.lastStatus ||= "never_run";
   data.syncSchedule.lastMessage ||= "";
   data.syncRuns ||= [];
+  data.discoveryCandidates ||= [];
+  data.discoveryState ||= seeded.discoveryState;
+  data.discoveryState.lastStatus ||= "never_run";
   data.youtubeChannels ||= [];
   data.youtubeSnapshots ||= [];
   data.redditPosts ||= [];
@@ -1293,7 +1314,13 @@ function fillTemplate(str, vars) {
   });
 }
 
-function buildEmailDraft(data, input = {}) {
+// Korean is the base language; emails can also be sent in EN/JA/DE/ZH. Templates
+// always carry KO+EN; JA/DE/ZH are opt-in. Missing languages are AI-translated
+// from the Korean base on the fly.
+const SUPPORTED_LANGS = ["ko", "en", "ja", "de", "zh"];
+const LANG_SUFFIX = { ko: "Ko", en: "En", ja: "Ja", de: "De", zh: "Zh" };
+
+async function buildEmailDraft(data, input = {}) {
   const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
   const gameError = requireGame(data, gameId);
   if (gameError) throw new Error(gameError);
@@ -1335,12 +1362,29 @@ function buildEmailDraft(data, input = {}) {
     genre: game.genre || "",
   };
   const template = input.templateId ? data.emailTemplates?.find((item) => item.id === input.templateId) : null;
-  const lang = input.lang === "ko" ? "ko" : "en";
+  const lang = SUPPORTED_LANGS.includes(input.lang) ? input.lang : "en";
   let subject;
   let body;
   if (template) {
-    subject = input.subject || fillTemplate(lang === "ko" ? template.subjectKo : template.subjectEn, vars);
-    body = input.body || fillTemplate(lang === "ko" ? template.bodyKo : template.bodyEn, vars);
+    const suffix = LANG_SUFFIX[lang];
+    let subjRaw = template[`subject${suffix}`] || "";
+    let bodyRaw = template[`body${suffix}`] || "";
+    // For languages the template doesn't store (opt-in JA/DE/ZH, or EN missing),
+    // translate the Korean base (then English) into the target language via AI.
+    if (lang !== "ko" && (!subjRaw || !bodyRaw)) {
+      const baseSubject = template.subjectKo || template.subjectEn || "";
+      const baseBody = template.bodyKo || template.bodyEn || "";
+      try {
+        if (!bodyRaw && baseBody) bodyRaw = await translateText({ text: baseBody, targetLang: lang });
+        if (!subjRaw && baseSubject) subjRaw = await translateText({ text: baseSubject, targetLang: lang });
+      } catch {
+        // AI unavailable — fall through to the base text below.
+      }
+    }
+    if (!subjRaw) subjRaw = template.subjectKo || template.subjectEn || "";
+    if (!bodyRaw) bodyRaw = template.bodyKo || template.bodyEn || "";
+    subject = input.subject || fillTemplate(subjRaw, vars);
+    body = input.body || fillTemplate(bodyRaw, vars);
   } else {
     subject = input.subject || `${game.name} Steam key for creator preview`;
     body =
@@ -1717,7 +1761,7 @@ function applyEmailSentEffects(data, log) {
 }
 
 async function sendOutreachEmail(data, input = {}) {
-  const draft = input.draft || buildEmailDraft(data, input);
+  const draft = input.draft || (await buildEmailDraft(data, input));
   const config = effectiveIntegrationConfig(data);
   if (!draft.to) {
     const log = addOutreachLog(data, {
@@ -4099,7 +4143,7 @@ async function handleApi(req, res, url) {
     const input = await readJson(req);
     let draft;
     try {
-      draft = buildEmailDraft(data, input);
+      draft = await buildEmailDraft(data, input);
     } catch (error) {
       return respondError(res, 400, error.message || "Email draft failed.");
     }
@@ -4120,6 +4164,37 @@ async function handleApi(req, res, url) {
   if (route === "GET /api/email-templates") {
     return respondJson(res, 200, data.emailTemplates);
   }
+  if (route === "GET /api/ai/status") {
+    return respondJson(res, 200, aiConfig());
+  }
+  if (route === "POST /api/ai/translate") {
+    const input = await readJson(req);
+    const text = String(input.text || "").trim();
+    if (!text) return respondError(res, 400, "번역할 텍스트가 필요합니다.");
+    const targetLang = SUPPORTED_LANGS.includes(input.targetLang) ? input.targetLang : "ko";
+    try {
+      const translated = await translateText({ text, targetLang });
+      return respondJson(res, 200, { text: translated });
+    } catch (error) {
+      return respondError(res, 502, error.message || "번역에 실패했습니다.", aiConfig());
+    }
+  }
+  if (route === "POST /api/email-templates/generate") {
+    const input = await readJson(req);
+    const brief = String(input.brief || "").trim();
+    if (!brief) return respondError(res, 400, "생성할 템플릿 설명(브리프)이 필요합니다.");
+    const game = input.gameId ? gameFor(data, input.gameId) : gameFor(data, data.meta.primaryGameId);
+    try {
+      const draft = await generateEmailTemplate({
+        brief,
+        gameName: input.gameName || game?.name || "",
+        genre: input.genre || game?.genre || "",
+      });
+      return respondJson(res, 200, draft);
+    } catch (error) {
+      return respondError(res, 502, error.message || "AI 생성에 실패했습니다.", aiConfig());
+    }
+  }
   if (route === "POST /api/email-templates") {
     const input = await readJson(req);
     const name = String(input.name || "").trim();
@@ -4131,6 +4206,12 @@ async function handleApi(req, res, url) {
       bodyEn: String(input.bodyEn || ""),
       subjectKo: String(input.subjectKo || "").trim(),
       bodyKo: String(input.bodyKo || ""),
+      subjectJa: String(input.subjectJa || "").trim(),
+      bodyJa: String(input.bodyJa || ""),
+      subjectDe: String(input.subjectDe || "").trim(),
+      bodyDe: String(input.bodyDe || ""),
+      subjectZh: String(input.subjectZh || "").trim(),
+      bodyZh: String(input.bodyZh || ""),
       builtin: false,
       createdAt: nowIso(),
       updatedAt: nowIso(),
@@ -4150,6 +4231,12 @@ async function handleApi(req, res, url) {
     if (input.bodyEn !== undefined) tmpl.bodyEn = String(input.bodyEn);
     if (input.subjectKo !== undefined) tmpl.subjectKo = String(input.subjectKo);
     if (input.bodyKo !== undefined) tmpl.bodyKo = String(input.bodyKo);
+    if (input.subjectJa !== undefined) tmpl.subjectJa = String(input.subjectJa);
+    if (input.bodyJa !== undefined) tmpl.bodyJa = String(input.bodyJa);
+    if (input.subjectDe !== undefined) tmpl.subjectDe = String(input.subjectDe);
+    if (input.bodyDe !== undefined) tmpl.bodyDe = String(input.bodyDe);
+    if (input.subjectZh !== undefined) tmpl.subjectZh = String(input.subjectZh);
+    if (input.bodyZh !== undefined) tmpl.bodyZh = String(input.bodyZh);
     tmpl.updatedAt = nowIso();
     await writeData(data);
     return respondJson(res, 200, tmpl);

@@ -25,9 +25,10 @@ const COLLECTIONS = [
   "youtubeChannels",
   "youtubeSnapshots",
   "redditPosts",
+  "discoveryCandidates",
 ];
 
-const SINGLETONS = ["meta", "steamSyncState", "integrationSettings", "syncSchedule"];
+const SINGLETONS = ["meta", "steamSyncState", "integrationSettings", "syncSchedule", "discoveryState"];
 
 let db = null;
 

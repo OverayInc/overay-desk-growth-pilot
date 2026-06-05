@@ -1731,6 +1731,12 @@ function initMailModal() {
     const utm = draft.utmLink || "";
     $("#mailUtm").textContent = utm || "-";
     $("#mailUtm").href = utm || "#";
+    // The Korean view is a translation of the previous body — clear it so a
+    // stale translation isn't mistaken for the new draft.
+    const koEl = $("#mailBodyKo");
+    if (koEl) koEl.value = "";
+    const koStatus = $("#mailKoStatus");
+    if (koStatus) koStatus.textContent = "";
   }
 
   async function open(profileId, gameId) {
@@ -1742,7 +1748,19 @@ function initMailModal() {
     const templates = state.emailTemplates || [];
     $("#mailTemplate").innerHTML =
       '<option value="">(기본 양식)</option>' + templates.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join("");
-    $("#mailTemplate").value = templates.some((t) => t.id === "tmpl_review_request") ? "tmpl_review_request" : "";
+    // Default to the most recently used template (remembered across opens);
+    // fall back to the review-request template on first use.
+    let lastUsed = null;
+    try {
+      lastUsed = localStorage.getItem("lp:lastMailTemplateId");
+    } catch {
+      /* localStorage unavailable (private mode) — ignore */
+    }
+    if (lastUsed !== null && (lastUsed === "" || templates.some((t) => t.id === lastUsed))) {
+      $("#mailTemplate").value = lastUsed;
+    } else {
+      $("#mailTemplate").value = templates.some((t) => t.id === "tmpl_review_request") ? "tmpl_review_request" : "";
+    }
     $("#mailLang").value = /kr|ko|한국|korea/i.test(profile?.country || "") ? "ko" : "en";
     const email = state.settings?.email || {};
     $("#mailSmtpBtn").disabled = !email.configured;
@@ -1753,8 +1771,46 @@ function initMailModal() {
     modal.showModal();
   }
   openMailModal = open;
-  $("#mailTemplate").addEventListener("change", loadDraft);
+  $("#mailTemplate").addEventListener("change", () => {
+    try {
+      localStorage.setItem("lp:lastMailTemplateId", $("#mailTemplate").value);
+    } catch {
+      /* localStorage unavailable — selection just won't be remembered */
+    }
+    loadDraft();
+  });
   $("#mailLang").addEventListener("change", loadDraft);
+
+  // AI translation: read/edit the email in Korean, then push edits back into the
+  // sending language. Convenience for a Korean sender writing non-Korean mail.
+  async function translateBody(targetLang, sourceId, destId) {
+    const src = ($(sourceId).value || "").trim();
+    const statusEl = $("#mailKoStatus");
+    if (!src) {
+      showToast(sourceId === "#mailBody" ? "번역할 본문이 없습니다." : "반영할 한글 내용이 없습니다.");
+      return;
+    }
+    const btns = [$("#mailToKo"), $("#mailFromKo")];
+    btns.forEach((b) => b && (b.disabled = true));
+    if (statusEl) statusEl.textContent = "번역 중…";
+    try {
+      const r = await api("/api/ai/translate", { method: "POST", body: { text: src, targetLang } });
+      $(destId).value = r.text || "";
+      if (statusEl) {
+        statusEl.textContent =
+          destId === "#mailBodyKo"
+            ? "한글 번역 완료 — 편집 후 '한글 → 본문 반영'을 누르세요."
+            : "한글 편집 내용을 본문에 반영했습니다.";
+      }
+    } catch (error) {
+      if (statusEl) statusEl.textContent = "";
+      showToast(error.message || "번역에 실패했습니다.");
+    } finally {
+      btns.forEach((b) => b && (b.disabled = false));
+    }
+  }
+  $("#mailToKo")?.addEventListener("click", () => translateBody("ko", "#mailBody", "#mailBodyKo"));
+  $("#mailFromKo")?.addEventListener("click", () => translateBody($("#mailLang").value, "#mailBodyKo", "#mailBody"));
 
   const mailtoUrl = () =>
     `mailto:${encodeURIComponent($("#mailTo").value.trim())}?subject=${encodeURIComponent($("#mailSubject").value)}&body=${encodeURIComponent($("#mailBody").value)}`;
@@ -2264,21 +2320,32 @@ function initTemplateManager() {
       ? list
           .map(
             (t) => `
-        <div class="tmpl-item">
+        <div class="tmpl-item${state.editingTemplateId === t.id ? " active" : ""}">
           <button type="button" class="tmpl-pick" data-tmpl-edit="${escapeHtml(t.id)}">
             <span class="tmpl-name">${escapeHtml(t.name)}</span>
             ${t.builtin ? '<span class="tmpl-badge">기본</span>' : ""}
           </button>
+          <button type="button" class="icon-btn" data-tmpl-edit="${escapeHtml(t.id)}" title="편집" aria-label="편집">${ICON_EDIT}</button>
           <button type="button" class="icon-btn danger" data-tmpl-del="${escapeHtml(t.id)}" title="삭제" aria-label="삭제">${ICON_TRASH}</button>
         </div>`,
           )
           .join("")
       : '<div class="empty" style="padding:12px">템플릿이 없습니다.</div>';
   }
+  function setMultilang(show) {
+    const cb = $("#tmplMultilang");
+    const box = $("#tmplExtraLangs");
+    if (cb) cb.checked = show;
+    if (box) box.hidden = !show;
+  }
   function resetForm() {
     form.reset();
+    setMultilang(false);
     form.elements.id.value = "";
+    state.editingTemplateId = null;
+    $("#templateFormTitle").textContent = "새 템플릿";
     $("#templateSubmit").textContent = "추가";
+    renderList();
   }
   function fillForm(t) {
     form.elements.id.value = t.id;
@@ -2287,7 +2354,18 @@ function initTemplateManager() {
     form.elements.bodyEn.value = t.bodyEn || "";
     form.elements.subjectKo.value = t.subjectKo || "";
     form.elements.bodyKo.value = t.bodyKo || "";
+    form.elements.subjectJa.value = t.subjectJa || "";
+    form.elements.bodyJa.value = t.bodyJa || "";
+    form.elements.subjectDe.value = t.subjectDe || "";
+    form.elements.bodyDe.value = t.bodyDe || "";
+    form.elements.subjectZh.value = t.subjectZh || "";
+    form.elements.bodyZh.value = t.bodyZh || "";
+    setMultilang(Boolean(t.subjectJa || t.bodyJa || t.subjectDe || t.bodyDe || t.subjectZh || t.bodyZh));
+    state.editingTemplateId = t.id;
+    $("#templateFormTitle").textContent = `편집 중 · ${t.name}`;
     $("#templateSubmit").textContent = "수정 저장";
+    renderList();
+    form.scrollIntoView({ block: "nearest" });
   }
 
   $("#openTemplatesBtn")?.addEventListener("click", () => {
@@ -2297,6 +2375,7 @@ function initTemplateManager() {
   });
   modal.querySelectorAll("[data-tmpl-close]").forEach((b) => b.addEventListener("click", () => modal.close()));
   $("#templateNewBtn").addEventListener("click", resetForm);
+  $("#tmplMultilang")?.addEventListener("change", (event) => setMultilang(event.target.checked));
 
   $("#templateList").addEventListener("click", async (event) => {
     const editBtn = event.target.closest("[data-tmpl-edit]");
@@ -2342,6 +2421,46 @@ function initTemplateManager() {
       showToast(error.message);
     } finally {
       submit.disabled = false;
+    }
+  });
+
+  $("#tmplAiGenerate")?.addEventListener("click", async () => {
+    const briefEl = $("#tmplAiBrief");
+    const statusEl = $("#tmplAiStatus");
+    const btn = $("#tmplAiGenerate");
+    const brief = (briefEl?.value || "").trim();
+    if (!brief) {
+      showToast("AI에 전달할 설명을 입력하세요.");
+      briefEl?.focus();
+      return;
+    }
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = "생성 중…";
+    if (statusEl) statusEl.textContent = "Gemma 4가 초안을 작성 중…";
+    try {
+      const gameId = state.selectedGameId && state.selectedGameId !== "all" ? state.selectedGameId : "";
+      const draft = await api("/api/email-templates/generate", { method: "POST", body: { brief, gameId } });
+      // Populate the form as a NEW draft (no id) so the user reviews and saves
+      // it via the existing "추가" button.
+      form.elements.id.value = "";
+      state.editingTemplateId = null;
+      form.elements.name.value = draft.name || "";
+      form.elements.subjectEn.value = draft.subjectEn || "";
+      form.elements.bodyEn.value = draft.bodyEn || "";
+      form.elements.subjectKo.value = draft.subjectKo || "";
+      form.elements.bodyKo.value = draft.bodyKo || "";
+      $("#templateFormTitle").textContent = "AI 초안 · 검토 후 추가";
+      $("#templateSubmit").textContent = "추가";
+      renderList();
+      if (statusEl) statusEl.textContent = "초안 생성됨 — 내용 확인 후 ‘추가’를 눌러 저장하세요.";
+      showToast("AI 초안을 생성했습니다.");
+    } catch (error) {
+      if (statusEl) statusEl.textContent = "";
+      showToast(error.message || "AI 생성에 실패했습니다.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
     }
   });
 }
