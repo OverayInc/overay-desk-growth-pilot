@@ -11,3 +11,4 @@ data/*.db-wal
 data/*.db-journal
 data/*.bak
 coverage/
+.claude/

@@ -50,9 +50,16 @@ export function normalizeTemplateDraft(obj) {
   return out;
 }
 
-async function chatCompletion(messages, { maxTokens = 1600, temperature = 0.8, jsonMode = true } = {}) {
+async function chatCompletion(messages, { maxTokens = 1600, temperature = 0.8, jsonMode = true, signal } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  // An external signal (e.g. a discovery-session stop) aborts this call too, so
+  // a long gemma request cancels immediately instead of running to completion.
+  const onExternalAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", onExternalAbort, { once: true });
+  }
   let response;
   try {
     response = await fetch(`${AI_BASE_URL}/chat/completions`, {
@@ -71,6 +78,7 @@ async function chatCompletion(messages, { maxTokens = 1600, temperature = 0.8, j
       signal: controller.signal,
     });
   } catch (error) {
+    if (signal?.aborted) throw new Error("중지되었습니다.");
     if (error?.name === "AbortError") {
       throw new Error(`AI 서버 응답 시간 초과 (${AI_TIMEOUT_MS}ms) — ${AI_BASE_URL}`);
     }
@@ -79,6 +87,7 @@ async function chatCompletion(messages, { maxTokens = 1600, temperature = 0.8, j
     );
   } finally {
     clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onExternalAbort);
   }
   const body = await response.json().catch(() => null);
   if (!response.ok) {
@@ -178,6 +187,7 @@ export async function analyzeCreatorChannel({
   recentTitles = [],
   scrapedText = "",
   gameContext = "Our game is a first-person observation / 'spot the anomaly' game (Exit 8-like): the player reads a space and catches the one thing that's subtly off. It is very clippable and audience-participatory (chat/comments hunt the anomaly).",
+  signal,
 } = {}) {
   const titles = Array.isArray(recentTitles) ? recentTitles.filter(Boolean) : [];
   const bundle = [
@@ -196,7 +206,7 @@ export async function analyzeCreatorChannel({
       { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
       { role: "user", content: `Analyze this creator and return the JSON record:\n\n${bundle}` },
     ],
-    { maxTokens: 800, temperature: 0.2 },
+    { maxTokens: 800, temperature: 0.2, signal },
   );
   return normalizeCreatorAnalysis(extractJsonObject(content));
 }
@@ -230,7 +240,7 @@ Given a game description and some existing queries, propose ADDITIONAL, DIVERSE 
 Return ONE JSON object only: {"seeds": ["query 1", "query 2", ...]}. Each query is what you'd type into YouTube/Google search — short, no quotes. Do not repeat the existing queries.`;
 
 // Ask gemma for extra seed queries given the game context and current seeds.
-export async function expandSeeds({ gameContext = "", existingSeeds = [], count = 8 } = {}) {
+export async function expandSeeds({ gameContext = "", existingSeeds = [], count = 8, signal } = {}) {
   const user = [
     `Game: ${gameContext || "a first-person observation / 'spot the anomaly' indie game (Exit 8-like)"}`,
     existingSeeds.length ? `Existing queries (do NOT repeat):\n- ${existingSeeds.join("\n- ")}` : "",
@@ -243,7 +253,7 @@ export async function expandSeeds({ gameContext = "", existingSeeds = [], count 
       { role: "system", content: SEED_SYSTEM_PROMPT },
       { role: "user", content: user },
     ],
-    { maxTokens: 400, temperature: 0.9 },
+    { maxTokens: 400, temperature: 0.9, signal },
   );
   return normalizeSeedList(extractJsonObject(content).seeds, { max: count });
 }
@@ -253,7 +263,7 @@ You get a short profile of one promising creator (name, type, audience, tone, re
 Return ONE JSON object only: {"queries": ["query 1", ...]} — at most 5, short, no quotes, no duplicates of the creator's own name unless useful.`;
 
 // Given one analyzed candidate, propose follow-up queries to chase its niche.
-export async function proposeLeads({ channelName = "", channelType = "", audience = "", contentTone = "", recentTitles = [] } = {}) {
+export async function proposeLeads({ channelName = "", channelType = "", audience = "", contentTone = "", recentTitles = [], signal } = {}) {
   const titles = Array.isArray(recentTitles) ? recentTitles.slice(0, 8) : [];
   const user = [
     channelName ? `Creator: ${channelName}` : "",
@@ -269,7 +279,7 @@ export async function proposeLeads({ channelName = "", channelType = "", audienc
       { role: "system", content: LEADS_SYSTEM_PROMPT },
       { role: "user", content: user || "A game content creator." },
     ],
-    { maxTokens: 300, temperature: 0.8 },
+    { maxTokens: 300, temperature: 0.8, signal },
   );
   return normalizeSeedList(extractJsonObject(content).queries, { max: 5 });
 }

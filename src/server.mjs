@@ -3631,11 +3631,39 @@ async function runDiscoveryQuick(data, { seeds = [], perSeed = 8, minFitScore = 
 // seed batch so the bot stays productive across the whole window.
 let discoveryRunning = false; // authoritative at runtime (vs the persisted flag)
 let discoveryStop = false;
+let discoveryAbort = null; // aborts in-flight fetch/gemma calls for instant stop
+
+// In-memory ring buffer of recent discovery log lines, surfaced to the web UI
+// via GET /api/discovery so progress is visible without the server terminal.
+const discoveryLog = [];
+const DISCOVERY_LOG_CAP = 200;
+function dlog(msg, level = "info") {
+  const line = { at: nowIso(), level, msg: String(msg) };
+  discoveryLog.push(line);
+  if (discoveryLog.length > DISCOVERY_LOG_CAP) discoveryLog.shift();
+  const tag = level === "error" ? "⚠" : level === "warn" ? "·" : "›";
+  console.log(`[discovery] ${tag} ${msg}`);
+}
+
+// "1h 23m" / "4m 12s" — human elapsed/remaining for heartbeat logs + UI.
+function formatDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}시간 ${m}분`;
+  if (m > 0) return `${m}분 ${sec}초`;
+  return `${sec}초`;
+}
 
 async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 8, minFitScore = 0, trigger = "manual" } = {}) {
   if (discoveryRunning) return { started: false, reason: "already_running" };
   discoveryRunning = true;
   discoveryStop = false;
+  discoveryAbort = new AbortController();
+  const signal = discoveryAbort.signal;
+  const sessionStart = Date.now();
+  const elapsed = () => formatDuration(Date.now() - sessionStart);
 
   let renderImpl = null;
   if (discoveryUseRenderer()) {
@@ -3670,14 +3698,18 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
     };
     await writeData(data);
   }
+  const totalMin = Math.round((overallDeadline - sessionStart) / 60_000);
+  dlog(`▶ 세션 시작 (${trigger}) — 예정 ${totalMin}분, 종료 ${new Date(overallDeadline).toLocaleTimeString("ko-KR")}, 시드 ${seeds.length}개`);
 
   let status = "ok";
+  let chunkNo = 0;
   try {
     while (Date.now() < overallDeadline && !discoveryStop) {
+      chunkNo += 1;
       const chunkDeadline = Math.min(overallDeadline, Date.now() + DISCOVERY_CHUNK_MS);
       const data = await readData();
       const result = await runDiscovery(seeds, {
-        config: { ...discoveryConfigForServer(data), renderImpl },
+        config: { ...discoveryConfigForServer(data), renderImpl, signal },
         gameContext,
         knownProfiles: data.creatorProfiles || [],
         perSeed,
@@ -3685,11 +3717,19 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
         expandCount,
         leadDepth: DISCOVERY_LEAD_DEPTH,
         deadline: chunkDeadline,
+        shouldStop: () => discoveryStop,
         onProgress: (m) => {
           lastProgress = m;
+          dlog(`⏱ ${elapsed()} · ${m}`);
         },
       });
-      mergeDiscoveryCandidates(data, result.candidates);
+      // Surface per-source skips/errors into the UI log.
+      for (const s of result.skipped || []) dlog(`소스 건너뜀 — ${s}`, "warn");
+      for (const e of (result.errors || []).slice(0, 5)) dlog(`오류 — ${e}`, "error");
+      // Only successfully analyzed candidates go in the review queue (drop the
+      // in-flight one an abort/stop may have thrown).
+      const fresh = result.candidates.filter((c) => c.status !== "error");
+      mergeDiscoveryCandidates(data, fresh);
       sessionFound += result.stats.newCreators;
       data.discoveryState = {
         ...data.discoveryState,
@@ -3698,35 +3738,45 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
         lastRunAt: nowIso(),
         lastStats: result.stats,
         sessionFound,
+        elapsedMs: Date.now() - sessionStart,
         progress: lastProgress,
         lastMessage: `세션 진행 — 누적 신규 ${sessionFound} · 검색 ${result.stats.seedsSearched}`,
       };
       await writeData(data);
+
+      // Per-chunk heartbeat: how long it's been running + what it found so far.
+      dlog(
+        `⏱ 경과 ${elapsed()} · 청크 #${chunkNo} 완료 · 누적 신규 ${sessionFound} · 이번 검색 ${result.stats.seedsSearched} · 분석 ${result.stats.analyzed} · 이메일 ${result.stats.withEmail}`,
+      );
 
       if (discoveryStop || Date.now() >= overallDeadline) break;
 
       // Queue drained → ask gemma for a fresh batch to keep the window busy.
       let next = [];
       try {
-        next = await expandSeeds({ gameContext: gameContext || "", existingSeeds: usedSeeds.slice(-25), count: 8 });
+        next = await expandSeeds({ gameContext: gameContext || "", existingSeeds: usedSeeds.slice(-25), count: 8, signal });
       } catch {
         next = [];
       }
       next = next.filter((q) => !usedSeeds.some((u) => u.toLowerCase() === q.toLowerCase()));
       if (!next.length) {
         status = "dry"; // nothing new to search — stop early
+        dlog(`⏱ 경과 ${elapsed()} · 새 검색어 없음 → 조기 종료`);
         break;
       }
       usedSeeds.push(...next);
       seeds = next;
       expandCount = 0; // already expanded; fresh batch is the new base
+      dlog(`⏱ 경과 ${elapsed()} · gemma 새 검색어 ${next.length}개 추가 → 계속`);
     }
+    if (discoveryStop) dlog("⏹ 중지 요청 감지 → 즉시 마무리");
   } catch (error) {
     status = "error";
-    console.error("Discovery session failed:", error.message || error);
+    dlog(`세션 실패 — ${error.message || error}`, "error");
   } finally {
     if (renderImpl) await closeRenderer();
     discoveryRunning = false;
+    discoveryAbort = null;
     const data = await readData();
     const finalStatus = discoveryStop ? "stopped" : status === "dry" ? "ok" : status;
     data.discoveryState = {
@@ -3735,10 +3785,11 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
       lastStatus: finalStatus,
       endsAt: "",
       progress: "",
-      lastMessage: `세션 종료 (${finalStatus}) — 누적 신규 ${sessionFound}`,
+      elapsedMs: Date.now() - sessionStart,
+      lastMessage: `세션 종료 (${finalStatus}) — ${elapsed()} 동안 신규 ${sessionFound}명`,
     };
     await writeData(data);
-    console.log(`[discovery] session ${finalStatus} — new creators: ${sessionFound}`);
+    dlog(`■ 세션 종료 (${finalStatus}) — 총 ${elapsed()} 동안 신규 ${sessionFound}명`);
   }
   return { started: true };
 }
@@ -4460,6 +4511,15 @@ async function handleApi(req, res, url) {
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
+    // Optional manual "used / unused" override at creation time.
+    if (input.activated !== undefined) {
+      creator.steamActivation = {
+        activated: input.activated === true || input.activated === "true",
+        account: String(input.activationAccount || "").trim(),
+        checkedAt: nowIso(),
+        source: "manual",
+      };
+    }
     data.creators.push(creator);
     applyCreatorKeySideEffects(data, creator);
     await writeData(data);
@@ -4581,6 +4641,7 @@ async function handleApi(req, res, url) {
       window: { start: process.env.DISCOVERY_WINDOW_START || "02:00", end: process.env.DISCOVERY_WINDOW_END || "09:00", ...win },
       rendererEnabled: discoveryUseRenderer(),
       sessionMinuteChoices: [30, 60, 120, 180],
+      logs: discoveryLog.slice(-150),
     });
   }
   if (route === "POST /api/discovery/run") {
@@ -4633,6 +4694,14 @@ async function handleApi(req, res, url) {
   if (route === "POST /api/discovery/stop") {
     if (!discoveryRunning) return respondJson(res, 200, { ok: true, running: false });
     discoveryStop = true;
+    // Abort any in-flight fetch/gemma call so the session halts immediately,
+    // not after the current step finishes.
+    try {
+      discoveryAbort?.abort();
+    } catch {
+      /* ignore */
+    }
+    dlog("⏹ 사용자 중지 요청", "warn");
     return respondJson(res, 200, { ok: true, stopping: true });
   }
   const discoveryApproveRoute = url.pathname.match(/^\/api\/discovery\/candidates\/([^/]+)\/approve$/);
