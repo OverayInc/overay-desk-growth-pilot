@@ -14,6 +14,18 @@ import {
   authenticateRequest,
   AuthError,
 } from "./auth.mjs";
+import { generateEmailTemplate, translateText, aiConfig } from "./marketingAgent.mjs";
+import { runDiscovery } from "./discovery/pipeline.mjs";
+import { expandSeeds } from "./marketingAgent.mjs";
+import { makeRenderer, closeRenderer } from "./discovery/renderer.mjs";
+import {
+  discoverySeeds,
+  discoveryGameContext,
+  discoveryWindow,
+  inWindow,
+  discoveryUseRenderer,
+  clampSessionMinutes,
+} from "./discovery/config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,21 +76,124 @@ const SMTP_STARTTLS = process.env.SMTP_STARTTLS !== "false";
 const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_USER || "";
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "";
 const EMAIL_SEND_MODE = process.env.EMAIL_SEND_MODE || "smtp";
+// Microsoft Graph app-only (client credentials) mail sending. Falls back to the
+// login app's tenant/client when a dedicated Graph app isn't configured.
+const GRAPH_TENANT_ID = process.env.GRAPH_TENANT_ID || process.env.MS_TENANT_ID || "";
+const GRAPH_CLIENT_ID = process.env.GRAPH_CLIENT_ID || process.env.MS_CLIENT_ID || "";
+const GRAPH_CLIENT_SECRET = process.env.GRAPH_CLIENT_SECRET || "";
+const GRAPH_SEND_MAILBOX = process.env.GRAPH_SEND_MAILBOX || "";
+const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
+const graphTokenUrl = (tenantId) => `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 const DISABLE_SYNC_SCHEDULER = process.env.DISABLE_SYNC_SCHEDULER === "true";
 const SYNC_SCHEDULER_INTERVAL_MS = Number(process.env.SYNC_SCHEDULER_INTERVAL_MS || 60_000);
+// Creator-discovery bot. The nightly window scheduler is off by default (run
+// manually via the dashboard first); enable with DISABLE_DISCOVERY_SCHEDULER=false.
+const DISABLE_DISCOVERY_SCHEDULER = process.env.DISABLE_DISCOVERY_SCHEDULER !== "false";
+const DISCOVERY_EXPAND_COUNT = Number(process.env.DISCOVERY_EXPAND_COUNT || 8);
+const DISCOVERY_LEAD_DEPTH = Number(process.env.DISCOVERY_LEAD_DEPTH || 2);
+const DISCOVERY_CHUNK_MS = Math.max(60_000, Number(process.env.DISCOVERY_CHUNK_MS || 300_000));
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || "";
+const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || "";
+const WEB_SEARCH_PROVIDER = process.env.WEB_SEARCH_PROVIDER || "";
+const WEB_SEARCH_API_KEY = process.env.WEB_SEARCH_API_KEY || "";
 const DEFAULT_SYNC_LOOKBACK_DAYS = Number(process.env.DEFAULT_SYNC_LOOKBACK_DAYS || 7);
 
-const STATUS_OPTIONS = new Set([
-  "uncontacted",
-  "drafted",
-  "first_sent",
-  "replied",
-  "key_sent",
-  "video_uploaded",
-  "paused",
-]);
+// Simplified per-game creator status. Steam "used / unused" is tracked separately on
+// steamActivation (querycdkey), not here. "리뷰"/"기타" detail goes in the note field.
+const STATUS_OPTIONS = new Set(["uncontacted", "sent", "review", "other"]);
 
-const KEY_STATUS_OPTIONS = new Set(["reserved", "sent", "claimed", "video_uploaded", "revoked"]);
+// 대상 구분 (Excel: 유튜버/스트리머/리뷰어/매체/큐레이터/기타). Stored canonical, displayed via labels on the client.
+const KEY_RECIPIENT_TYPE_OPTIONS = new Set(["youtuber", "streamer", "reviewer", "press", "curator", "other"]);
+
+// Maps the Korean labels used in the legacy spreadsheet tracker to the canonical values above.
+const KEY_RECIPIENT_TYPE_ALIASES = {
+  유튜버: "youtuber",
+  유투버: "youtuber",
+  youtube: "youtuber",
+  youtuber: "youtuber",
+  스트리머: "streamer",
+  streamer: "streamer",
+  twitch: "streamer",
+  리뷰어: "reviewer",
+  reviewer: "reviewer",
+  매체: "press",
+  언론: "press",
+  press: "press",
+  media: "press",
+  큐레이터: "curator",
+  curator: "curator",
+  기타: "other",
+  other: "other",
+};
+
+// Maps Korean labels, the spreadsheet vocabulary, and legacy canonical statuses to the
+// simplified set (uncontacted / sent / review / other). Usage (사용됨/미사용) is NOT a status —
+// it comes from the Steam activation query — so "사용됨" maps to "sent".
+const CREATOR_STATUS_ALIASES = {
+  미접촉: "uncontacted",
+  uncontacted: "uncontacted",
+  미발송: "uncontacted",
+  예약: "uncontacted",
+  키미발송: "uncontacted",
+  reserved: "uncontacted",
+  초안: "uncontacted",
+  초안작성: "uncontacted",
+  drafted: "uncontacted",
+  발송: "sent",
+  발송됨: "sent",
+  키발송: "sent",
+  메일발송: "sent",
+  메일보냄: "sent",
+  first_sent: "sent",
+  회신: "sent",
+  회신옴: "sent",
+  답장: "sent",
+  replied: "sent",
+  미사용: "sent",
+  사용됨: "sent",
+  사용: "sent",
+  claimed: "sent",
+  key_sent: "sent",
+  sent: "sent",
+  리뷰: "review",
+  리뷰완료: "review",
+  review: "review",
+  영상: "review",
+  영상업로드: "review",
+  video_uploaded: "review",
+  기타: "other",
+  other: "other",
+  보류: "other",
+  paused: "other",
+  회수: "other",
+  회수필요: "other",
+  회수완료: "other",
+  revoked: "other",
+  반려: "other",
+  무응답: "other",
+  반려무응답: "other",
+  bounced: "other",
+};
+
+function normalizeRecipientType(value) {
+  // Normalize to NFC: Korean text can arrive decomposed (NFD) from some OSes / clients,
+  // which would otherwise never match the precomposed alias-table keys.
+  const raw = String(value || "").trim().normalize("NFC");
+  if (!raw) return "youtuber";
+  const lower = raw.toLowerCase();
+  if (KEY_RECIPIENT_TYPE_OPTIONS.has(lower)) return lower;
+  const compact = raw.replace(/[\s/]+/g, "").toLowerCase();
+  return KEY_RECIPIENT_TYPE_ALIASES[raw] || KEY_RECIPIENT_TYPE_ALIASES[compact] || KEY_RECIPIENT_TYPE_ALIASES[lower] || "other";
+}
+
+function normalizeCreatorStatus(value, fallback = "uncontacted") {
+  const raw = String(value || "").trim().normalize("NFC");
+  if (!raw) return fallback;
+  const lower = raw.toLowerCase();
+  if (STATUS_OPTIONS.has(lower)) return lower;
+  const compact = raw.replace(/[\s/·]+/g, "").toLowerCase();
+  return CREATOR_STATUS_ALIASES[raw] || CREATOR_STATUS_ALIASES[compact] || CREATOR_STATUS_ALIASES[lower] || fallback;
+}
 
 const STORE_PLATFORM_LABELS = {
   steam: "Steam",
@@ -179,6 +294,106 @@ function defaultGames() {
   return [];
 }
 
+// Built-in outreach email templates (EN + KO). Placeholders: {{creator}} {{game}}
+// {{key}} {{utm}} {{embargo}} {{genre}}. Team signature is baked in.
+function defaultEmailTemplates() {
+  const t = (id, name, subjectEn, bodyEn, subjectKo, bodyKo) => ({
+    id,
+    name,
+    subjectEn,
+    bodyEn,
+    subjectKo,
+    bodyKo,
+    builtin: true,
+    createdAt: "2026-06-05T00:00:00.000Z",
+    updatedAt: "2026-06-05T00:00:00.000Z",
+  });
+  const sigEn = "— Immersed Player, Overay Inc.";
+  const sigKo = "— 오버레이(Overay Inc.) · Immersed Player 팀";
+  return [
+    t(
+      "tmpl_review_request",
+      "기본 리뷰 요청",
+      "{{game}} — a 'spot the anomaly' game your viewers can play along with",
+      `Hi {{creator}},\n\nWe're Immersed Player at Overay Inc., the team behind {{game}}.\n\n{{game}} is an observation game: you read a space and catch the one thing that's subtly "off." On camera that's the hook — viewers lean in and hunt the anomaly with you in the comments and chat, so it tends to drive strong engagement.\n\nWe'd love to send you a free Steam key for an honest playthrough. To make it work for your audience we can also add:\n• Extra keys to give away to your viewers\n• An early / exclusive build before launch\n\nNo obligation at all — just reply and we'll send everything over.\n\n{{utm}}\n\nThanks for taking a look!\n${sigEn}`,
+      "{{game}} — 시청자와 '이상현상 찾기'를 함께 즐기는 게임",
+      `안녕하세요 {{creator}}님,\n\n저희는 {{game}}을(를) 만든 오버레이(Overay Inc.) Immersed Player 팀이에요.\n\n{{game}}은(는) '관찰' 게임이에요. 공간을 살피다가 미묘하게 '이상한 점' 하나를 찾아내죠. 이게 화면에서 특히 잘 통해요 — 시청자들이 댓글·채팅에서 같이 이상현상을 찾으며 몰입하거든요. 그래서 참여 반응이 좋은 편이에요.\n\n솔직한 플레이 영상용으로 무료 Steam 키를 보내드리고 싶어요. 채널에 더 도움이 되도록 이런 것도 함께 드릴 수 있어요:\n• 시청자에게 나눠줄 증정용 키\n• 출시 전 선공개 / 독점 빌드\n\n전혀 부담 갖지 않으셔도 돼요 — 회신만 주시면 전부 보내드릴게요.\n\n{{utm}}\n\n봐주셔서 감사합니다!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_short_casual",
+      "짧고 캐주얼",
+      "Quick one — a 'find the anomaly' game for {{creator}}?",
+      `Hey {{creator}},\n\nBig fan of your channel. We made {{game}} — an observation game where viewers help you spot what's "off" in a space (great for comments/chat).\n\nWant a free Steam key? We can also throw in extra keys to give away to your audience, or an early build.\n\n{{utm}}\n\nJust say the word!\n${sigEn}`,
+      "간단히 — {{creator}}님께 '이상현상 찾기' 게임",
+      `안녕하세요 {{creator}}님!\n\n채널 잘 보고 있어요. 저희가 만든 {{game}}은(는) 공간 속 '이상한 점'을 시청자와 함께 찾는 관찰 게임이에요 (댓글·채팅 반응이 좋아요).\n\n무료 Steam 키 드릴까요? 원하시면 시청자 증정용 키나 선공개 빌드도 같이 챙겨드려요.\n\n{{utm}}\n\n편하게 한마디만 주세요!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_personalized",
+      "채널 맞춤",
+      "Loved [recent video] — {{game}} could land the same way",
+      `Hi {{creator}},\n\nI caught your recent [mention a specific video] and the way your audience reacts in the comments is exactly what {{game}} is built for.\n\nIt's an observation game — players catch the one thing that's "off" in a space, and viewers love hunting it alongside you, which keeps the comments/chat busy.\n\nI'd be glad to send a Steam key, plus giveaway keys for your viewers (or an early build if the timing fits) — only if it feels right for your channel.\n\n{{utm}}\n\nHappy to answer anything.\n${sigEn}`,
+      "[최근 영상] 잘 봤어요 — {{game}}도 비슷하게 통할 것 같아요",
+      `안녕하세요 {{creator}}님,\n\n최근 [특정 영상 언급] 잘 봤는데, 댓글에서 시청자분들이 반응하시는 방식이 {{game}}이(가) 노리는 지점과 정확히 맞더라고요.\n\n{{game}}은(는) 공간 속 '이상한 점' 하나를 찾는 관찰 게임이라, 시청자가 함께 찾는 재미가 커서 댓글·채팅이 계속 살아 있어요.\n\nSteam 키와 시청자 증정용 키(타이밍 맞으면 선공개 빌드까지) 기꺼이 보내드릴게요 — 채널과 어울린다고 느끼실 때만요.\n\n{{utm}}\n\n궁금한 점 있으면 언제든요.\n${sigKo}`,
+    ),
+    t(
+      "tmpl_horror",
+      "이상현상·몰입형 (Exit 8 류)",
+      "An immersive 'spot the anomaly' experience — {{game}}",
+      `Hi {{creator}},\n\n{{game}} is a first-person observation experience: you read a space, and when something is subtly "off," you have to notice it. Tense and eerie, but easy to pick up — no twitch skills required.\n\nIt plays great on camera because the audience plays too: everyone's calling out the anomaly in chat and comments, so it drives real engagement (and very clippable misses).\n\nHappy to send a Steam key for a playthrough or first-impressions. We can also include keys to give away to your viewers, or an early / exclusive build.\n\n{{utm}}\n\n${sigEn}`,
+      "몰입형 '이상현상 찾기' 경험 — {{game}}",
+      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 1인칭 관찰 경험이에요. 공간을 읽다가 뭔가 미묘하게 '이상해지면' 그걸 알아채야 하죠. 오싹하고 긴장감 있지만 조작이 쉬워서 누구나 바로 즐길 수 있어요.\n\n화면에서 특히 잘 통하는 이유는 시청자도 함께 플레이하기 때문이에요 — 채팅·댓글에서 다 같이 이상현상을 외치니 참여 반응이 크고, 놓쳤을 때의 클립도 잘 나와요.\n\n플레이/첫인상 영상용 Steam 키 보내드릴게요. 시청자 증정용 키나 선공개·독점 빌드도 함께 가능해요.\n\n{{utm}}\n\n${sigKo}`,
+    ),
+    t(
+      "tmpl_streamer",
+      "스트리머(라이브)",
+      "{{game}} streams great — your chat hunts the anomaly with you",
+      `Hi {{creator}},\n\n{{game}} is made for live: it's an observation game where your chat spots the "off" detail with you — constant call-outs, instant reactions, clip-worthy misses.\n\nWe can send a Steam key for stream, plus extra keys to give away to your viewers live (always a chat-pleaser). Early / exclusive build available too. Embargo if any: {{embargo}}\n\n{{utm}}\n\n${sigEn}`,
+      "{{game}}은 방송에 딱 — 채팅이 같이 이상현상을 찾아요",
+      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 라이브에 잘 맞아요. 채팅이 같이 '이상한 점'을 찾는 관찰 게임이라 외침·즉각 반응·놓쳤을 때의 클립이 계속 나와요.\n\n방송용 Steam 키와 함께, 방송 중 시청자에게 나눠줄 증정용 키도 드릴 수 있어요(채팅 반응 최고). 선공개/독점 빌드도 가능합니다. 엠바고(있다면): {{embargo}}\n\n{{utm}}\n\n${sigKo}`,
+    ),
+    t(
+      "tmpl_curator",
+      "스팀 큐레이터",
+      "Curator key — {{game}} (an observation / anomaly game)",
+      `Hello {{creator}},\n\nWe'd love to offer your Steam Curator page a key for {{game}} from Immersed Player by Overay Inc. — an observation game about catching the one thing that's "off" in a space.\n\nIf it's a fit, a recommendation would mean a lot, and we're happy to share keys for your community too.\n\nStore page: {{utm}}\n\nReply and we'll add the key to your curator queue.\n\nThank you!\n${sigEn}`,
+      "큐레이터 키 — {{game}} (관찰·이상현상 게임)",
+      `안녕하세요 {{creator}}님,\n\n오버레이 Immersed Player 팀의 {{game}} 키를 큐레이터 페이지용으로 드리고 싶어요 — 공간 속 '이상한 점'을 찾는 관찰 게임이에요.\n\n잘 맞는다면 추천 한마디가 큰 힘이 되고, 커뮤니티용 키도 함께 나눠드릴 수 있어요.\n\n상점 페이지: {{utm}}\n\n회신 주시면 큐레이터 큐에 키를 추가해 드릴게요.\n\n감사합니다!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_press",
+      "매체·프레스",
+      "Press key & assets — {{game}} (observation / anomaly game)",
+      `Hello,\n\nI'm writing from Immersed Player by Overay Inc. about {{game}} — a first-person observation game about spotting the anomaly in a space.\n\nHappy to provide a Steam press key plus a press kit (trailer, screenshots, fact sheet) for coverage. Review embargo (if any): {{embargo}}\nStore page: {{utm}}\n\nGlad to set up an interview or a hands-on build.\n${sigEn}`,
+      "프레스 키 & 자료 — {{game}} (관찰·이상현상 게임)",
+      `안녕하세요,\n\n오버레이 Immersed Player 팀에서 {{game}} 관련하여 연락드립니다 — 공간 속 이상현상을 찾는 1인칭 관찰 게임이에요.\n\n기사 검토용으로 Steam 프레스 키와 보도자료(트레일러·스크린샷·팩트시트)를 제공해 드릴 수 있어요. 리뷰 엠바고(있는 경우): {{embargo}}\n상점 페이지: {{utm}}\n\n인터뷰나 핸즈온 빌드도 준비해 드릴게요.\n${sigKo}`,
+    ),
+    t(
+      "tmpl_key_attached",
+      "키 동봉(바로 전달)",
+      "Your {{game}} Steam key is inside 🔑",
+      `Hi {{creator}},\n\nThanks for the interest in {{game}}! Here's your Steam key:\n\n{{key}}\n\nActivate via Steam → Games → Activate a Product. It's an observation game (catch the "off" detail) — short sessions, very clippable.\n\nCoverage is optional, but if you do: tagging the store page helps a lot, and we're glad to send extra keys to give away to your viewers. {{utm}}\n\nEnjoy — ping us anytime!\n${sigEn}`,
+      "{{game}} Steam 키를 보내드려요 🔑",
+      `안녕하세요 {{creator}}님,\n\n{{game}}에 관심 가져 주셔서 감사합니다! Steam 키 보내드려요:\n\n{{key}}\n\nSteam → 게임 → 제품 활성화에서 등록하시면 돼요. '이상한 점'을 찾는 관찰 게임이라 세션이 짧고 클립이 잘 나와요.\n\n콘텐츠 제작은 자유지만, 진행하신다면 상점 페이지 태그가 큰 도움이 되고, 시청자에게 나눠줄 증정용 키도 기꺼이 보내드려요. {{utm}}\n\n즐겨 주세요 — 언제든 연락 주시고요!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_embargo",
+      "엠바고·출시일",
+      "Early / exclusive {{game}} build + key for {{creator}}",
+      `Hi {{creator}},\n\nWe'd love to get {{game}} in your hands before launch — here's a Steam key for an early / exclusive build from Immersed Player by Overay Inc.\n\nPlease hold coverage until: {{embargo}}\nKey: {{key}}\nStore page: {{utm}}\n\nIt's an observation game (catch the anomaly in a space). Before release we'll send assets, a changelog, and extra keys to give away to your viewers. Thanks for keeping the date!\n${sigEn}`,
+      "선공개 / 독점 {{game}} 빌드 + {{creator}}님 키",
+      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) 출시 전에 먼저 전해드리고 싶어요 — 오버레이 Immersed Player 팀의 선공개 / 독점 빌드 Steam 키예요.\n\n공개는 다음 이후로 부탁드려요: {{embargo}}\n키: {{key}}\n상점 페이지: {{utm}}\n\n공간 속 이상현상을 찾는 관찰 게임이에요. 출시 전에 자료·변경사항과 시청자 증정용 키를 함께 보내드릴게요. 일정 지켜 주셔서 감사합니다!\n${sigKo}`,
+    ),
+    t(
+      "tmpl_followup",
+      "팔로업·리마인더",
+      "Following up — {{game}} key (no rush!)",
+      `Hi {{creator}},\n\nJust circling back on {{game}} — no worries if you've been busy.\n\nThe free Steam key offer still stands, and we can include keys to give away to your viewers or an early build whenever it suits you. It's a quick, clip-friendly observation game (spot the anomaly), so it's an easy one to slot in.\n\n{{utm}}\n\nHappy to send it over anytime.\n${sigEn}`,
+      "다시 한번 — {{game}} 키 (천천히 보셔도 돼요!)",
+      `안녕하세요 {{creator}}님,\n\n{{game}} 관련해 가볍게 다시 연락드려요 — 바쁘셨다면 전혀 괜찮아요.\n\n무료 Steam 키 제안은 유효하고, 편하실 때 시청자 증정용 키나 선공개 빌드도 함께 드릴 수 있어요. 짧고 클립 잘 나오는 관찰 게임(이상현상 찾기)이라 가볍게 끼워 넣기 좋아요.\n\n{{utm}}\n\n원하시면 언제든 보내드릴게요.\n${sigKo}`,
+    ),
+  ];
+}
+
 function defaultData() {
   const games = defaultGames();
   return {
@@ -193,6 +408,7 @@ function defaultData() {
     creatorProfiles: [],
     creators: [],
     influencerKeys: [],
+    emailTemplates: defaultEmailTemplates(),
     steamDailyMetrics: [],
     outreachLogs: [],
     steamSyncState: {
@@ -204,6 +420,9 @@ function defaultData() {
     integrationSettings: {
       steamFinancialApiKeyEncrypted: "",
       steamFinancialApiKeyMasked: "",
+      steamPartnerCookieEncrypted: "",
+      steamPartnerCookieMasked: "",
+      steamPartnerCookieUpdatedAt: "",
       youtubeApiKeyEncrypted: "",
       youtubeApiKeyMasked: "",
       smtpHost: "",
@@ -216,6 +435,13 @@ function defaultData() {
       emailFrom: "",
       emailReplyTo: "",
       emailSendMode: "smtp",
+      graphTenantId: "",
+      graphClientId: "",
+      graphClientSecretEncrypted: "",
+      graphClientSecretMasked: "",
+      graphSendMailbox: "",
+      graphAccessToken: "",
+      graphAccessTokenExpiry: 0,
       youtubeClientId: "",
       youtubeClientSecretEncrypted: "",
       youtubeClientSecretMasked: "",
@@ -251,6 +477,19 @@ function defaultData() {
     youtubeChannels: [],
     youtubeSnapshots: [],
     redditPosts: [],
+    discoveryCandidates: [],
+    discoveryState: {
+      lastRunAt: "",
+      lastStatus: "never_run",
+      lastMessage: "",
+      lastStats: null,
+      running: false,
+      startedAt: "",
+      endsAt: "",
+      sessionFound: 0,
+      progress: "",
+      trigger: "",
+    },
   };
 }
 
@@ -283,6 +522,8 @@ function normalizeData(data) {
   data.creatorProfiles ||= [];
   data.creators ||= [];
   data.influencerKeys ||= [];
+  data.emailTemplates ||= [];
+  if (!data.emailTemplates.length) data.emailTemplates = defaultEmailTemplates();
   data.steamDailyMetrics ||= [];
   data.outreachLogs ||= [];
   data.steamSyncState ||= {
@@ -294,6 +535,9 @@ function normalizeData(data) {
   data.integrationSettings ||= seeded.integrationSettings;
   data.integrationSettings.steamFinancialApiKeyEncrypted ||= "";
   data.integrationSettings.steamFinancialApiKeyMasked ||= "";
+  data.integrationSettings.steamPartnerCookieEncrypted ||= "";
+  data.integrationSettings.steamPartnerCookieMasked ||= "";
+  data.integrationSettings.steamPartnerCookieUpdatedAt ||= "";
   data.integrationSettings.youtubeApiKeyEncrypted ||= "";
   data.integrationSettings.youtubeApiKeyMasked ||= "";
   data.integrationSettings.youtubeClientId ||= "";
@@ -320,6 +564,13 @@ function normalizeData(data) {
   data.integrationSettings.emailFrom ||= "";
   data.integrationSettings.emailReplyTo ||= "";
   data.integrationSettings.emailSendMode ||= "smtp";
+  data.integrationSettings.graphTenantId ||= "";
+  data.integrationSettings.graphClientId ||= "";
+  data.integrationSettings.graphClientSecretEncrypted ||= "";
+  data.integrationSettings.graphClientSecretMasked ||= "";
+  data.integrationSettings.graphSendMailbox ||= "";
+  data.integrationSettings.graphAccessToken ||= "";
+  data.integrationSettings.graphAccessTokenExpiry ||= 0;
   data.integrationSettings.updatedAt ||= "";
   data.syncSchedule ||= seeded.syncSchedule;
   data.syncSchedule.enabled = Boolean(data.syncSchedule.enabled);
@@ -336,6 +587,15 @@ function normalizeData(data) {
   data.syncSchedule.lastStatus ||= "never_run";
   data.syncSchedule.lastMessage ||= "";
   data.syncRuns ||= [];
+  data.discoveryCandidates ||= [];
+  data.discoveryState ||= seeded.discoveryState;
+  data.discoveryState.lastStatus ||= "never_run";
+  data.discoveryState.sessionFound ||= 0;
+  data.discoveryState.progress ||= "";
+  data.discoveryState.startedAt ||= "";
+  data.discoveryState.endsAt ||= "";
+  data.discoveryState.trigger ||= "";
+  if (typeof data.discoveryState.running !== "boolean") data.discoveryState.running = false;
   data.youtubeChannels ||= [];
   data.youtubeSnapshots ||= [];
   data.redditPosts ||= [];
@@ -376,8 +636,18 @@ function normalizeData(data) {
 
   for (const creator of data.creators) {
     creator.tags = toList(creator.tags);
-    creator.status = STATUS_OPTIONS.has(creator.status) ? creator.status : "uncontacted";
+    creator.status = normalizeCreatorStatus(creator.status, "uncontacted");
     creator.creatorProfileId ||= upsertCreatorProfile(data, creator).id;
+    // Per-game record now also carries the Steam key + distribution tracking (merged from
+    // the former influencerKeys collection): one creator per game = one row.
+    creator.recipientType = normalizeRecipientType(creator.recipientType || creator.platform);
+    creator.channelUrl ||= "";
+    creator.sentAt ||= "";
+    creator.embargoAt ||= "";
+    creator.steamKeyEncrypted ||= "";
+    creator.steamKeyMasked ||= "";
+    creator.steamActivation ||= null;
+    creator.countedAsSent = Boolean(creator.countedAsSent);
   }
 
   for (const collection of [data.campaigns, data.creators, data.influencerKeys, data.steamDailyMetrics, data.outreachLogs]) {
@@ -440,9 +710,18 @@ function maskSteamKey(value) {
   return `${clean.slice(0, 4)}****${clean.slice(-4)}`;
 }
 
-function sanitizeKey(record) {
+// Per-game creator records now hold the encrypted Steam key; never return it to the client.
+function sanitizeCreator(record) {
   const { steamKeyEncrypted, ...safe } = record;
   return safe;
+}
+
+// Creators that have a Steam key attached, and the subset whose key has been sent.
+function keyedCreators(creators) {
+  return creators.filter((creator) => creator.steamKeyMasked);
+}
+function sentKeyCreators(creators) {
+  return creators.filter((creator) => creator.steamKeyMasked && ["sent", "review"].includes(creator.status));
 }
 
 function activeGames(data) {
@@ -693,7 +972,6 @@ function buildPortfolio(data) {
       const metrics = scopedItems(data.steamDailyMetrics, game.id);
       const campaigns = scopedItems(data.campaigns, game.id);
       const creators = scopedItems(data.creators, game.id);
-      const keys = scopedItems(data.influencerKeys, game.id);
       const listings = storeListingsForGame(data, game.id, { includeArchived: true }).map((listing) =>
         sanitizeStoreListing(data, listing),
       );
@@ -709,8 +987,8 @@ function buildPortfolio(data) {
           .map((listing) => ({ key: listing.platform, label: listing.platformLabel, status: listing.status })),
         campaigns: campaigns.length,
         creators: creators.length,
-        keys: keys.length,
-        keysSent: keys.filter((key) => ["sent", "claimed", "video_uploaded"].includes(key.status)).length,
+        keys: keyedCreators(creators).length,
+        keysSent: sentKeyCreators(creators).length,
         visits: totals.visits,
         wishlists: totals.wishlists,
         purchases: totals.purchases,
@@ -727,7 +1005,6 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
   const metrics = scopedItems(data.steamDailyMetrics, gameId);
   const campaigns = scopedItems(data.campaigns, gameId);
   const creators = scopedItems(data.creators, gameId);
-  const keys = scopedItems(data.influencerKeys, gameId);
   const latestDate = latestMetricDate(metrics);
   // The headline cards report YESTERDAY specifically (Steam financials lag ~1 day);
   // empty when yesterday has no data. Use the caller's local date if provided.
@@ -775,7 +1052,7 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
     .slice(0, 8);
 
   const contactQueue = creators
-    .filter((creator) => ["uncontacted", "drafted", "first_sent", "replied"].includes(creator.status))
+    .filter((creator) => creator.status === "uncontacted")
     .sort((a, b) => toNumber(b.fitScore) - toNumber(a.fitScore))
     .slice(0, 12);
 
@@ -842,9 +1119,9 @@ function buildDashboard(data, gameId = "all", clientDate = "") {
       games: activeGames(data).length,
       campaigns: campaigns.length,
       creators: creators.length,
-      keys: keys.length,
-      keysSent: keys.filter((key) => ["sent", "claimed", "video_uploaded"].includes(key.status)).length,
-      videosUploaded: creators.filter((creator) => creator.status === "video_uploaded").length,
+      keys: keyedCreators(creators).length,
+      keysSent: sentKeyCreators(creators).length,
+      videosUploaded: creators.filter((creator) => creator.status === "review").length,
     },
   };
 }
@@ -888,7 +1165,9 @@ function normalizeCreatorProfile(profile) {
   profile.id ||= makeId("profile", profile.channelName || profile.handle || profile.email || "creator");
   profile.channelName ||= profile.name || profile.handle || profile.email || "Untitled Creator";
   profile.handle ||= creatorSlug(profile);
-  profile.platform ||= "YouTube";
+  profile.channels = normalizeChannels(profile.channels);
+  // Primary platform reflects the first channel when present.
+  profile.platform = profile.channels[0]?.platform || profile.platform || "YouTube";
   profile.email ||= "";
   profile.country ||= "";
   profile.tags = toList(profile.tags || profile.niche);
@@ -945,6 +1224,7 @@ function upsertCreatorProfile(data, input = {}) {
     profile.averageViews ||= toNumber(input.averageViews);
     profile.fitScore = Math.max(toNumber(profile.fitScore), Math.max(0, Math.min(100, toNumber(input.fitScore))));
     profile.note ||= input.note || input.notes || "";
+    profile.channels = normalizeChannels([...(profile.channels || []), ...channelsFromInput(input)]);
     profile.updatedAt = now;
     normalizeCreatorProfile(profile);
     return profile;
@@ -955,6 +1235,7 @@ function upsertCreatorProfile(data, input = {}) {
     channelName: String(input.channelName || input.name || input.recipientName || input.handle || input.email || "Untitled Creator").trim(),
     handle: input.handle || input.creatorHandle || "",
     platform: input.platform || "YouTube",
+    channels: channelsFromInput(input),
     email: input.email || input.recipientEmail || "",
     country: input.country || "",
     tags: toList(input.tags || input.niche),
@@ -969,6 +1250,78 @@ function upsertCreatorProfile(data, input = {}) {
   normalizeCreatorProfile(created);
   data.creatorProfiles.push(created);
   return created;
+}
+
+function platformFromRecipientType(type) {
+  switch (normalizeRecipientType(type)) {
+    case "streamer":
+      return "Twitch";
+    case "curator":
+      return "Steam";
+    case "press":
+      return "Web";
+    default:
+      return "YouTube";
+  }
+}
+
+// A creator may run several channels (YouTube + TikTok + Twitch …) under one profile.
+function platformFromUrl(url) {
+  const u = String(url || "").toLowerCase();
+  if (/youtube\.com|youtu\.be/.test(u)) return "YouTube";
+  if (/tiktok\.com/.test(u)) return "TikTok";
+  if (/twitch\.tv/.test(u)) return "Twitch";
+  if (/steampowered\.com|steamcommunity\.com/.test(u)) return "Steam";
+  if (/twitter\.com|x\.com/.test(u)) return "X";
+  if (/instagram\.com/.test(u)) return "Instagram";
+  if (/reddit\.com/.test(u)) return "Reddit";
+  if (/discord\.(gg|com)/.test(u)) return "Discord";
+  if (/facebook\.com/.test(u)) return "Facebook";
+  return "Web";
+}
+
+// Normalizes a profile's channels into a deduped [{platform, url}] list. Accepts an array of
+// objects/strings or a delimited string (newline/comma/pipe).
+function normalizeChannels(value) {
+  let items = [];
+  if (Array.isArray(value)) {
+    items = value.map((c) => (typeof c === "string" ? { url: c } : c || {}));
+  } else if (value) {
+    items = String(value)
+      .split(/[\n,|]/)
+      .map((u) => ({ url: u }));
+  }
+  const seen = new Set();
+  const out = [];
+  for (const c of items) {
+    const url = String(c.url || c.href || "").trim();
+    if (!url) continue;
+    const key = url.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ platform: c.platform ? String(c.platform) : platformFromUrl(url), url });
+  }
+  return out;
+}
+
+function channelsFromInput(input) {
+  return normalizeChannels(input.channels || input.links || input.channelUrls || input.channelUrl || input.url || []);
+}
+
+// Increments the campaign's keysSent counter once per creator whose key has been sent
+// (guarded by creator.countedAsSent so later status edits can't double-count).
+function applyCreatorKeySideEffects(data, creator) {
+  const isSent = creator.steamKeyMasked && ["sent", "review"].includes(creator.status);
+  if (isSent && !creator.countedAsSent) {
+    creator.countedAsSent = true;
+    if (creator.campaignId) {
+      const campaign = data.campaigns.find((item) => item.id === creator.campaignId && item.gameId === creator.gameId);
+      if (campaign) {
+        campaign.keysSent = toNumber(campaign.keysSent) + 1;
+        campaign.updatedAt = nowIso();
+      }
+    }
+  }
 }
 
 function creatorProfileStats(data, profile) {
@@ -997,7 +1350,22 @@ function creatorProfilesWithStats(data) {
     .sort((a, b) => toNumber(b.fitScore) - toNumber(a.fitScore) || a.channelName.localeCompare(b.channelName));
 }
 
-function buildEmailDraft(data, input = {}) {
+// Replaces {{placeholder}} tokens; unknown/empty values become a visible [token] so the
+// sender notices to fill them in the editable composer.
+function fillTemplate(str, vars) {
+  return String(str || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => {
+    const value = vars[key];
+    return value !== undefined && value !== null && value !== "" ? String(value) : `[${key}]`;
+  });
+}
+
+// Korean is the base language; emails can also be sent in EN/JA/DE/ZH. Templates
+// always carry KO+EN; JA/DE/ZH are opt-in. Missing languages are AI-translated
+// from the Korean base on the fly.
+const SUPPORTED_LANGS = ["ko", "en", "ja", "de", "zh"];
+const LANG_SUFFIX = { ko: "Ko", en: "En", ja: "Ja", de: "De", zh: "Zh" };
+
+async function buildEmailDraft(data, input = {}) {
   const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
   const gameError = requireGame(data, gameId);
   if (gameError) throw new Error(gameError);
@@ -1028,24 +1396,59 @@ function buildEmailDraft(data, input = {}) {
       campaign: campaign?.id || slugify(campaign?.name || "creator_db"),
       content: contentSlug,
     });
-  const subject = input.subject || `${game.name} Steam key for creator preview`;
   const greetingName = profile.channelName || profile.handle || "there";
-  const body =
-    input.body ||
-    [
-      `Hi ${greetingName},`,
-      "",
-      `I'm reaching out from the team behind ${game.name}. We thought your channel could be a strong fit, especially for viewers who like ${game.genre || "indie games"}.`,
-      "",
-      "We can send a Steam key if you would like to try it for a short impressions video or stream.",
-      "",
-      `Steam page: ${link}`,
-      "",
-      "No pressure either way. If it looks relevant to your audience, I would be happy to send over the key and a small press note.",
-      "",
-      "Thanks,",
-      "Launch Pilot team",
-    ].join("\n");
+  const keyValue = creator?.steamKeyEncrypted ? decryptSecret(creator.steamKeyEncrypted) : "";
+  const vars = {
+    creator: greetingName,
+    game: game.name,
+    key: keyValue,
+    utm: link,
+    embargo: creator?.embargoAt || "",
+    genre: game.genre || "",
+  };
+  const template = input.templateId ? data.emailTemplates?.find((item) => item.id === input.templateId) : null;
+  const lang = SUPPORTED_LANGS.includes(input.lang) ? input.lang : "en";
+  let subject;
+  let body;
+  if (template) {
+    const suffix = LANG_SUFFIX[lang];
+    let subjRaw = template[`subject${suffix}`] || "";
+    let bodyRaw = template[`body${suffix}`] || "";
+    // For languages the template doesn't store (opt-in JA/DE/ZH, or EN missing),
+    // translate the Korean base (then English) into the target language via AI.
+    if (lang !== "ko" && (!subjRaw || !bodyRaw)) {
+      const baseSubject = template.subjectKo || template.subjectEn || "";
+      const baseBody = template.bodyKo || template.bodyEn || "";
+      try {
+        if (!bodyRaw && baseBody) bodyRaw = await translateText({ text: baseBody, targetLang: lang });
+        if (!subjRaw && baseSubject) subjRaw = await translateText({ text: baseSubject, targetLang: lang });
+      } catch {
+        // AI unavailable — fall through to the base text below.
+      }
+    }
+    if (!subjRaw) subjRaw = template.subjectKo || template.subjectEn || "";
+    if (!bodyRaw) bodyRaw = template.bodyKo || template.bodyEn || "";
+    subject = input.subject || fillTemplate(subjRaw, vars);
+    body = input.body || fillTemplate(bodyRaw, vars);
+  } else {
+    subject = input.subject || `${game.name} Steam key for creator preview`;
+    body =
+      input.body ||
+      [
+        `Hi ${greetingName},`,
+        "",
+        `I'm reaching out from the team behind ${game.name}. We thought your channel could be a strong fit, especially for viewers who like ${game.genre || "indie games"}.`,
+        "",
+        "We can send a Steam key if you would like to try it for a short impressions video or stream.",
+        "",
+        `Steam page: ${link}`,
+        "",
+        "No pressure either way. If it looks relevant to your audience, I would be happy to send over the key and a small press note.",
+        "",
+        "Thanks,",
+        "Immersed Player, Overay Inc.",
+      ].join("\n");
+  }
   const to = profile.email || creator?.email || "";
   const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   return {
@@ -1068,15 +1471,23 @@ function buildEmailDraft(data, input = {}) {
 function effectiveIntegrationConfig(data) {
   const settings = data.integrationSettings || {};
   const storedSteamKey = decryptSecret(settings.steamFinancialApiKeyEncrypted);
+  const storedSteamPartnerCookie = decryptSecret(settings.steamPartnerCookieEncrypted);
   const storedYoutubeKey = decryptSecret(settings.youtubeApiKeyEncrypted);
   const storedYoutubeSecret = decryptSecret(settings.youtubeClientSecretEncrypted);
   const storedYoutubeRefresh = decryptSecret(settings.youtubeRefreshTokenEncrypted);
   const storedRedditSecret = decryptSecret(settings.redditClientSecretEncrypted);
   const storedSmtpPass = decryptSecret(settings.smtpPassEncrypted);
+  const storedGraphSecret = decryptSecret(settings.graphClientSecretEncrypted);
   const smtpUser = settings.smtpUser || SMTP_USER;
+  const graphTenantId = settings.graphTenantId || GRAPH_TENANT_ID;
+  const graphClientId = settings.graphClientId || GRAPH_CLIENT_ID;
+  const graphClientSecret = storedGraphSecret || GRAPH_CLIENT_SECRET;
+  const graphSendMailbox = settings.graphSendMailbox || GRAPH_SEND_MAILBOX;
   return {
     steamFinancialApiKey: storedSteamKey || STEAM_FINANCIAL_API_KEY,
     steamKeySource: storedSteamKey ? "web" : STEAM_FINANCIAL_API_KEY ? "env" : "missing",
+    steamPartnerCookie: storedSteamPartnerCookie,
+    steamPartnerCookieConfigured: Boolean(storedSteamPartnerCookie),
     smtpHost: settings.smtpHost || SMTP_HOST,
     smtpPort: toNumber(settings.smtpPort || SMTP_PORT, SMTP_PORT || 587),
     smtpUser,
@@ -1087,6 +1498,12 @@ function effectiveIntegrationConfig(data) {
     emailReplyTo: settings.emailReplyTo || EMAIL_REPLY_TO,
     emailSendMode: settings.emailSendMode || EMAIL_SEND_MODE || "smtp",
     smtpSource: settings.smtpHost || settings.emailFrom || settings.smtpUser || storedSmtpPass ? "web" : SMTP_HOST || EMAIL_FROM ? "env" : "missing",
+    graphTenantId,
+    graphClientId,
+    graphClientSecret,
+    graphSendMailbox,
+    graphClientSecretMasked: settings.graphClientSecretMasked || (GRAPH_CLIENT_SECRET ? maskSecret(GRAPH_CLIENT_SECRET) : ""),
+    graphConfigured: Boolean(graphTenantId && graphClientId && graphClientSecret && graphSendMailbox),
     steamKeyMasked: settings.steamFinancialApiKeyMasked || (STEAM_FINANCIAL_API_KEY ? maskSecret(STEAM_FINANCIAL_API_KEY) : ""),
     smtpPassMasked: settings.smtpPassMasked || (SMTP_PASS ? maskSecret(SMTP_PASS) : ""),
     youtubeApiKey: storedYoutubeKey || YOUTUBE_API_KEY,
@@ -1110,6 +1527,9 @@ function publicSettings(data) {
       configured: Boolean(config.steamFinancialApiKey),
       source: config.steamKeySource,
       keyMasked: config.steamKeyMasked,
+      partnerCookieConfigured: config.steamPartnerCookieConfigured,
+      partnerCookieMasked: settings.steamPartnerCookieMasked || "",
+      partnerCookieUpdatedAt: settings.steamPartnerCookieUpdatedAt || "",
     },
     youtube: {
       configured: Boolean(config.youtubeApiKey),
@@ -1130,6 +1550,10 @@ function publicSettings(data) {
       emailFrom: settings.emailFrom || "",
       emailReplyTo: settings.emailReplyTo || "",
       emailSendMode: settings.emailSendMode || "smtp",
+      graphTenantId: settings.graphTenantId || "",
+      graphClientId: settings.graphClientId || "",
+      graphSendMailbox: settings.graphSendMailbox || "",
+      graphClientSecretMasked: settings.graphClientSecretMasked || "",
       steamFinancialApiKeyMasked: settings.steamFinancialApiKeyMasked || "",
       smtpPassMasked: settings.smtpPassMasked || "",
       updatedAt: settings.updatedAt || "",
@@ -1145,6 +1569,17 @@ function updateIntegrationSettings(data, input = {}) {
   } else if (input.steamFinancialApiKey) {
     settings.steamFinancialApiKeyEncrypted = encryptSecret(input.steamFinancialApiKey);
     settings.steamFinancialApiKeyMasked = maskSecret(input.steamFinancialApiKey);
+  }
+
+  if (input.clearSteamPartnerCookie) {
+    settings.steamPartnerCookieEncrypted = "";
+    settings.steamPartnerCookieMasked = "";
+    settings.steamPartnerCookieUpdatedAt = "";
+  } else if (input.steamPartnerCookie) {
+    const cookie = normalizeSteamCookie(input.steamPartnerCookie);
+    settings.steamPartnerCookieEncrypted = encryptSecret(cookie);
+    settings.steamPartnerCookieMasked = maskSecret(cookie.replace(/\s+/g, ""));
+    settings.steamPartnerCookieUpdatedAt = nowIso();
   }
 
   if (input.clearYoutubeApiKey) {
@@ -1192,29 +1627,54 @@ function updateIntegrationSettings(data, input = {}) {
   if (input.smtpStarttls !== undefined) settings.smtpStarttls = input.smtpStarttls === true || input.smtpStarttls === "true" || input.smtpStarttls === "on";
   if (input.emailFrom !== undefined) settings.emailFrom = String(input.emailFrom).trim();
   if (input.emailReplyTo !== undefined) settings.emailReplyTo = String(input.emailReplyTo).trim();
-  if (input.emailSendMode !== undefined) settings.emailSendMode = ["smtp", "log"].includes(input.emailSendMode) ? input.emailSendMode : "smtp";
+  if (input.emailSendMode !== undefined) settings.emailSendMode = ["smtp", "log", "graph"].includes(input.emailSendMode) ? input.emailSendMode : "smtp";
+
+  if (input.graphTenantId !== undefined) settings.graphTenantId = String(input.graphTenantId).trim();
+  if (input.graphClientId !== undefined) settings.graphClientId = String(input.graphClientId).trim();
+  if (input.graphSendMailbox !== undefined) settings.graphSendMailbox = String(input.graphSendMailbox).trim();
+  if (input.clearGraphClientSecret) {
+    settings.graphClientSecretEncrypted = "";
+    settings.graphClientSecretMasked = "";
+    settings.graphAccessToken = "";
+    settings.graphAccessTokenExpiry = 0;
+  } else if (input.graphClientSecret) {
+    settings.graphClientSecretEncrypted = encryptSecret(input.graphClientSecret);
+    settings.graphClientSecretMasked = maskSecret(input.graphClientSecret);
+    settings.graphAccessToken = "";
+    settings.graphAccessTokenExpiry = 0;
+  }
+  // Tenant/client/mailbox changes also invalidate any cached app token.
+  if (input.graphTenantId !== undefined || input.graphClientId !== undefined) {
+    settings.graphAccessToken = "";
+    settings.graphAccessTokenExpiry = 0;
+  }
   settings.updatedAt = nowIso();
   return publicSettings(data);
 }
 
 function emailConfigured(dataOrConfig) {
   const config = dataOrConfig?.smtpHost !== undefined ? dataOrConfig : effectiveIntegrationConfig(dataOrConfig || {});
+  if (config.emailSendMode === "graph") return Boolean(config.graphConfigured);
   return Boolean(config.smtpHost && config.smtpPort && config.emailFrom);
 }
 
 function buildEmailStatus(data) {
   const config = effectiveIntegrationConfig(data || {});
+  const isGraph = config.emailSendMode === "graph";
   return {
     configured: emailConfigured(config),
     mode: config.emailSendMode,
-    source: config.smtpSource,
-    host: config.smtpHost ? config.smtpHost : "missing",
-    port: config.smtpPort,
-    from: config.emailFrom ? config.emailFrom : "missing",
-    auth: config.smtpUser && config.smtpPass ? "configured" : "not_configured",
-    secure: config.smtpSecure,
-    starttls: config.smtpStarttls,
-    passwordMasked: config.smtpPassMasked,
+    source: isGraph ? (config.graphConfigured ? "graph" : "missing") : config.smtpSource,
+    host: isGraph ? "graph.microsoft.com" : config.smtpHost ? config.smtpHost : "missing",
+    port: isGraph ? 443 : config.smtpPort,
+    from: isGraph ? config.graphSendMailbox || "missing" : config.emailFrom ? config.emailFrom : "missing",
+    auth: isGraph ? (config.graphConfigured ? "app-only" : "not_configured") : config.smtpUser && config.smtpPass ? "configured" : "not_configured",
+    secure: isGraph ? true : config.smtpSecure,
+    starttls: isGraph ? true : config.smtpStarttls,
+    passwordMasked: isGraph ? config.graphClientSecretMasked : config.smtpPassMasked,
+    graphMailbox: config.graphSendMailbox || "",
+    graphTenantId: config.graphTenantId || "",
+    graphClientId: config.graphClientId || "",
   };
 }
 
@@ -1349,6 +1809,68 @@ async function sendEmailViaSmtp(config, { to, subject, body }) {
   }
 }
 
+// Microsoft Graph app-only (client credentials) token, cached on settings until
+// ~1 min before expiry. Mirrors ensureRedditToken.
+async function ensureGraphToken(data) {
+  const settings = data.integrationSettings;
+  const config = effectiveIntegrationConfig(data);
+  if (!config.graphTenantId || !config.graphClientId || !config.graphClientSecret) return "";
+  if (settings.graphAccessToken && settings.graphAccessTokenExpiry && Date.now() < settings.graphAccessTokenExpiry - 60000) {
+    return settings.graphAccessToken;
+  }
+  const response = await fetch(graphTokenUrl(config.graphTenantId), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.graphClientId,
+      client_secret: config.graphClientSecret,
+      scope: "https://graph.microsoft.com/.default",
+      grant_type: "client_credentials",
+    }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.access_token) {
+    throw new Error(body?.error_description || body?.error || `Graph 토큰 발급 실패 (${response.status})`);
+  }
+  settings.graphAccessToken = body.access_token;
+  settings.graphAccessTokenExpiry = Date.now() + toNumber(body.expires_in, 3600) * 1000;
+  return settings.graphAccessToken;
+}
+
+// Send via Graph `sendMail` from a fixed mailbox (Application Mail.Send permission,
+// scoped to that mailbox with an ApplicationAccessPolicy). 202 = accepted.
+async function sendEmailViaGraph(data, config, { to, subject, body }) {
+  const token = await ensureGraphToken(data);
+  if (!token) throw new Error("Graph 발송 설정이 없습니다.");
+  const mailbox = config.graphSendMailbox;
+  if (!mailbox) throw new Error("Graph 발신 사서함이 설정되지 않았습니다.");
+  const payload = {
+    message: {
+      subject: subject || "",
+      body: { contentType: "Text", content: body || "" },
+      toRecipients: [{ emailAddress: { address: addressOnly(to) } }],
+      ...(config.emailReplyTo ? { replyTo: [{ emailAddress: { address: addressOnly(config.emailReplyTo) } }] } : {}),
+    },
+    saveToSentItems: true,
+  };
+  const response = await fetch(`${GRAPH_API_BASE}/users/${encodeURIComponent(mailbox)}/sendMail`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 202) {
+    return { provider: "graph", response: `Graph accepted (${mailbox})` };
+  }
+  const errText = await response.text().catch(() => "");
+  let detail = errText;
+  try {
+    detail = JSON.parse(errText)?.error?.message || errText;
+  } catch {
+    /* keep raw text */
+  }
+  throw new Error(`Graph sendMail 실패 (${response.status}): ${String(detail).slice(0, 300)}`);
+}
+
 function addOutreachLog(data, input) {
   const log = {
     id: input.id || makeId("outreach", input.subject || input.to || "email"),
@@ -1374,8 +1896,8 @@ function addOutreachLog(data, input) {
 function applyEmailSentEffects(data, log) {
   if (!["sent", "logged"].includes(log.status)) return;
   const creator = log.creatorId ? data.creators.find((item) => item.id === log.creatorId) : undefined;
-  if (creator && ["uncontacted", "drafted"].includes(creator.status)) {
-    creator.status = "first_sent";
+  if (creator && creator.status === "uncontacted") {
+    creator.status = "sent";
     creator.updatedAt = nowIso();
   }
   const campaign = log.campaignId ? data.campaigns.find((item) => item.id === log.campaignId && (!log.gameId || item.gameId === log.gameId)) : undefined;
@@ -1386,7 +1908,7 @@ function applyEmailSentEffects(data, log) {
 }
 
 async function sendOutreachEmail(data, input = {}) {
-  const draft = input.draft || buildEmailDraft(data, input);
+  const draft = input.draft || (await buildEmailDraft(data, input));
   const config = effectiveIntegrationConfig(data);
   if (!draft.to) {
     const log = addOutreachLog(data, {
@@ -1407,17 +1929,21 @@ async function sendOutreachEmail(data, input = {}) {
     applyEmailSentEffects(data, log);
     return { status: "logged", log, message: log.message };
   }
+  const isGraph = config.emailSendMode === "graph";
+  const provider = isGraph ? "graph" : "smtp";
   if (!emailConfigured(config)) {
     const log = addOutreachLog(data, {
       ...draft,
       status: "blocked",
-      provider: "smtp",
-      message: "SMTP 설정이 없어 실제 발송하지 않았습니다.",
+      provider,
+      message: isGraph
+        ? "Graph 발송 설정이 없어 실제 발송하지 않았습니다."
+        : "SMTP 설정이 없어 실제 발송하지 않았습니다.",
     });
     return { status: "blocked", log, message: log.message, emailStatus: buildEmailStatus(data) };
   }
   try {
-    const result = await sendEmailViaSmtp(config, draft);
+    const result = isGraph ? await sendEmailViaGraph(data, config, draft) : await sendEmailViaSmtp(config, draft);
     const log = addOutreachLog(data, {
       ...draft,
       status: "sent",
@@ -1430,18 +1956,11 @@ async function sendOutreachEmail(data, input = {}) {
     const log = addOutreachLog(data, {
       ...draft,
       status: "failed",
-      provider: "smtp",
-      error: error.message || "SMTP send failed.",
+      provider,
+      error: error.message || (isGraph ? "Graph send failed." : "SMTP send failed."),
     });
     return { status: "failed", log, message: log.error };
   }
-}
-
-function validateKey(input) {
-  if (!(input.recipientName || input.creatorHandle || input.recipientEmail || input.key || input.code || input.value || input.steamKey)) {
-    return "Recipient name is required.";
-  }
-  return "";
 }
 
 function requireGame(data, gameId) {
@@ -1661,6 +2180,7 @@ function creatorInputFromCsvRow(row, index = 0) {
     fitScore: firstValue(row, ["fitScore", "score", "fit_score"]),
     status: firstValue(row, ["status"]) || "active",
     note: firstValue(row, ["note", "notes"]),
+    links: firstValue(row, ["channels", "links", "channelurl", "channelurls", "url", "urls", "link"]),
   };
 }
 
@@ -1672,8 +2192,20 @@ function creatorProfilePreviewIdentity(input) {
   return `name:${String(input.channelName || "").trim().toLowerCase()}`;
 }
 
+// The shared-DB importer uses ascii-normalized headers, so a Korean key-tracker CSV
+// (No,Key,대상,…) collapses to a "key" column with no recognizable creator column. Detect
+// that and redirect the user instead of emitting one "missing channelName" warning per row.
+function assertNotKeyTrackerCsv(rows) {
+  const cols = new Set(Object.keys(rows[0] || {}));
+  const hasCreatorCol = ["channelname", "channel", "name", "creator", "handle", "username", "email", "mail", "contact"].some((c) => cols.has(c));
+  if (cols.has("key") && !hasCreatorCol) {
+    throw new Error("이 CSV는 키 트래커(엑셀) 형식입니다. '게임별 크리에이터'의 CSV 가져오기를 사용하세요.");
+  }
+}
+
 function previewCreatorCsv(data, csvText) {
   const rows = parseCsv(csvText);
+  assertNotKeyTrackerCsv(rows);
   const columns = Object.keys(rows[0] || {});
   const seen = new Set();
   let newRows = 0;
@@ -1719,6 +2251,7 @@ function previewCreatorCsv(data, csvText) {
 
 function importCreatorCsv(data, csvText) {
   const rows = parseCsv(csvText);
+  assertNotKeyTrackerCsv(rows);
   const seen = new Set();
   let imported = 0;
   let updated = 0;
@@ -1738,6 +2271,211 @@ function importCreatorCsv(data, csvText) {
     else imported += 1;
   });
 
+  return { imported, updated, skippedDuplicates, totalRows: rows.length };
+}
+
+// Maps a single CSV header cell (Korean spreadsheet headers included) to a key field name.
+// normalizeHeader strips non-ascii, so Korean headers need their own resolver here.
+function keyCsvField(header) {
+  const h = String(header || "")
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/()·.\-_]+/g, "");
+  const map = {
+    key: "steamKey", 키: "steamKey", 스팀키: "steamKey", steamkey: "steamKey", cdkey: "steamKey", code: "steamKey", 코드: "steamKey",
+    대상: "recipientName", 채널: "recipientName", 채널명: "recipientName", name: "recipientName", creator: "recipientName", recipient: "recipientName", recipientname: "recipientName", 수신자: "recipientName",
+    대상구분: "recipientType", 구분: "recipientType", 유형: "recipientType", type: "recipientType", recipienttype: "recipientType",
+    연락처: "recipientEmail", 이메일: "recipientEmail", email: "recipientEmail", contact: "recipientEmail", mail: "recipientEmail", recipientemail: "recipientEmail",
+    국가언어: "country", 국가: "country", 언어: "country", country: "country", region: "country", language: "country", lang: "country",
+    발송일: "sentAt", 발송: "sentAt", senddate: "sentAt", sentdate: "sentAt", sent: "sentAt", sentat: "sentAt", 발송날짜: "sentAt",
+    엠바고kst: "embargoAt", 엠바고: "embargoAt", embargo: "embargoAt", embargoat: "embargoAt", embargokst: "embargoAt",
+    상태: "status", status: "status", state: "status",
+    채널프로필url: "channelUrl", 채널url: "channelUrl", 프로필url: "channelUrl", url: "channelUrl", channelurl: "channelUrl", link: "channelUrl", 링크: "channelUrl", profile: "channelUrl", 프로필: "channelUrl",
+    메모: "note", note: "note", notes: "note", memo: "note", comment: "note", 비고: "note",
+  };
+  return map[h] || "";
+}
+
+// Parses an Excel-exported key tracker CSV into field-keyed row objects. Tolerant of leading
+// title rows: it scans for the first row that looks like a header (has Key or a labelled
+// recipient column), so a raw export with banner rows above the table still imports.
+function parseKeyCsv(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) {
+    throw new Error("CSV에 헤더와 최소 1개 데이터 행이 필요합니다.");
+  }
+  const headerIdx = lines.findIndex((line) => {
+    const fields = parseCsvLine(line).map(keyCsvField);
+    return fields.includes("steamKey") || (fields.includes("recipientName") && fields.filter(Boolean).length >= 2);
+  });
+  if (headerIdx < 0) {
+    throw new Error("CSV 헤더를 인식하지 못했습니다. (Key / 대상 / 상태 등 컬럼이 필요합니다)");
+  }
+  const headers = parseCsvLine(lines[headerIdx]).map(keyCsvField);
+  return lines
+    .slice(headerIdx + 1)
+    .map((line) => {
+      const values = parseCsvLine(line);
+      const row = {};
+      headers.forEach((field, index) => {
+        if (field && !row[field]) row[field] = (values[index] ?? "").trim();
+      });
+      return row;
+    })
+    .filter((row) => row.steamKey || row.recipientName || row.recipientEmail);
+}
+
+function keyInputFromCsvRow(row) {
+  const rawKey = String(row.steamKey || "").trim();
+  return {
+    channelName: String(row.recipientName || row.recipientEmail || "Unassigned recipient").trim(),
+    email: String(row.recipientEmail || "").trim(),
+    recipientType: normalizeRecipientType(row.recipientType),
+    country: String(row.country || "").trim(),
+    channelUrl: String(row.channelUrl || "").trim(),
+    sentAt: String(row.sentAt || "").trim(),
+    embargoAt: String(row.embargoAt || "").trim(),
+    status: normalizeCreatorStatus(row.status, "uncontacted"),
+    note: String(row.note || "").trim(),
+    steamKey: rawKey,
+    steamKeyMasked: rawKey ? maskSteamKey(rawKey) : "",
+  };
+}
+
+// Finds an existing per-game creator that matches an imported row, so re-imports update in
+// place rather than duplicating. Matches on the (masked) Steam key first, then channel name.
+function findExistingGameCreator(data, gameId, input) {
+  const masked = input.steamKeyMasked;
+  if (masked) {
+    const byKey = data.creators.find((c) => c.gameId === gameId && c.steamKeyMasked && c.steamKeyMasked === masked);
+    if (byKey) return byKey;
+  }
+  const name = input.channelName.trim().toLowerCase();
+  if (name && name !== "unassigned recipient") {
+    return data.creators.find((c) => c.gameId === gameId && String(c.channelName || "").trim().toLowerCase() === name);
+  }
+  return undefined;
+}
+
+function previewKeyCsv(data, gameId, csvText) {
+  const rows = parseKeyCsv(csvText);
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const seen = new Set();
+  let newRows = 0;
+  let updateRows = 0;
+  let duplicateRows = 0;
+  const warnings = [];
+  const previewRows = [];
+  rows.forEach((row, index) => {
+    const input = keyInputFromCsvRow(row);
+    if (!input.steamKey && !input.channelName) {
+      warnings.push(`행 ${index + 1}: Key 또는 대상이 비어 건너뜁니다.`);
+      return;
+    }
+    const identity = (input.steamKeyMasked || input.channelName).toLowerCase();
+    if (seen.has(identity)) {
+      duplicateRows += 1;
+      return;
+    }
+    seen.add(identity);
+    if (findExistingGameCreator(data, gameId, input)) updateRows += 1;
+    else newRows += 1;
+    previewRows.push({
+      channelName: input.channelName,
+      recipientType: input.recipientType,
+      email: input.email,
+      country: input.country,
+      sentAt: input.sentAt,
+      embargoAt: input.embargoAt,
+      status: input.status,
+      channelUrl: input.channelUrl,
+      steamKeyMasked: input.steamKeyMasked || "(없음)",
+      note: input.note,
+    });
+  });
+  return { columns, totalRows: rows.length, newRows, updateRows, duplicateRows, warnings, previewRows: previewRows.slice(0, 8) };
+}
+
+function importKeyCsv(data, gameId, csvText) {
+  const rows = parseKeyCsv(csvText);
+  const seen = new Set();
+  let imported = 0;
+  let updated = 0;
+  let skippedDuplicates = 0;
+  rows.forEach((row) => {
+    const input = keyInputFromCsvRow(row);
+    if (!input.steamKey && !input.channelName) return;
+    const identity = (input.steamKeyMasked || input.channelName).toLowerCase();
+    if (seen.has(identity)) {
+      skippedDuplicates += 1;
+      return;
+    }
+    seen.add(identity);
+    // Keep the shared creator DB (creatorProfiles) in sync — pass profile-only fields, never status.
+    const profile = upsertCreatorProfile(data, {
+      channelName: input.channelName,
+      name: input.channelName,
+      email: input.email,
+      country: input.country,
+      platform: platformFromRecipientType(input.recipientType),
+    });
+    const existing = findExistingGameCreator(data, gameId, input);
+    if (existing) {
+      existing.channelName = input.channelName || existing.channelName;
+      existing.email = input.email || existing.email;
+      existing.recipientType = input.recipientType;
+      existing.country = input.country || existing.country;
+      existing.channelUrl = input.channelUrl || existing.channelUrl;
+      existing.sentAt = input.sentAt || existing.sentAt;
+      existing.embargoAt = input.embargoAt || existing.embargoAt;
+      existing.note = input.note || existing.note;
+      existing.status = input.status;
+      existing.creatorProfileId ||= profile.id;
+      if (input.steamKey) {
+        existing.steamKeyEncrypted = encryptSteamKey(input.steamKey);
+        existing.steamKeyMasked = input.steamKeyMasked;
+      }
+      existing.updatedAt = nowIso();
+      applyCreatorKeySideEffects(data, existing);
+      updated += 1;
+      return;
+    }
+    const creator = {
+      id: makeId("creator", input.channelName),
+      creatorProfileId: profile.id,
+      gameId,
+      channelName: input.channelName,
+      handle: profile.handle || "",
+      platform: platformFromRecipientType(input.recipientType),
+      recipientType: input.recipientType,
+      email: input.email,
+      country: input.country,
+      channelUrl: input.channelUrl,
+      tags: [],
+      subscribers: 0,
+      averageViews: 0,
+      fitScore: 0,
+      status: input.status,
+      campaignId: "",
+      utmLink: "",
+      sentAt: input.sentAt || (["sent", "review"].includes(input.status) ? toDateString(new Date()) : ""),
+      embargoAt: input.embargoAt,
+      steamKeyEncrypted: input.steamKey ? encryptSteamKey(input.steamKey) : "",
+      steamKeyMasked: input.steamKeyMasked,
+      steamActivation: null,
+      countedAsSent: false,
+      note: input.note,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    data.creators.push(creator);
+    applyCreatorKeySideEffects(data, creator);
+    imported += 1;
+  });
   return { imported, updated, skippedDuplicates, totalRows: rows.length };
 }
 
@@ -1809,6 +2547,139 @@ async function steamGet(pathname, params) {
     throw new Error(body?.error || body?.response?.error || `Steam API ${pathname} failed with ${response.status}`);
   }
   return body?.response || body || {};
+}
+
+const STEAM_QUERY_CDKEY_URL = "https://partner.steamgames.com/querycdkey/cdkey";
+const STEAM_PARTNER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+// Accepts either a raw Cookie header string (sessionid=...; steamLoginSecure=...; ...) or a
+// single cookie line copied from devtools, and normalizes it to a clean one-line header.
+function normalizeSteamCookie(value) {
+  return String(value || "")
+    .replace(/^cookie:\s*/i, "")
+    .replace(/\s*[\r\n]+\s*/g, "; ")
+    .replace(/;\s*;+/g, "; ")
+    .trim()
+    .replace(/;$/, "");
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Parses the HTML returned by the partner querycdkey page. The activation table lives under
+// an "Activation Details" heading; the first cell is the status ("Activated" / "Not Activated"
+// / "Key not found"), the second (when activated) is the owning Steam account.
+function parseCdKeyHtml(html) {
+  const text = String(html || "");
+  // Detect being bounced to a login page (expired / missing session cookie).
+  if (/login|sign in|steamcommunity\.com\/openid|j_username/i.test(text) && !/Activation Details/i.test(text)) {
+    return { authError: true };
+  }
+  const marker = text.split(/<h2[^>]*>\s*Activation Details\s*<\/h2>/i)[1];
+  if (!marker) {
+    // Some responses report an unknown/foreign key inline without the table.
+    if (/not been activated|has not been activated/i.test(text)) return { activated: false, account: "", status: "Not activated" };
+    if (/not a valid|invalid|not found|isn't a valid/i.test(text)) return { activated: false, account: "", status: "Key not found", notFound: true };
+    return { activated: false, account: "", status: stripHtml(text).slice(0, 120) || "Unknown" };
+  }
+  const cells = [...marker.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => stripHtml(match[1]));
+  const status = cells[0] || "";
+  const activated = /^activated/i.test(status);
+  return {
+    activated,
+    account: activated ? cells[1] || "" : "",
+    status: status || (activated ? "Activated" : "Not activated"),
+  };
+}
+
+// Queries a single Steam CD key against the partner site using the stored session cookie.
+// Returns { ok, authError, activated, account, status } — never throws for HTTP/parse issues.
+async function querySteamCdKey(cookie, cdkey) {
+  const clean = String(cdkey || "").trim();
+  if (!clean) return { ok: false, error: "키 값이 없습니다." };
+  const url = new URL(STEAM_QUERY_CDKEY_URL);
+  url.searchParams.set("cdkey", clean);
+  url.searchParams.set("method", "Query");
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Cookie: cookie,
+        "User-Agent": STEAM_PARTNER_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "manual",
+    });
+  } catch (error) {
+    return { ok: false, error: `Steam 요청 실패: ${error.message}` };
+  }
+  // 30x to a login host means the session cookie is missing/expired.
+  if (response.status >= 300 && response.status < 400) {
+    return { ok: false, authError: true, error: "Steam 파트너 세션이 만료되었습니다. 쿠키를 다시 붙여넣어 주세요." };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, authError: true, error: "Steam 파트너 인증 실패. 쿠키를 다시 붙여넣어 주세요." };
+  }
+  const body = await response.text().catch(() => "");
+  const parsed = parseCdKeyHtml(body);
+  if (parsed.authError) {
+    return { ok: false, authError: true, error: "Steam 파트너 세션이 만료되었습니다. 쿠키를 다시 붙여넣어 주세요." };
+  }
+  return { ok: true, activated: parsed.activated, account: parsed.account, status: parsed.status, notFound: parsed.notFound };
+}
+
+// Runs querySteamCdKey across a list of creator records that have a Steam key (sequentially,
+// with a small delay so we don't hammer the partner site) and writes the result onto each
+// creator's steamActivation field.
+async function checkActivationForCreators(data, creators) {
+  const config = effectiveIntegrationConfig(data);
+  const cookie = config.steamPartnerCookie;
+  if (!cookie) {
+    return { ok: false, authError: true, message: "Steam 파트너 세션 쿠키가 설정되지 않았습니다. 설정 탭에서 등록하세요.", checked: 0, activated: 0, total: creators.length };
+  }
+  let checked = 0;
+  let activatedCount = 0;
+  let lastError = "";
+  for (const creator of creators) {
+    const cdkey = decryptSecret(creator.steamKeyEncrypted);
+    if (!cdkey) continue;
+    const result = await querySteamCdKey(cookie, cdkey);
+    if (result.authError) {
+      return { ok: false, authError: true, message: result.error, checked, activated: activatedCount, total: creators.length };
+    }
+    if (!result.ok) {
+      lastError = result.error || "조회 실패";
+      continue;
+    }
+    creator.steamActivation = {
+      activated: result.activated,
+      account: result.account || "",
+      status: result.status || "",
+      notFound: Boolean(result.notFound),
+      checkedAt: nowIso(),
+      source: "steam",
+    };
+    creator.updatedAt = nowIso();
+    checked += 1;
+    if (result.activated) activatedCount += 1;
+    // Gentle pacing between requests.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  return {
+    ok: true,
+    checked,
+    activated: activatedCount,
+    total: creators.length,
+    message: lastError && !checked ? lastError : "",
+    error: lastError && !checked ? lastError : "",
+  };
 }
 
 function wishlistSummaryToMetric(game, date, country, summary, source = "steam_wishlist_api") {
@@ -2052,7 +2923,7 @@ function gameReadiness(data, game) {
   const metrics = scopedItems(data.steamDailyMetrics, game.id);
   const campaigns = scopedItems(data.campaigns, game.id);
   const creators = scopedItems(data.creators, game.id);
-  const keys = scopedItems(data.influencerKeys, game.id);
+  const keys = keyedCreators(creators);
   const latestSync = latestSyncRunForGame(data, game.id);
   const listings = storeListingsForGame(data, game.id);
   const steamListing = primaryStoreListing(data, game.id, "steam");
@@ -2527,8 +3398,8 @@ function safeExportData(data, type = "all") {
     storeListings: data.storeListings.map((listing) => sanitizeStoreListing(data, listing)),
     campaigns: data.campaigns,
     creatorProfiles: data.creatorProfiles,
-    creators: data.creators,
-    keys: data.influencerKeys.map(sanitizeKey),
+    creators: data.creators.map(sanitizeCreator),
+    keys: keyedCreators(data.creators).map(sanitizeCreator),
     metrics: data.steamDailyMetrics,
     outreachLogs: data.outreachLogs,
     syncSchedule: data.syncSchedule,
@@ -2641,6 +3512,255 @@ async function checkScheduledSync() {
   } finally {
     schedulerRunning = false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Creator discovery bot — server glue around src/discovery/*.
+// The bot SEARCHES (YouTube/Twitch/web) + gemma4 analyzes; it only fills a
+// review queue (data.discoveryCandidates). Sending stays manual by design.
+// ---------------------------------------------------------------------------
+function discoveryConfigForServer(data) {
+  const config = effectiveIntegrationConfig(data);
+  return {
+    youtube: { apiKey: config.youtubeApiKey },
+    twitch: { clientId: TWITCH_CLIENT_ID, clientSecret: TWITCH_CLIENT_SECRET },
+    web: { provider: WEB_SEARCH_PROVIDER, apiKey: WEB_SEARCH_API_KEY },
+  };
+}
+
+function discoverySourceFlags(data) {
+  const config = effectiveIntegrationConfig(data);
+  return {
+    youtube: Boolean(config.youtubeApiKey),
+    twitch: Boolean(TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET),
+    web: Boolean(WEB_SEARCH_PROVIDER && WEB_SEARCH_API_KEY),
+  };
+}
+
+// Stable identity for a candidate so re-runs update instead of duplicating.
+function discoveryStableKey(c) {
+  if (c.platform && c.externalId) return `${c.platform}:${c.externalId}`.toLowerCase();
+  if (c.url) return c.url.toLowerCase().replace(/\/+$/, "");
+  return `${c.platform || "?"}:${String(c.channelName || "").toLowerCase()}`;
+}
+
+// Persisted shape of a candidate — drops the bulky scrapedText, caps description.
+function sanitizeDiscoveryFields(c) {
+  return {
+    source: c.source || "",
+    sources: Array.isArray(c.sources) ? c.sources : c.source ? [c.source] : [],
+    platform: c.platform || "",
+    externalId: c.externalId || "",
+    channelName: c.channelName || "",
+    handle: c.handle || "",
+    url: c.url || "",
+    description: String(c.description || "").slice(0, 1000),
+    subscribers: toNumber(c.subscribers),
+    email: c.email || "",
+    channelType: c.channelType || "",
+    audience: c.audience || "",
+    contentTone: c.contentTone || "",
+    languages: c.languages || "",
+    fitScore: toNumber(c.fitScore),
+    fitReason: c.fitReason || "",
+    tags: Array.isArray(c.tags) ? c.tags : [],
+    isKnown: Boolean(c.isKnown),
+    scrapedUrls: Array.isArray(c.scrapedUrls) ? c.scrapedUrls : [],
+    error: c.error || "",
+  };
+}
+
+// Merge a run's candidates into the stored queue. Existing rows that are still
+// "discovered" get refreshed; "dismissed"/"approved" rows are left alone (so a
+// re-run never resurrects something the user already triaged).
+function mergeDiscoveryCandidates(data, found) {
+  const byKey = new Map((data.discoveryCandidates || []).map((c) => [c.key, c]));
+  for (const f of found) {
+    const key = discoveryStableKey(f);
+    const existing = byKey.get(key);
+    if (existing) {
+      if (existing.status === "discovered") {
+        Object.assign(existing, sanitizeDiscoveryFields(f), { key, id: existing.id, status: "discovered", updatedAt: nowIso() });
+      }
+      continue;
+    }
+    const row = {
+      id: makeId("disc", f.channelName || f.platform || "creator"),
+      key,
+      ...sanitizeDiscoveryFields(f),
+      status: "discovered",
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    data.discoveryCandidates.push(row);
+    byKey.set(key, row);
+  }
+}
+
+// One short, awaited pass — used by the dashboard's "quick run" button. Bounded
+// by a soft deadline so it never hangs the HTTP request for long.
+async function runDiscoveryQuick(data, { seeds = [], perSeed = 8, minFitScore = 0, expandCount = 0, leadDepth = 0, analyze = true } = {}) {
+  const seedList = seeds.length ? seeds : discoverySeeds([]);
+  const result = await runDiscovery(seedList, {
+    config: discoveryConfigForServer(data),
+    gameContext: discoveryGameContext(),
+    knownProfiles: data.creatorProfiles || [],
+    perSeed,
+    minFitScore,
+    expandCount,
+    leadDepth,
+    analyze,
+    enrich: analyze,
+    deadline: Date.now() + 120_000,
+  });
+  mergeDiscoveryCandidates(data, result.candidates);
+  data.discoveryState = {
+    ...data.discoveryState,
+    lastRunAt: nowIso(),
+    lastStatus: "ok",
+    lastMessage: `발견 ${result.stats.kept}명 · 이메일 ${result.stats.withEmail} · 신규 ${result.stats.newCreators}`,
+    lastStats: result.stats,
+  };
+  return result;
+}
+
+// --- Long / windowed background session -------------------------------------
+// A session keeps discovering until `overallDeadline` (e.g. "+3h" or "until
+// 09:00"). It works in chunks so progress persists incrementally and a crash
+// loses at most one chunk. When a chunk's queue drains, gemma proposes a fresh
+// seed batch so the bot stays productive across the whole window.
+let discoveryRunning = false; // authoritative at runtime (vs the persisted flag)
+let discoveryStop = false;
+
+async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 8, minFitScore = 0, trigger = "manual" } = {}) {
+  if (discoveryRunning) return { started: false, reason: "already_running" };
+  discoveryRunning = true;
+  discoveryStop = false;
+
+  let renderImpl = null;
+  if (discoveryUseRenderer()) {
+    try {
+      renderImpl = await makeRenderer();
+    } catch {
+      renderImpl = null;
+    }
+  }
+
+  const gameContext = discoveryGameContext();
+  const usedSeeds = [];
+  let seeds = baseSeeds.length ? baseSeeds : discoverySeeds([]);
+  usedSeeds.push(...seeds);
+  let expandCount = DISCOVERY_EXPAND_COUNT;
+  let sessionFound = 0;
+  let lastProgress = "";
+
+  // Mark running in the persisted state.
+  {
+    const data = await readData();
+    data.discoveryState = {
+      ...data.discoveryState,
+      running: true,
+      lastStatus: "running",
+      startedAt: nowIso(),
+      endsAt: new Date(overallDeadline).toISOString(),
+      sessionFound: 0,
+      progress: "세션 시작",
+      trigger,
+      lastMessage: "세션 시작",
+    };
+    await writeData(data);
+  }
+
+  let status = "ok";
+  try {
+    while (Date.now() < overallDeadline && !discoveryStop) {
+      const chunkDeadline = Math.min(overallDeadline, Date.now() + DISCOVERY_CHUNK_MS);
+      const data = await readData();
+      const result = await runDiscovery(seeds, {
+        config: { ...discoveryConfigForServer(data), renderImpl },
+        gameContext,
+        knownProfiles: data.creatorProfiles || [],
+        perSeed,
+        minFitScore,
+        expandCount,
+        leadDepth: DISCOVERY_LEAD_DEPTH,
+        deadline: chunkDeadline,
+        onProgress: (m) => {
+          lastProgress = m;
+        },
+      });
+      mergeDiscoveryCandidates(data, result.candidates);
+      sessionFound += result.stats.newCreators;
+      data.discoveryState = {
+        ...data.discoveryState,
+        running: true,
+        lastStatus: "running",
+        lastRunAt: nowIso(),
+        lastStats: result.stats,
+        sessionFound,
+        progress: lastProgress,
+        lastMessage: `세션 진행 — 누적 신규 ${sessionFound} · 검색 ${result.stats.seedsSearched}`,
+      };
+      await writeData(data);
+
+      if (discoveryStop || Date.now() >= overallDeadline) break;
+
+      // Queue drained → ask gemma for a fresh batch to keep the window busy.
+      let next = [];
+      try {
+        next = await expandSeeds({ gameContext: gameContext || "", existingSeeds: usedSeeds.slice(-25), count: 8 });
+      } catch {
+        next = [];
+      }
+      next = next.filter((q) => !usedSeeds.some((u) => u.toLowerCase() === q.toLowerCase()));
+      if (!next.length) {
+        status = "dry"; // nothing new to search — stop early
+        break;
+      }
+      usedSeeds.push(...next);
+      seeds = next;
+      expandCount = 0; // already expanded; fresh batch is the new base
+    }
+  } catch (error) {
+    status = "error";
+    console.error("Discovery session failed:", error.message || error);
+  } finally {
+    if (renderImpl) await closeRenderer();
+    discoveryRunning = false;
+    const data = await readData();
+    const finalStatus = discoveryStop ? "stopped" : status === "dry" ? "ok" : status;
+    data.discoveryState = {
+      ...data.discoveryState,
+      running: false,
+      lastStatus: finalStatus,
+      endsAt: "",
+      progress: "",
+      lastMessage: `세션 종료 (${finalStatus}) — 누적 신규 ${sessionFound}`,
+    };
+    await writeData(data);
+    console.log(`[discovery] session ${finalStatus} — new creators: ${sessionFound}`);
+  }
+  return { started: true };
+}
+
+// Nightly window scheduler: checks periodically and, while inside the window,
+// runs a session whose deadline is the window's end. The runtime `running`
+// guard prevents overlap, so it simply keeps the bot busy from start to end.
+async function checkScheduledDiscovery() {
+  if (discoveryRunning) return;
+  const win = discoveryWindow();
+  const now = new Date();
+  const minOfDay = now.getHours() * 60 + now.getMinutes();
+  if (!inWindow(minOfDay, win)) return;
+
+  // Deadline = next occurrence of the window-end time.
+  const end = new Date(now);
+  end.setHours(Math.floor(win.endMin / 60), win.endMin % 60, 0, 0);
+  if (end.getTime() <= now.getTime()) end.setDate(end.getDate() + 1);
+
+  runDiscoverySession({ overallDeadline: end.getTime(), trigger: "schedule" }).catch((error) =>
+    console.error("Scheduled discovery failed:", error.message || error),
+  );
 }
 
 // Routes reachable without a Microsoft login. `/api/auth/config` bootstraps the
@@ -3166,6 +4286,39 @@ async function handleApi(req, res, url) {
     return respondJson(res, 201, { ...profile, stats: creatorProfileStats(data, profile) });
   }
 
+  const profileRoute = url.pathname.match(/^\/api\/creator-profiles\/([^/]+)$/);
+  if (profileRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const id = decodeURIComponent(profileRoute[1]);
+    const profile = data.creatorProfiles.find((p) => p.id === id);
+    if (!profile) return respondError(res, 404, "프로필을 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.channelName !== undefined) profile.channelName = String(input.channelName).trim() || profile.channelName;
+    if (input.email !== undefined) profile.email = String(input.email).trim();
+    if (input.country !== undefined) profile.country = String(input.country).trim();
+    if (input.tags !== undefined) profile.tags = toList(input.tags);
+    if (input.note !== undefined) profile.note = String(input.note);
+    if (input.subscribers !== undefined) profile.subscribers = toNumber(input.subscribers);
+    if (input.averageViews !== undefined) profile.averageViews = toNumber(input.averageViews);
+    if (input.fitScore !== undefined) profile.fitScore = Math.max(0, Math.min(100, toNumber(input.fitScore)));
+    if (input.status !== undefined) profile.status = String(input.status).trim() || profile.status;
+    // Replace channel list when any channel input is supplied.
+    if (input.channels !== undefined || input.links !== undefined || input.channelUrl !== undefined || input.channelUrls !== undefined || input.url !== undefined) {
+      profile.channels = channelsFromInput(input);
+    }
+    profile.updatedAt = nowIso();
+    normalizeCreatorProfile(profile);
+    await writeData(data);
+    return respondJson(res, 200, { ...profile, stats: creatorProfileStats(data, profile) });
+  }
+  if (profileRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(profileRoute[1]);
+    const index = data.creatorProfiles.findIndex((p) => p.id === id);
+    if (index < 0) return respondError(res, 404, "프로필을 찾지 못했습니다.");
+    data.creatorProfiles.splice(index, 1);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: id });
+  }
+
   if (route === "POST /api/import/creator-csv/preview") {
     const input = await readJson(req);
     if (!input.csvText) return respondError(res, 400, "csvText is required.");
@@ -3191,6 +4344,35 @@ async function handleApi(req, res, url) {
     return respondJson(res, 201, { ...result, creatorProfiles: creatorProfilesWithStats(data) });
   }
 
+  if (route === "POST /api/import/key-csv/preview") {
+    const input = await readJson(req);
+    if (!input.csvText) return respondError(res, 400, "csvText is required.");
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    let preview;
+    try {
+      preview = previewKeyCsv(data, gameId, input.csvText);
+    } catch (error) {
+      return respondError(res, 400, error.message || "Key CSV preview failed.");
+    }
+    return respondJson(res, 200, preview);
+  }
+
+  if (route === "POST /api/import/key-csv") {
+    const input = await readJson(req);
+    if (!input.csvText) return respondError(res, 400, "csvText is required.");
+    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
+    const gameError = requireGame(data, gameId);
+    if (gameError) return respondError(res, 400, gameError);
+    let result;
+    try {
+      result = importKeyCsv(data, gameId, input.csvText);
+    } catch (error) {
+      return respondError(res, 400, error.message || "Key CSV import failed.");
+    }
+    await writeData(data);
+    return respondJson(res, 201, result);
+  }
+
   if (route === "GET /api/creators") {
     const gameId = requestedGameId(url);
     return respondJson(
@@ -3198,7 +4380,10 @@ async function handleApi(req, res, url) {
       200,
       scopedItems(data.creators, gameId)
         .map((creator) => ({
-          ...creator,
+          ...sanitizeCreator(creator),
+          // Operators need the actual code to send it; return the decrypted value to the
+          // authenticated client (kept encrypted at rest; never included in exports).
+          steamKey: decryptSecret(creator.steamKeyEncrypted),
           gameName: gameNameFor(data, creator.gameId),
           campaignName: campaignNameFor(data, creator.campaignId, "", creator.gameId),
         }))
@@ -3220,12 +4405,23 @@ async function handleApi(req, res, url) {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
+    // Profile-only fields — never pass the engagement status, which would clobber the shared
+    // profile's own "active" status with a per-game lifecycle value.
     const profile = upsertCreatorProfile(data, {
-      ...input,
+      creatorProfileId: input.creatorProfileId || "",
       channelName,
       platform,
       handle: input.handle || creatorSlug,
+      email: input.email || "",
+      country: input.country || "",
+      tags: input.tags || input.niche,
+      subscribers: input.subscribers || input.followers,
+      averageViews: input.averageViews,
+      fitScore: input.fitScore,
+      note: input.note,
     });
+    const rawSteamKey = input.steamKey || input.key || input.code || input.value || "";
+    const status = normalizeCreatorStatus(input.status, "uncontacted");
     const creator = {
       id: input.id || makeId("creator", channelName),
       creatorProfileId: profile.id,
@@ -3233,13 +4429,15 @@ async function handleApi(req, res, url) {
       channelName: profile.channelName || channelName,
       handle: input.handle || profile.handle || creatorSlug,
       platform,
+      recipientType: normalizeRecipientType(input.recipientType || platform),
       email: input.email || profile.email || "",
       country: input.country || profile.country || "",
+      channelUrl: String(input.channelUrl || input.url || "").trim(),
       tags: toList(input.tags || input.niche || profile.tags),
       subscribers: toNumber(input.subscribers || input.followers || profile.subscribers),
       averageViews: toNumber(input.averageViews || profile.averageViews),
       fitScore: Math.max(0, Math.min(100, toNumber(input.fitScore || profile.fitScore))),
-      status: STATUS_OPTIONS.has(input.status) ? input.status : "uncontacted",
+      status,
       campaignId,
       utmLink:
         input.utmLink ||
@@ -3252,20 +4450,100 @@ async function handleApi(req, res, url) {
               content: creatorSlug,
             })
           : ""),
+      sentAt: input.sentAt || (["sent", "review"].includes(status) ? toDateString(new Date()) : ""),
+      embargoAt: input.embargoAt || "",
+      steamKeyEncrypted: rawSteamKey ? encryptSteamKey(rawSteamKey) : "",
+      steamKeyMasked: rawSteamKey ? maskSteamKey(rawSteamKey) : "",
+      steamActivation: null,
+      countedAsSent: false,
       note: input.note || "",
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
     data.creators.push(creator);
+    applyCreatorKeySideEffects(data, creator);
     await writeData(data);
-    return respondJson(res, 201, creator);
+    return respondJson(res, 201, sanitizeCreator(creator));
+  }
+
+  const creatorRoute = url.pathname.match(/^\/api\/creators\/([^/]+)$/);
+  if (creatorRoute && req.method === "DELETE") {
+    const creatorId = decodeURIComponent(creatorRoute[1]);
+    const index = data.creators.findIndex((item) => item.id === creatorId);
+    if (index < 0) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    data.creators.splice(index, 1);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: creatorId });
+  }
+  if (creatorRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const creatorId = decodeURIComponent(creatorRoute[1]);
+    const creator = data.creators.find((item) => item.id === creatorId);
+    if (!creator) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.channelName !== undefined) creator.channelName = String(input.channelName).trim() || creator.channelName;
+    if (input.email !== undefined) creator.email = String(input.email).trim();
+    if (input.recipientType !== undefined) creator.recipientType = normalizeRecipientType(input.recipientType);
+    if (input.country !== undefined) creator.country = String(input.country).trim();
+    if (input.channelUrl !== undefined) creator.channelUrl = String(input.channelUrl).trim();
+    if (input.tags !== undefined) creator.tags = toList(input.tags);
+    if (input.fitScore !== undefined) creator.fitScore = Math.max(0, Math.min(100, toNumber(input.fitScore)));
+    if (input.sentAt !== undefined) creator.sentAt = String(input.sentAt).trim();
+    if (input.embargoAt !== undefined) creator.embargoAt = String(input.embargoAt).trim();
+    if (input.note !== undefined) creator.note = String(input.note);
+    if (input.utmLink !== undefined) creator.utmLink = String(input.utmLink).trim();
+    if (input.campaignId !== undefined) creator.campaignId = String(input.campaignId).trim();
+    // When a key field is explicitly provided (even as empty), set it — empty clears the key.
+    if (input.steamKey !== undefined || input.key !== undefined || input.code !== undefined || input.value !== undefined) {
+      const rawSteamKey = String(input.steamKey || input.key || input.code || input.value || "").trim();
+      creator.steamKeyEncrypted = rawSteamKey ? encryptSteamKey(rawSteamKey) : "";
+      creator.steamKeyMasked = rawSteamKey ? maskSteamKey(rawSteamKey) : "";
+      creator.steamActivation = null;
+    }
+    if (input.status !== undefined) {
+      creator.status = normalizeCreatorStatus(input.status, creator.status);
+      if (creator.status === "sent" && !creator.sentAt) creator.sentAt = toDateString(new Date());
+      applyCreatorKeySideEffects(data, creator);
+    }
+    // Manual override of the Steam "used / unused" flag without a live query.
+    if (input.activated !== undefined) {
+      creator.steamActivation = {
+        activated: input.activated === true || input.activated === "true",
+        account: String(input.activationAccount || "").trim(),
+        checkedAt: nowIso(),
+        source: "manual",
+      };
+    }
+    creator.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, sanitizeCreator(creator));
+  }
+
+  if (route === "POST /api/creators/check-activation") {
+    const input = await readJson(req);
+    const gameId = requestedGameId(url) || input.gameId || "all";
+    const targets = scopedItems(data.creators, gameId).filter((creator) => decryptSecret(creator.steamKeyEncrypted));
+    const summary = await checkActivationForCreators(data, targets);
+    await writeData(data);
+    return respondJson(res, 200, summary);
+  }
+
+  const creatorActivationRoute = url.pathname.match(/^\/api\/creators\/([^/]+)\/check-activation$/);
+  if (creatorActivationRoute && req.method === "POST") {
+    const creatorId = decodeURIComponent(creatorActivationRoute[1]);
+    const creator = data.creators.find((item) => item.id === creatorId);
+    if (!creator) return respondError(res, 404, "크리에이터를 찾지 못했습니다.");
+    const summary = await checkActivationForCreators(data, [creator]);
+    await writeData(data);
+    if (summary.authError) return respondError(res, 502, summary.message);
+    if (summary.error) return respondError(res, 400, summary.message);
+    return respondJson(res, 200, { ...sanitizeCreator(creator), checked: summary.checked });
   }
 
   if (route === "POST /api/email-drafts") {
     const input = await readJson(req);
     let draft;
     try {
-      draft = buildEmailDraft(data, input);
+      draft = await buildEmailDraft(data, input);
     } catch (error) {
       return respondError(res, 400, error.message || "Email draft failed.");
     }
@@ -3283,6 +4561,194 @@ async function handleApi(req, res, url) {
     return respondJson(res, 200, result);
   }
 
+  if (route === "GET /api/email-templates") {
+    return respondJson(res, 200, data.emailTemplates);
+  }
+  if (route === "GET /api/ai/status") {
+    return respondJson(res, 200, aiConfig());
+  }
+
+  // --- Creator discovery bot ---
+  if (route === "GET /api/discovery") {
+    const win = discoveryWindow();
+    return respondJson(res, 200, {
+      candidates: data.discoveryCandidates,
+      // `running` from the live flag, not the persisted value (survives crashes).
+      state: { ...data.discoveryState, running: discoveryRunning },
+      sources: discoverySourceFlags(data),
+      seeds: discoverySeeds([]),
+      schedulerEnabled: !DISABLE_DISCOVERY_SCHEDULER,
+      window: { start: process.env.DISCOVERY_WINDOW_START || "02:00", end: process.env.DISCOVERY_WINDOW_END || "09:00", ...win },
+      rendererEnabled: discoveryUseRenderer(),
+      sessionMinuteChoices: [30, 60, 120, 180],
+    });
+  }
+  if (route === "POST /api/discovery/run") {
+    const input = await readJson(req);
+    const seeds = Array.isArray(input.seeds) ? input.seeds.map((s) => String(s).trim()).filter(Boolean) : toList(input.seeds);
+    const flags = discoverySourceFlags(data);
+    if (!flags.youtube && !flags.twitch && !flags.web) {
+      return respondError(res, 400, "검색 소스가 하나도 설정되지 않았습니다. YouTube 키 또는 Twitch/웹검색 키를 먼저 설정하세요.");
+    }
+    if (discoveryRunning) return respondError(res, 409, "이미 발견 세션이 실행 중입니다.");
+
+    const perSeed = Math.max(1, Math.min(25, toNumber(input.perSeed, 8)));
+    const minFitScore = Math.max(0, Math.min(100, toNumber(input.minFitScore, 0)));
+    const durationMinutes = clampSessionMinutes(input.durationMinutes);
+
+    // Time-boxed (30m/1h/2h/3h) → run in the BACKGROUND and return immediately;
+    // the client polls GET /api/discovery for progress + candidates.
+    if (durationMinutes > 0) {
+      const overallDeadline = Date.now() + durationMinutes * 60_000;
+      runDiscoverySession({ baseSeeds: seeds, overallDeadline, perSeed, minFitScore, trigger: "manual" }).catch((error) =>
+        console.error("Discovery session failed:", error.message || error),
+      );
+      return respondJson(res, 202, { started: true, durationMinutes, endsAt: new Date(overallDeadline).toISOString() });
+    }
+
+    // No duration → a single short, awaited "quick run".
+    try {
+      const result = await runDiscoveryQuick(data, {
+        seeds,
+        perSeed,
+        minFitScore,
+        expandCount: Math.max(0, Math.min(20, toNumber(input.expandSeeds, 0))),
+        leadDepth: Math.max(0, Math.min(3, toNumber(input.leadDepth, 0))),
+        analyze: input.analyze !== false,
+      });
+      await writeData(data);
+      return respondJson(res, 200, {
+        stats: result.stats,
+        skipped: result.skipped,
+        errors: result.errors,
+        candidates: data.discoveryCandidates,
+        state: data.discoveryState,
+      });
+    } catch (error) {
+      data.discoveryState = { ...data.discoveryState, lastRunAt: nowIso(), lastStatus: "error", lastMessage: error.message || "실패" };
+      await writeData(data);
+      return respondError(res, 502, error.message || "발견 실행에 실패했습니다.", aiConfig());
+    }
+  }
+  if (route === "POST /api/discovery/stop") {
+    if (!discoveryRunning) return respondJson(res, 200, { ok: true, running: false });
+    discoveryStop = true;
+    return respondJson(res, 200, { ok: true, stopping: true });
+  }
+  const discoveryApproveRoute = url.pathname.match(/^\/api\/discovery\/candidates\/([^/]+)\/approve$/);
+  if (discoveryApproveRoute && req.method === "POST") {
+    const id = decodeURIComponent(discoveryApproveRoute[1]);
+    const candidate = data.discoveryCandidates.find((c) => c.id === id);
+    if (!candidate) return respondError(res, 404, "후보를 찾지 못했습니다.");
+    const profile = upsertCreatorProfile(data, {
+      channelName: candidate.channelName,
+      platform: candidate.platform,
+      email: candidate.email,
+      channels: candidate.url ? [{ platform: candidate.platform, url: candidate.url }] : [],
+      subscribers: candidate.subscribers,
+      fitScore: candidate.fitScore,
+      tags: candidate.tags,
+      note: [candidate.channelType, candidate.audience, candidate.fitReason].filter(Boolean).join(" · "),
+    });
+    candidate.status = "approved";
+    candidate.creatorProfileId = profile.id;
+    candidate.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, candidate, profile });
+  }
+  const discoveryCandidateRoute = url.pathname.match(/^\/api\/discovery\/candidates\/([^/]+)$/);
+  if (discoveryCandidateRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(discoveryCandidateRoute[1]);
+    const candidate = data.discoveryCandidates.find((c) => c.id === id);
+    if (!candidate) return respondError(res, 404, "후보를 찾지 못했습니다.");
+    candidate.status = "dismissed";
+    candidate.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, id });
+  }
+  if (route === "POST /api/ai/translate") {
+    const input = await readJson(req);
+    const text = String(input.text || "").trim();
+    if (!text) return respondError(res, 400, "번역할 텍스트가 필요합니다.");
+    const targetLang = SUPPORTED_LANGS.includes(input.targetLang) ? input.targetLang : "ko";
+    try {
+      const translated = await translateText({ text, targetLang });
+      return respondJson(res, 200, { text: translated });
+    } catch (error) {
+      return respondError(res, 502, error.message || "번역에 실패했습니다.", aiConfig());
+    }
+  }
+  if (route === "POST /api/email-templates/generate") {
+    const input = await readJson(req);
+    const brief = String(input.brief || "").trim();
+    if (!brief) return respondError(res, 400, "생성할 템플릿 설명(브리프)이 필요합니다.");
+    const game = input.gameId ? gameFor(data, input.gameId) : gameFor(data, data.meta.primaryGameId);
+    try {
+      const draft = await generateEmailTemplate({
+        brief,
+        gameName: input.gameName || game?.name || "",
+        genre: input.genre || game?.genre || "",
+      });
+      return respondJson(res, 200, draft);
+    } catch (error) {
+      return respondError(res, 502, error.message || "AI 생성에 실패했습니다.", aiConfig());
+    }
+  }
+  if (route === "POST /api/email-templates") {
+    const input = await readJson(req);
+    const name = String(input.name || "").trim();
+    if (!name) return respondError(res, 400, "템플릿 이름이 필요합니다.");
+    const tmpl = {
+      id: input.id || makeId("tmpl", name),
+      name,
+      subjectEn: String(input.subjectEn || "").trim(),
+      bodyEn: String(input.bodyEn || ""),
+      subjectKo: String(input.subjectKo || "").trim(),
+      bodyKo: String(input.bodyKo || ""),
+      subjectJa: String(input.subjectJa || "").trim(),
+      bodyJa: String(input.bodyJa || ""),
+      subjectDe: String(input.subjectDe || "").trim(),
+      bodyDe: String(input.bodyDe || ""),
+      subjectZh: String(input.subjectZh || "").trim(),
+      bodyZh: String(input.bodyZh || ""),
+      builtin: false,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    data.emailTemplates.push(tmpl);
+    await writeData(data);
+    return respondJson(res, 201, tmpl);
+  }
+  const templateRoute = url.pathname.match(/^\/api\/email-templates\/([^/]+)$/);
+  if (templateRoute && (req.method === "PUT" || req.method === "PATCH")) {
+    const id = decodeURIComponent(templateRoute[1]);
+    const tmpl = data.emailTemplates.find((item) => item.id === id);
+    if (!tmpl) return respondError(res, 404, "템플릿을 찾지 못했습니다.");
+    const input = await readJson(req);
+    if (input.name !== undefined) tmpl.name = String(input.name).trim() || tmpl.name;
+    if (input.subjectEn !== undefined) tmpl.subjectEn = String(input.subjectEn);
+    if (input.bodyEn !== undefined) tmpl.bodyEn = String(input.bodyEn);
+    if (input.subjectKo !== undefined) tmpl.subjectKo = String(input.subjectKo);
+    if (input.bodyKo !== undefined) tmpl.bodyKo = String(input.bodyKo);
+    if (input.subjectJa !== undefined) tmpl.subjectJa = String(input.subjectJa);
+    if (input.bodyJa !== undefined) tmpl.bodyJa = String(input.bodyJa);
+    if (input.subjectDe !== undefined) tmpl.subjectDe = String(input.subjectDe);
+    if (input.bodyDe !== undefined) tmpl.bodyDe = String(input.bodyDe);
+    if (input.subjectZh !== undefined) tmpl.subjectZh = String(input.subjectZh);
+    if (input.bodyZh !== undefined) tmpl.bodyZh = String(input.bodyZh);
+    tmpl.updatedAt = nowIso();
+    await writeData(data);
+    return respondJson(res, 200, tmpl);
+  }
+  if (templateRoute && req.method === "DELETE") {
+    const id = decodeURIComponent(templateRoute[1]);
+    const index = data.emailTemplates.findIndex((item) => item.id === id);
+    if (index < 0) return respondError(res, 404, "템플릿을 찾지 못했습니다.");
+    data.emailTemplates.splice(index, 1);
+    await writeData(data);
+    return respondJson(res, 200, { deleted: id });
+  }
+
   if (route === "GET /api/outreach-logs") {
     const gameId = requestedGameId(url);
     return respondJson(
@@ -3298,74 +4764,6 @@ async function handleApi(req, res, url) {
         campaignName: campaignNameFor(data, log.campaignId, "", log.gameId),
       })),
     );
-  }
-
-  if (route === "GET /api/keys") {
-    const gameId = requestedGameId(url);
-    return respondJson(
-      res,
-      200,
-      scopedItems(data.influencerKeys, gameId).map((key) => ({
-        ...sanitizeKey(key),
-        gameName: gameNameFor(data, key.gameId),
-        campaignName: campaignNameFor(data, key.campaignId, "", key.gameId),
-      })),
-    );
-  }
-
-  if (route === "POST /api/keys") {
-    const input = await readJson(req);
-    const validationError = validateKey(input);
-    if (validationError) return respondError(res, 400, validationError);
-    const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
-    const gameError = requireGame(data, gameId);
-    if (gameError) return respondError(res, 400, gameError);
-    const rawSteamKey = input.steamKey || input.key || input.code || input.value || "";
-    const recipientName =
-      input.recipientName ||
-      input.creatorHandle ||
-      input.recipientEmail ||
-      (input.creatorId ? data.creators.find((item) => item.id === input.creatorId && item.gameId === gameId)?.channelName : "") ||
-      "Unassigned recipient";
-    const campaignId =
-      input.campaignId ||
-      (input.campaignName ? data.campaigns.find((campaign) => campaign.name === input.campaignName && campaign.gameId === gameId)?.id : "") ||
-      "";
-    const key = {
-      id: input.id || makeId("key", recipientName),
-      gameId,
-      recipientName: String(recipientName).trim(),
-      recipientEmail: input.recipientEmail || "",
-      creatorId: input.creatorId || "",
-      campaignId,
-      status: KEY_STATUS_OPTIONS.has(input.status) ? input.status : input.status === "available" ? "reserved" : "reserved",
-      steamKeyEncrypted: rawSteamKey ? encryptSteamKey(rawSteamKey) : "",
-      steamKeyMasked: rawSteamKey ? maskSteamKey(rawSteamKey) : input.steamKeyMasked || "",
-      utmLink: input.utmLink || "",
-      note: input.note || input.notes || "",
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    };
-    data.influencerKeys.push(key);
-
-    if (key.campaignId) {
-      const campaign = data.campaigns.find((item) => item.id === key.campaignId && item.gameId === key.gameId);
-      if (campaign && ["sent", "claimed", "video_uploaded"].includes(key.status)) {
-        campaign.keysSent = toNumber(campaign.keysSent) + 1;
-        campaign.updatedAt = nowIso();
-      }
-    }
-
-    if (key.creatorId && ["sent", "claimed", "video_uploaded"].includes(key.status)) {
-      const creator = data.creators.find((item) => item.id === key.creatorId && item.gameId === key.gameId);
-      if (creator && creator.status !== "video_uploaded") {
-        creator.status = "key_sent";
-        creator.updatedAt = nowIso();
-      }
-    }
-
-    await writeData(data);
-    return respondJson(res, 201, sanitizeKey(key));
   }
 
   if (route === "GET /api/steam-metrics") {
@@ -3551,4 +4949,12 @@ createServer(handleRequest).listen(PORT, HOST, () => {
 
 if (!DISABLE_SYNC_SCHEDULER) {
   setInterval(checkScheduledSync, Math.max(10_000, SYNC_SCHEDULER_INTERVAL_MS));
+}
+
+// Discovery bot loop: checks every few minutes and, while inside the nightly
+// window (DISCOVERY_WINDOW_START–END, default 02:00–09:00), runs a session until
+// the window closes. Off unless DISABLE_DISCOVERY_SCHEDULER=false.
+if (!DISABLE_DISCOVERY_SCHEDULER) {
+  setInterval(checkScheduledDiscovery, 5 * 60 * 1000);
+  checkScheduledDiscovery().catch(() => {}); // also check right away on boot
 }

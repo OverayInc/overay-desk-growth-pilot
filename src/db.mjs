@@ -18,15 +18,17 @@ const COLLECTIONS = [
   "creatorProfiles",
   "creators",
   "influencerKeys",
+  "emailTemplates",
   "steamDailyMetrics",
   "outreachLogs",
   "syncRuns",
   "youtubeChannels",
   "youtubeSnapshots",
   "redditPosts",
+  "discoveryCandidates",
 ];
 
-const SINGLETONS = ["meta", "steamSyncState", "integrationSettings", "syncSchedule"];
+const SINGLETONS = ["meta", "steamSyncState", "integrationSettings", "syncSchedule", "discoveryState"];
 
 let db = null;
 
