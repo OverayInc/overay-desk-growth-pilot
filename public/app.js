@@ -1607,14 +1607,28 @@ function renderSyncSchedule() {
 function renderEmailStatus() {
   const status = state.emailStatus;
   if (!status) return;
-  $("#emailStatusLabel").textContent = status.configured ? "SMTP 설정됨" : "SMTP 미설정";
-  $("#emailStatusGrid").innerHTML = [
-    ["발송 모드", status.mode],
-    ["SMTP 호스트", status.host],
-    ["발신 주소", status.from],
+  const label = $("#emailStatusLabel");
+  if (!status.configured) {
+    label.textContent = "발송 미설정";
+    label.className = "status-pill fail";
+  } else if (status.mode === "graph") {
+    label.textContent = "Graph 발송 설정됨";
+    label.className = "status-pill ok";
+  } else if (status.mode === "log") {
+    label.textContent = "로그 모드 (실제 발송 안 함)";
+    label.className = "status-pill";
+  } else {
+    label.textContent = "SMTP 발송 설정됨";
+    label.className = "status-pill ok";
+  }
+  const pills = [
+    ["모드", status.mode],
+    ["발신", status.from],
     ["인증", status.auth],
-  ]
-    .map(([label, value]) => `<div class="sync-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+  ];
+  if (status.mode === "smtp") pills.splice(1, 0, ["호스트", `${status.host}:${status.port}`]);
+  $("#emailStatusGrid").innerHTML = pills
+    .map(([k, v]) => `<span class="email-pill"><b>${escapeHtml(k)}</b> ${escapeHtml(String(v))}</span>`)
     .join("");
 }
 
@@ -3743,6 +3757,10 @@ function showView(view, sectionId) {
     $("#viewEyebrow").textContent = meta.eyebrow;
     $("#viewTitle").textContent = meta.title;
   }
+  // The creator matrix shows every game as a column and has its own "게임 N/N"
+  // column filter, so the global game dropdown does nothing there — hide it.
+  const gameFilterCtl = $("#gameFilterControl");
+  if (gameFilterCtl) gameFilterCtl.style.display = view === "creators" ? "none" : "";
   if (view === "youtube" && state.youtube) renderYoutube();
   if (view === "discovery") loadDiscovery().catch(() => {});
   if (view === "overview" && state.dashboard) renderTrendChart(state.dashboard.trend);

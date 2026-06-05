@@ -138,7 +138,7 @@
               </div>
             </div>
             <div class="topbar-actions">
-              <label class="filter-control">
+              <label class="filter-control" id="gameFilterControl">
                 보기
                 <select id="gameFilter">
                   <option value="all">전체 게임</option>
@@ -325,34 +325,26 @@
                   <p class="eyebrow">Email Outreach</p>
                   <h2>메일 발송 · 로그</h2>
                 </div>
-                <span class="muted" id="emailStatusLabel">-</span>
+                <span class="status-pill" id="emailStatusLabel">-</span>
               </div>
-              <div class="sync-grid">
-                <div class="panel">
-                  <div class="panel-title">
-                    <h3>발송 설정</h3>
-                    <span>서버 환경변수 기준</span>
-                  </div>
-                  <div class="sync-status-grid" id="emailStatusGrid"></div>
+              <div class="email-status-bar" id="emailStatusGrid"></div>
+              <div class="panel">
+                <div class="panel-title">
+                  <h3>최근 발송 로그</h3>
+                  <span id="outreachLogCount">로그 0개</span>
                 </div>
-                <div class="panel">
-                  <div class="panel-title">
-                    <h3>최근 발송 로그</h3>
-                    <span id="outreachLogCount">로그 0개</span>
-                  </div>
-                  <div class="table-wrap compact">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>시간</th>
-                          <th>상태</th>
-                          <th>크리에이터</th>
-                          <th>제목</th>
-                        </tr>
-                      </thead>
-                      <tbody id="outreachLogTable"></tbody>
-                    </table>
-                  </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>시간</th>
+                        <th>상태</th>
+                        <th>크리에이터</th>
+                        <th>제목</th>
+                      </tr>
+                    </thead>
+                    <tbody id="outreachLogTable"></tbody>
+                  </table>
                 </div>
               </div>
             </section>
