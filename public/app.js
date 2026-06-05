@@ -1344,20 +1344,63 @@ function activationCell(record) {
 function matrixCellContent(record, profileId, gameId) {
   const status = record?.status || "uncontacted";
   const a = record?.steamActivation;
-  const usage = a ? (a.activated ? '<span class="matrix-use ok" title="사용됨">✅</span>' : '<span class="matrix-use no" title="미사용">⛔</span>') : "";
-  // Quick "draft mail" shortcut for not-yet-contacted creators.
-  const mail =
-    status === "uncontacted"
-      ? `<button type="button" class="matrix-mail" data-matrix-mail="${escapeHtml(profileId)}|${escapeHtml(gameId)}" title="메일 초안 보내기" aria-label="메일">✉</button>`
-      : "";
-  const bits = [
-    `<span class="matrix-line"><span class="matrix-badge status ${escapeHtml(status)}${record ? "" : " is-empty"}">${escapeHtml(CREATOR_STATUS_LABELS[status] || status)}</span>${usage}${mail}</span>`,
-  ];
+  // Usage (사용됨/미사용) is folded into the key chip's color instead of a separate
+  // icon, so the key itself reads differently once it has been used.
+  const usedState = a ? (a.activated ? "used" : "unused") : "";
+  // Mail shortcut is always available (a creator can be emailed again after the
+  // first contact), so the ✉ icon stays regardless of status.
+  const mail = `<button type="button" class="matrix-mail" data-matrix-mail="${escapeHtml(profileId)}|${escapeHtml(gameId)}" title="메일 초안 보내기" aria-label="메일">✉</button>`;
+  // Key/note/mail shown as icon chips so every cell stays the same size. Hover
+  // reveals the full value (instant tooltip). Key click copies; note click opens
+  // the cell editor (so the memo can be edited); the icons stay on one line.
   const code = record?.steamKey || record?.steamKeyMasked;
-  if (code) bits.push(`<span class="matrix-code" data-copy="${escapeHtml(code)}" title="클릭하여 복사: ${escapeHtml(code)}">🔑 ${escapeHtml(code)}</span>`);
-  if (record?.note) bits.push(`<span class="matrix-note" title="${escapeHtml(record.note)}">📝 ${escapeHtml(record.note)}</span>`);
-  return bits.join("");
+  const usedCls = usedState === "used" ? " is-used" : usedState === "unused" ? " is-unused" : "";
+  const usedTip = usedState === "used" ? "\n✅ 사용됨" : usedState === "unused" ? "\n⛔ 미사용" : "";
+  const keyChip = code
+    ? `<span class="matrix-chip${usedCls}" data-copy="${escapeHtml(code)}" data-tip="🔑 ${escapeHtml(code)}${usedTip}\n클릭하여 복사" aria-label="Steam 키">🔑</span>`
+    : "";
+  const noteChip = record?.note
+    ? `<span class="matrix-chip" data-matrix-note data-tip="📝 ${escapeHtml(record.note)}\n클릭하여 수정" aria-label="메모 수정">📝</span>`
+    : "";
+  const actions = `${mail}${keyChip}${noteChip}`;
+  const actionsRow = actions ? `<span class="matrix-actions">${actions}</span>` : "";
+  return `<span class="matrix-line"><span class="matrix-badge status ${escapeHtml(status)}${record ? "" : " is-empty"}" title="클릭하여 편집">${escapeHtml(CREATOR_STATUS_LABELS[status] || status)}</span>${actionsRow}</span>`;
 }
+
+// Instant, clipping-free tooltip for [data-tip] elements (matrix key/note chips
+// live inside a scroll container, so a fixed-position bubble is used instead of
+// a CSS ::after that would get cut off).
+(function initHoverTips() {
+  let tip = null;
+  const place = (el) => {
+    const text = el.getAttribute("data-tip");
+    if (!text) return;
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.className = "hover-tip";
+      document.body.appendChild(tip);
+    }
+    tip.textContent = text;
+    tip.style.display = "block";
+    const r = el.getBoundingClientRect();
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    let left = Math.max(8, Math.min(r.left + r.width / 2 - tw / 2, window.innerWidth - tw - 8));
+    let top = r.top - th - 8;
+    if (top < 8) top = r.bottom + 8; // flip below when there's no room above
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+  const hide = () => { if (tip) tip.style.display = "none"; };
+  document.addEventListener("mouseover", (event) => {
+    const el = event.target.closest?.("[data-tip]");
+    if (el) place(el);
+  });
+  document.addEventListener("mouseout", (event) => {
+    if (event.target.closest?.("[data-tip]")) hide();
+  });
+  document.addEventListener("scroll", hide, true);
+})();
 
 // Creator × game matrix: rows = shared creator profiles, columns = games. Each cell is the
 // per-game creator record (mail/key/usage at a glance); click to edit/create it.
@@ -1836,18 +1879,22 @@ function initMailModal() {
   const mailtoUrl = () =>
     `mailto:${encodeURIComponent($("#mailTo").value.trim())}?subject=${encodeURIComponent($("#mailSubject").value)}&body=${encodeURIComponent($("#mailBody").value)}`;
 
-  // Bump the creator to 발송 (create the per-game record if it doesn't exist yet).
+  // Bump the creator to 발송 (creating the per-game record if needed) and append a
+  // "메일 발송 <시각>" line to the memo so the send is logged automatically.
   async function markContacted() {
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const logLine = `📧 메일 발송 ${stamp}`;
     if (ctx.recordId) {
       const rec = state.creators.find((c) => c.id === ctx.recordId);
-      if (rec && rec.status === "uncontacted") {
-        await api(`/api/creators/${encodeURIComponent(ctx.recordId)}`, { method: "PUT", body: { status: "sent" } });
-      }
+      const body = { note: rec?.note ? `${rec.note}\n${logLine}` : logLine };
+      if (rec && rec.status === "uncontacted") body.status = "sent";
+      await api(`/api/creators/${encodeURIComponent(ctx.recordId)}`, { method: "PUT", body });
     } else {
       const profile = state.creatorProfiles.find((p) => p.id === ctx.profileId);
       await api("/api/creators", {
         method: "POST",
-        body: { gameId: ctx.gameId, creatorProfileId: ctx.profileId, channelName: profile?.channelName || "", email: profile?.email || "", status: "sent" },
+        body: { gameId: ctx.gameId, creatorProfileId: ctx.profileId, channelName: profile?.channelName || "", email: profile?.email || "", status: "sent", note: logLine },
       });
     }
   }
@@ -2210,8 +2257,9 @@ function initMatrixModal() {
     $("#matrixEmbargo").value = rec?.embargoAt || "";
     $("#matrixNote").value = rec?.note || "";
     const a = rec?.steamActivation;
+    $("#matrixUsed").value = a ? (a.activated ? "true" : "false") : "";
     $("#matrixUsage").textContent = a
-      ? `사용여부: ${a.activated ? `사용됨${a.account ? ` (${a.account})` : ""}` : "미사용"} · 확인 ${formatDateTime(a.checkedAt)}`
+      ? `사용여부: ${a.activated ? `사용됨${a.account ? ` (${a.account})` : ""}` : "미사용"} · ${a.source === "manual" ? "수동" : "확인"} ${formatDateTime(a.checkedAt)}`
       : "사용여부: 미확인";
     $("#matrixDeleteBtn").hidden = !rec;
     $("#matrixCheckBtn").disabled = !rec?.steamKeyMasked;
@@ -2241,10 +2289,23 @@ function initMatrixModal() {
       if (openMailModal) openMailModal(profileId, gameId);
       return;
     }
+    // Click the 📝 note chip: open the cell editor focused on the memo field.
+    const noteChip = event.target.closest("[data-matrix-note]");
+    if (noteChip) {
+      const c = noteChip.closest("[data-matrix-profile]");
+      if (c) {
+        openCell(c.getAttribute("data-matrix-profile"), c.getAttribute("data-matrix-game"));
+        $("#matrixNote")?.focus();
+      }
+      return;
+    }
     if (event.target.closest("[data-edit-profile], [data-del-profile]")) return; // handled elsewhere
-    const cell = event.target.closest("[data-matrix-profile]");
-    if (!cell) return;
-    openCell(cell.getAttribute("data-matrix-profile"), cell.getAttribute("data-matrix-game"));
+    // Open the editor only when the status badge is clicked — clicking empty cell
+    // space no longer triggers the modal, so it won't fight with the icons.
+    const badge = event.target.closest(".matrix-badge");
+    if (!badge) return;
+    const cell = badge.closest("[data-matrix-profile]");
+    if (cell) openCell(cell.getAttribute("data-matrix-profile"), cell.getAttribute("data-matrix-game"));
   });
 
   modal.querySelectorAll("[data-matrix-close]").forEach((b) => b.addEventListener("click", () => modal.close()));
@@ -2261,6 +2322,8 @@ function initMatrixModal() {
         note: $("#matrixNote").value,
         steamKey: $("#matrixKey").value.trim(), // always sent — empty clears the key
       };
+      const used = $("#matrixUsed").value; // "" = 자동, "true"/"false" = 수동 사용여부
+      if (used !== "") body.activated = used === "true";
       if (ctx.recordId) {
         await api(`/api/creators/${encodeURIComponent(ctx.recordId)}`, { method: "PUT", body });
       } else {

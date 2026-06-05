@@ -311,7 +311,7 @@
                   <div class="matrix-filter-panel" id="matrixGameFilter"></div>
                 </details>
               </div>
-              <p class="muted matrix-legend">행=크리에이터, 열=게임. 게임 칸 클릭 = 상태/키/발송일/메일 편집 · 🔑 키 발송 · ✅ 사용됨 · ⛔ 미사용. 이름 옆 아이콘 = 채널 바로가기.</p>
+              <p class="muted matrix-legend">행=크리에이터, 열=게임. 게임 칸 클릭 = 상태/키/사용여부/메일 편집 · ✉ 메일 보내기 · 🔑 키(초록=사용됨·빨강=미사용, 클릭 복사) · 📝 메모(클릭 수정). 이름 옆 아이콘 = 채널 바로가기.</p>
               <div class="table-wrap scroll-y" id="creatorMatrixWrap"></div>
             </section>
 
@@ -1256,6 +1256,14 @@
             <input id="matrixKey" placeholder="XXXXX-XXXXX-XXXXX 또는 프로모 코드" />
           </label>
           <label>
+            키 사용여부 (수동 입력)
+            <select id="matrixUsed">
+              <option value="">미설정 / 자동조회</option>
+              <option value="true">사용됨</option>
+              <option value="false">미사용</option>
+            </select>
+          </label>
+          <label>
             발송일
             <input id="matrixSentAt" type="date" />
           </label>
@@ -1264,8 +1272,8 @@
             <input id="matrixEmbargo" placeholder="2026-05-29 00:00" />
           </label>
           <label>
-            메모
-            <input id="matrixNote" />
+            메모 <span class="muted" style="font-weight:500">여러 줄 입력 가능 · 메일 발송 시 자동 기록</span>
+            <textarea id="matrixNote" class="matrix-note-input" rows="5" placeholder="발송 이력·메모 (줄바꿈 가능)"></textarea>
           </label>
           <div class="result-line" id="matrixUsage"></div>
         </div>

@@ -1267,7 +1267,7 @@ tbody tr:last-child td { border-bottom: 0; }
 /* Fixed columns; trailing spacer absorbs leftover width so cells don't balloon. */
 .matrix-name-col { width: 248px; }
 .matrix-chan-col { width: 96px; }
-.matrix-game-col { width: 150px; }
+.matrix-game-col { width: 180px; }
 .matrix-act-col  { width: 92px; white-space: nowrap; }
 .matrix-spacer   { width: auto; padding: 0 !important; }
 
@@ -1322,23 +1322,26 @@ tbody tr:last-child td { border-bottom: 0; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-.matrix-table td.matrix-cell-td { padding: 5px 10px; vertical-align: middle; text-align: center; }
+.matrix-table td.matrix-cell-td { padding: 5px 10px; vertical-align: middle; text-align: left; }
 .matrix-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
   width: 100%; min-height: 28px; padding: 4px 8px; box-sizing: border-box;
   border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text); cursor: pointer; text-align: center;
+  background: transparent; color: var(--text); cursor: default; text-align: left;
   transition: background-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
 .matrix-cell:hover { background: var(--surface-inset); }
 .matrix-cell:focus-visible { outline: none; background: var(--surface-inset); box-shadow: 0 0 0 2px var(--brand-ring); }
 
-.matrix-line { display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; flex-wrap: wrap; }
+.matrix-line { display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; max-width: 100%; flex-wrap: nowrap; }
 .matrix-cell .matrix-badge.status {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 0; max-width: 100%;
-  padding: 4px 10px; border-radius: var(--radius-pill);
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 0; min-width: 64px; max-width: 100%; flex: 0 0 auto;
+  padding: 3px 8px; border-radius: var(--radius-pill); white-space: nowrap;
   font-size: 11.5px; font-weight: 650; line-height: 1.4; letter-spacing: 0.01em;
+  cursor: pointer;
 }
+.matrix-cell .matrix-badge.status:hover { box-shadow: inset 0 0 0 1px var(--brand-line); filter: brightness(0.97); }
 .matrix-cell .matrix-badge.status::before { width: 5px; height: 5px; opacity: 0.9; }
 .matrix-cell .matrix-badge.status.is-empty {
   background: transparent; color: var(--text-faint);
@@ -1360,18 +1363,37 @@ tbody tr:last-child td { border-bottom: 0; }
 .matrix-mail:hover { background: var(--brand-soft); color: var(--brand); }
 .matrix-mail:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--brand-ring); }
 
-.matrix-code {
-  width: 100%; box-sizing: border-box;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px; letter-spacing: 0.01em; color: var(--text-secondary); text-align: center; line-height: 1.4;
-  padding: 3px 7px; border-radius: 6px; background: var(--surface-inset);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+/* Mail/key/note icons stay together on a single line (wrap as a unit). */
+.matrix-actions { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; flex-wrap: nowrap; }
+/* Key / note shown as compact icon chips so every cell stays the same size. */
+.matrix-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex: 0 0 auto;
+  border-radius: 6px; font-size: 12px; line-height: 1;
+  background: var(--surface-inset); cursor: pointer;
+  transition: background 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
-.matrix-code:hover { color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand-line); }
-.matrix-cell:hover .matrix-code { background: var(--surface-muted); }
-.matrix-note {
-  width: 100%; font-size: 11px; color: var(--text-muted); line-height: 1.4; text-align: center;
-  overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+.matrix-chip:hover { background: var(--brand-soft); box-shadow: inset 0 0 0 1px var(--brand-line); }
+/* Used vs unused must read at a glance, so use solid fills (not pale soft). */
+.matrix-chip.is-used { background: var(--success); box-shadow: 0 0 0 1px var(--success), 0 1px 2px rgba(0,0,0,0.12); }
+.matrix-chip.is-used:hover { background: var(--success-text); box-shadow: 0 0 0 2px var(--success-line); }
+.matrix-chip.is-unused { background: var(--danger); box-shadow: 0 0 0 1px var(--danger), 0 1px 2px rgba(0,0,0,0.12); }
+.matrix-chip.is-unused:hover { background: var(--danger-text); box-shadow: 0 0 0 2px var(--danger-line); }
+
+/* Memo editor in the cell modal: multi-line, taller, readable (not monospace). */
+.matrix-note-input {
+  min-height: 110px; resize: vertical;
+  font-family: inherit; font-size: 13.5px; line-height: 1.5;
+}
+
+/* Floating instant tooltip (fixed-position so it never clips in scroll areas). */
+.hover-tip {
+  position: fixed; z-index: 300; display: none;
+  max-width: 340px; padding: 7px 10px;
+  border-radius: 8px; background: var(--text); color: var(--surface);
+  font-size: 12px; line-height: 1.45; font-weight: 500;
+  box-shadow: var(--shadow-md); pointer-events: none;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all;
 }
 
 .matrix-table th.matrix-act-col,

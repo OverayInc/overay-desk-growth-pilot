@@ -4460,6 +4460,15 @@ async function handleApi(req, res, url) {
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
+    // Optional manual "used / unused" override at creation time.
+    if (input.activated !== undefined) {
+      creator.steamActivation = {
+        activated: input.activated === true || input.activated === "true",
+        account: String(input.activationAccount || "").trim(),
+        checkedAt: nowIso(),
+        source: "manual",
+      };
+    }
     data.creators.push(creator);
     applyCreatorKeySideEffects(data, creator);
     await writeData(data);
