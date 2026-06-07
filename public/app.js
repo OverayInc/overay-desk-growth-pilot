@@ -3591,7 +3591,7 @@ function spawnFindBubble(c) {
   const el = document.createElement("div");
   el.className = "find-bubble";
   el.textContent = `✨ ${c.channelName || "새 채널"}${c.fitScore ? ` (${c.fitScore})` : ""}`;
-  el.style.right = `${Math.floor(Math.random() * 34)}px`;
+  el.style.marginLeft = `${-78 + Math.floor(Math.random() * 24 - 12)}px`;
   host.appendChild(el);
   window.setTimeout(() => el.remove(), 2700);
 }
@@ -3828,6 +3828,20 @@ function initDiscovery() {
   $("#discoveryStatusFilter")?.addEventListener("change", (event) => {
     state.discoveryStatusFilter = event.target.value;
     renderDiscoveryQueue();
+  });
+
+  $("#discoveryClearBtn")?.addEventListener("click", async () => {
+    const filter = state.discoveryStatusFilter || "discovered";
+    const label = { discovered: "검수 대기", approved: "승인됨", dismissed: "제외됨", all: "전체" }[filter] || filter;
+    if (!window.confirm(`${label} 후보를 큐에서 비울까요? 되돌릴 수 없습니다.`)) return;
+    try {
+      const r = await api("/api/discovery/clear", { method: "POST", body: { status: filter } });
+      discoverySeenIds = null; // reset bubble tracking after a bulk change
+      showToast(`${r.removed}개 비웠습니다.`);
+      await loadDiscovery();
+    } catch (error) {
+      showToast(error.message);
+    }
   });
 
   $("#discoveryQueueWrap")?.addEventListener("click", async (event) => {

@@ -1433,8 +1433,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .matrix-legend { margin: -2px 0 14px; font-size: 13px; }
 
 /* Creator sort control */
-.matrix-sort { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; }
-.matrix-sort > span { font-size: 12px; color: var(--text-muted); }
+.matrix-sort { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; flex: 0 0 auto; }
+.matrix-sort > span { font-size: 12px; color: var(--text-muted); white-space: nowrap; flex: 0 0 auto; }
 .matrix-sort select {
   min-height: 40px; padding: 0 30px 0 12px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
@@ -2119,4 +2119,34 @@ tbody tr:last-child td { border-bottom: 0; }
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* ===== Stage layout v2: live log to the right of the mascot ===== */
+.discovery-stage { align-items: stretch; gap: 18px; min-height: 172px; }
+.stage-radar { position: relative; }
+.stage-side { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.stage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.stage-status {
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.discovery-stage[data-running="true"] .stage-status { color: var(--brand-strong); }
+.stage-meta { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; flex: 0 0 auto; }
+.stage-head .counter-num { font-size: 15px; font-weight: 800; color: var(--brand-strong); }
+
+/* The live log now lives inside the stage: fills the right, scrolls, tiny font */
+.discovery-stage .discovery-log {
+  flex: 1 1 auto;
+  min-height: 118px;
+  max-height: 150px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.discovery-stage .discovery-log .log-line { gap: 8px; }
+
+/* Find bubbles now pop over the mascot/radar (left), not over the log */
+.stage-radar .stage-bubbles { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.stage-radar .find-bubble {
+  left: 50%; bottom: 4px; right: auto; width: 156px; text-align: center;
 }

@@ -384,14 +384,14 @@
                     <rect class="bot-body" x="20" y="42" width="24" height="14" rx="5"/>
                   </svg>
                   <span class="stage-zzz">z z Z</span>
+                  <span class="stage-bubbles" id="stageBubbles" aria-hidden="true"></span>
                 </div>
                 <div class="stage-side">
-                  <div class="stage-speech" id="stageSpeech">대기 중… 검색을 시작해 주세요</div>
-                  <div class="stage-counter">
-                    <span class="counter-num" id="stageCount">0</span>
-                    <span class="counter-label">이번 세션 신규 발견</span>
+                  <div class="stage-head">
+                    <span class="stage-status" id="stageSpeech">대기 중… 검색을 시작해 주세요</span>
+                    <span class="stage-meta"><b class="counter-num" id="stageCount">0</b> 신규 · <span id="discoveryLogCount">로그 없음</span></span>
                   </div>
-                  <div class="stage-bubbles" id="stageBubbles" aria-hidden="true"></div>
+                  <div class="discovery-log" id="discoveryLogPanel"></div>
                 </div>
               </div>
 
@@ -429,14 +429,6 @@
                   <p class="discovery-progress" id="discoveryProgress"></p>
                 </div>
               </div>
-
-              <div class="panel discovery-log-panel">
-                <div class="panel-title">
-                  <h3>실시간 로그</h3>
-                  <span id="discoveryLogCount">-</span>
-                </div>
-                <div class="discovery-log" id="discoveryLogPanel"></div>
-              </div>
             </section>
 
             <section class="band" id="discovery-queue">
@@ -445,18 +437,19 @@
                   <p class="eyebrow">Review Queue</p>
                   <h2>검수 대기 큐</h2>
                 </div>
-                <div class="key-tracker-toolbar">
-                  <label class="matrix-sort">
-                    <span>상태</span>
-                    <select id="discoveryStatusFilter">
-                      <option value="discovered">검수 대기</option>
-                      <option value="approved">승인됨</option>
-                      <option value="dismissed">제외됨</option>
-                      <option value="all">전체</option>
-                    </select>
-                  </label>
-                  <span class="muted" id="discoveryQueueCount">-</span>
-                </div>
+              </div>
+              <div class="key-tracker-toolbar">
+                <label class="matrix-sort">
+                  <span>상태</span>
+                  <select id="discoveryStatusFilter">
+                    <option value="discovered">검수 대기</option>
+                    <option value="approved">승인됨</option>
+                    <option value="dismissed">제외됨</option>
+                    <option value="all">전체</option>
+                  </select>
+                </label>
+                <span class="muted" id="discoveryQueueCount">-</span>
+                <button type="button" id="discoveryClearBtn" class="secondary-button danger">🗑 비우기</button>
               </div>
               <div class="table-wrap scroll-y" id="discoveryQueueWrap"></div>
             </section>

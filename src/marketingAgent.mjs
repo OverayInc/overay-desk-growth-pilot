@@ -169,14 +169,15 @@ Output rules:
   "email" (string), "channelType" (string), "audience" (string), "contentTone" (string),
   "languages" (string), "fitScore" (number 0-100), "fitReason" (string), "pitchAngle" (string), "tags" (array of short strings).
 - "email": the channel's BUSINESS/CONTACT email ONLY if it literally appears in the provided text. If no email is present, return "". NEVER guess, complete, or invent an address. Prefer a business/booking/press address over a personal one.
-- "channelType": e.g. "YouTube let's-play", "Twitch variety streamer", "Steam curator", "horror-focused YouTuber".
-- "audience": who watches (size/region/interest) in one short phrase — use the metrics (subscribers, avg views, engagement) when given.
-- "contentTone": e.g. "reaction-heavy, comedic", "calm commentary", "scary/immersive".
-- "languages": primary content language(s), e.g. "English", "Korean", "EN/KO".
-- "fitScore": 0-100, how well this channel fits our game (see context). Weigh BOTH topical fit AND real reach/engagement: a channel that already plays anomaly/horror/observation games with healthy engagement scores high; an inactive channel (no recent uploads) or off-topic one scores low. If metrics show the channel is dormant or tiny with weak engagement, lower the score even if the topic fits.
-- "fitReason": one sentence, why that score — cite the concrete signal (topic match, avg views, engagement, cadence).
-- "pitchAngle": one short, concrete outreach hook tailored to THIS creator (how to frame the free-key offer so it lands), e.g. "Lean on their love of slow-burn dread and offer giveaway keys for their chat." Empty string if you truly can't tell.
-- "tags": a few lowercase keywords (genres/traits) for filtering.
+- LANGUAGE: Write "channelType", "audience", "contentTone", "languages", "fitReason", and "pitchAngle" in natural KOREAN (한국어). The ONLY exception is "tags", which stays in short English lowercase. "email" is the raw address.
+- "channelType": 채널 유형, 예: "유튜브 공포게임 실황", "트위치 버라이어티 스트리머", "스팀 큐레이터".
+- "audience": 시청자층(규모/지역/관심사)을 짧은 한 구절로 — 주어진 지표(구독자, 평균 조회수, 참여율)를 활용.
+- "contentTone": 톤/분위기, 예: "리액션 중심, 코믹", "차분한 해설", "공포·몰입형".
+- "languages": 주 콘텐츠 언어, 예: "영어", "한국어", "영어/한국어".
+- "fitScore": 0-100, 우리 게임(맥락 참고)과의 적합도. 주제 적합성과 실제 도달/참여를 함께 반영: 이상현상·공포·관찰 게임을 이미 다루고 참여율이 건강하면 높게; 비활성(최근 업로드 없음)·무관·소형 저참여 채널은 낮게.
+- "fitReason": 그 점수를 준 이유를 한 문장으로(주제 일치·평균 조회수·참여율·업로드 주기 등 구체적 근거 인용). 한국어.
+- "pitchAngle": 이 크리에이터에 맞춘 구체적인 섭외 한 줄(무료 키 제안을 어떻게 어필할지). 한국어. 예: "느린 긴장감을 좋아하니 채팅 증정용 키를 강조". 정말 모르겠으면 빈 문자열.
+- "tags": 필터용 짧은 영어 소문자 키워드 몇 개 (예: "horror", "indie", "reaction").
 - Base every field ONLY on the provided text/metrics. When unsure, use "" or a low fitScore — do not speculate.`;
 
 // Analyze one creator from a text bundle. Returns the normalized analysis.

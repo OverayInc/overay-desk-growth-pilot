@@ -3793,36 +3793,6 @@ function mergeDiscoveryCandidates(data, found) {
   }
 }
 
-// One short, awaited pass — used by the dashboard's "quick run" button. Bounded
-// by a soft deadline so it never hangs the HTTP request for long.
-async function runDiscoveryQuick(data, { seeds = [], perSeed = 8, minFitScore = 0, expandCount = 0, leadDepth = 0, analyze = true } = {}) {
-  const seedList = seeds.length ? seeds : discoverySeeds([]);
-  const result = await runDiscovery(seedList, {
-    config: discoveryConfigForServer(data),
-    gameContext: discoveryGameContext(),
-    knownProfiles: data.creatorProfiles || [],
-    perSeed,
-    minFitScore,
-    expandCount,
-    leadDepth,
-    analyze,
-    enrich: analyze,
-    deadline: Date.now() + 120_000,
-    maxSearches: Math.min(DISCOVERY_MAX_SEARCHES, 20),
-  });
-  mergeDiscoveryCandidates(data, result.candidates.filter((c) => c.status !== "error"));
-  data.discoveryState = {
-    ...data.discoveryState,
-    lastRunAt: nowIso(),
-    lastStatus: result.stats.quotaHit ? "quota" : "ok",
-    lastMessage: result.stats.quotaHit
-      ? "YouTube 일일 검색 할당량 초과 — 내일 리셋됩니다"
-      : `발견 ${result.stats.kept}명 · 이메일 ${result.stats.withEmail} · 신규 ${result.stats.newCreators}`,
-    lastStats: result.stats,
-  };
-  return result;
-}
-
 // --- Long / windowed background session -------------------------------------
 // A session keeps discovering until `overallDeadline` (e.g. "+3h" or "until
 // 09:00"). It works in chunks so progress persists incrementally and a crash
@@ -3855,7 +3825,16 @@ function formatDuration(ms) {
   return `${sec}초`;
 }
 
-async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 8, minFitScore = 0, trigger = "manual" } = {}) {
+async function runDiscoverySession({
+  baseSeeds = [],
+  overallDeadline,
+  perSeed = 8,
+  minFitScore = 0,
+  trigger = "manual",
+  expandCount: expandCountInit = DISCOVERY_EXPAND_COUNT,
+  leadDepth = DISCOVERY_LEAD_DEPTH,
+  maxSearchesCap = DISCOVERY_MAX_SEARCHES,
+} = {}) {
   if (discoveryRunning) return { started: false, reason: "already_running" };
   discoveryRunning = true;
   discoveryStop = false;
@@ -3877,7 +3856,7 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
   const usedSeeds = [];
   let seeds = baseSeeds.length ? baseSeeds : discoverySeeds([]);
   usedSeeds.push(...seeds);
-  let expandCount = DISCOVERY_EXPAND_COUNT;
+  let expandCount = expandCountInit;
   let sessionFound = 0;
   let lastProgress = "";
   let totalSearches = 0; // cumulative search.list calls — capped to protect quota
@@ -3907,9 +3886,9 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
   try {
     while (Date.now() < overallDeadline && !discoveryStop) {
       // Out of search budget? Stop before spending more API quota.
-      if (totalSearches >= DISCOVERY_MAX_SEARCHES) {
+      if (totalSearches >= maxSearchesCap) {
         status = "capped";
-        dlog(`⏱ 경과 ${elapsed()} · 검색 상한 ${DISCOVERY_MAX_SEARCHES}회 도달 → 종료`, "warn");
+        dlog(`⏱ 경과 ${elapsed()} · 검색 상한 ${maxSearchesCap}회 도달 → 종료`, "warn");
         break;
       }
       chunkNo += 1;
@@ -3922,9 +3901,9 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
         perSeed,
         minFitScore,
         expandCount,
-        leadDepth: DISCOVERY_LEAD_DEPTH,
+        leadDepth,
         deadline: chunkDeadline,
-        maxSearches: DISCOVERY_MAX_SEARCHES - totalSearches,
+        maxSearches: maxSearchesCap - totalSearches,
         shouldStop: () => discoveryStop,
         onProgress: (m) => {
           lastProgress = m;
@@ -3974,7 +3953,7 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
       }
 
       if (discoveryStop || Date.now() >= overallDeadline) break;
-      if (totalSearches >= DISCOVERY_MAX_SEARCHES) continue; // loop top will stop + log
+      if (totalSearches >= maxSearchesCap) continue; // loop top will stop + log
 
       // Queue drained → ask gemma for a fresh batch to keep the window busy.
       let next = [];
@@ -5006,39 +4985,25 @@ async function handleApi(req, res, url) {
     const minFitScore = Math.max(0, Math.min(100, toNumber(input.minFitScore, 0)));
     const durationMinutes = clampSessionMinutes(input.durationMinutes);
 
-    // Time-boxed (30m/1h/2h/3h) → run in the BACKGROUND and return immediately;
-    // the client polls GET /api/discovery for progress + candidates.
-    if (durationMinutes > 0) {
-      const overallDeadline = Date.now() + durationMinutes * 60_000;
-      runDiscoverySession({ baseSeeds: seeds, overallDeadline, perSeed, minFitScore, trigger: "manual" }).catch((error) =>
-        console.error("Discovery session failed:", error.message || error),
-      );
-      return respondJson(res, 202, { started: true, durationMinutes, endsAt: new Date(overallDeadline).toISOString() });
-    }
-
-    // No duration → a single short, awaited "quick run".
-    try {
-      const result = await runDiscoveryQuick(data, {
-        seeds,
-        perSeed,
-        minFitScore,
-        expandCount: Math.max(0, Math.min(20, toNumber(input.expandSeeds, 0))),
-        leadDepth: Math.max(0, Math.min(3, toNumber(input.leadDepth, 0))),
-        analyze: input.analyze !== false,
-      });
-      await writeData(data);
-      return respondJson(res, 200, {
-        stats: result.stats,
-        skipped: result.skipped,
-        errors: result.errors,
-        candidates: data.discoveryCandidates,
-        state: data.discoveryState,
-      });
-    } catch (error) {
-      data.discoveryState = { ...data.discoveryState, lastRunAt: nowIso(), lastStatus: "error", lastMessage: error.message || "실패" };
-      await writeData(data);
-      return respondError(res, 502, error.message || "발견 실행에 실패했습니다.", aiConfig());
-    }
+    // Both quick run and time-boxed run go through the SAME background session so
+    // they stream live logs + animation (the quick run is just a short, light one).
+    const quick = durationMinutes <= 0;
+    const overallDeadline = Date.now() + (quick ? 90_000 : durationMinutes * 60_000);
+    runDiscoverySession({
+      baseSeeds: seeds,
+      overallDeadline,
+      perSeed,
+      minFitScore,
+      trigger: quick ? "quick" : "manual",
+      // Quick = light pass (seeds only, tight search budget); timed = full agent.
+      ...(quick ? { expandCount: 0, leadDepth: 1, maxSearchesCap: Math.min(DISCOVERY_MAX_SEARCHES, 12) } : {}),
+    }).catch((error) => console.error("Discovery session failed:", error.message || error));
+    return respondJson(res, 202, {
+      started: true,
+      quick,
+      durationMinutes: quick ? 0 : durationMinutes,
+      endsAt: new Date(overallDeadline).toISOString(),
+    });
   }
   if (route === "POST /api/discovery/stop") {
     if (!discoveryRunning) return respondJson(res, 200, { ok: true, running: false });
@@ -5105,6 +5070,17 @@ async function handleApi(req, res, url) {
     candidate.updatedAt = nowIso();
     await writeData(data);
     return respondJson(res, 200, { ok: true, id });
+  }
+  // Bulk-clear the review queue. status = "all" wipes everything; otherwise only
+  // candidates with that status (discovered / dismissed / approved) are removed.
+  if (route === "POST /api/discovery/clear") {
+    const input = await readJson(req);
+    const status = String(input.status || "discovered");
+    const before = data.discoveryCandidates.length;
+    data.discoveryCandidates = status === "all" ? [] : data.discoveryCandidates.filter((c) => c.status !== status);
+    const removed = before - data.discoveryCandidates.length;
+    await writeData(data);
+    return respondJson(res, 200, { ok: true, removed, remaining: data.discoveryCandidates.length });
   }
   if (route === "POST /api/ai/translate") {
     const input = await readJson(req);
