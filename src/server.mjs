@@ -92,6 +92,12 @@ const DISABLE_DISCOVERY_SCHEDULER = process.env.DISABLE_DISCOVERY_SCHEDULER !== 
 const DISCOVERY_EXPAND_COUNT = Number(process.env.DISCOVERY_EXPAND_COUNT || 8);
 const DISCOVERY_LEAD_DEPTH = Number(process.env.DISCOVERY_LEAD_DEPTH || 2);
 const DISCOVERY_CHUNK_MS = Math.max(60_000, Number(process.env.DISCOVERY_CHUNK_MS || 300_000));
+// Cap total searches per session. YouTube search.list costs 100 units; the free
+// daily quota is 10,000 (= 100 searches/day), so one session must not blow the
+// whole day. Default 50 ≈ 5,000 units. Override with DISCOVERY_MAX_SEARCHES.
+const DISCOVERY_MAX_SEARCHES = Math.max(1, Number(process.env.DISCOVERY_MAX_SEARCHES || 50));
+// Stop a session after this many consecutive chunks that find nothing new.
+const DISCOVERY_MAX_EMPTY_CHUNKS = Math.max(1, Number(process.env.DISCOVERY_MAX_EMPTY_CHUNKS || 3));
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || "";
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || "";
 const WEB_SEARCH_PROVIDER = process.env.WEB_SEARCH_PROVIDER || "";
@@ -3734,7 +3740,16 @@ function sanitizeDiscoveryFields(c) {
     handle: c.handle || "",
     url: c.url || "",
     description: String(c.description || "").slice(0, 1000),
+    country: c.country || "",
     subscribers: toNumber(c.subscribers),
+    totalViews: toNumber(c.totalViews),
+    videoCount: toNumber(c.videoCount),
+    // Real performance metrics computed from recent uploads.
+    avgViews: toNumber(c.metrics?.avgViews),
+    medianViews: toNumber(c.metrics?.medianViews),
+    engagementRate: toNumber(c.metrics?.engagementRate),
+    uploadsPerMonth: toNumber(c.metrics?.uploadsPerMonth),
+    lastUploadAt: c.metrics?.lastUploadAt || "",
     email: c.email || "",
     channelType: c.channelType || "",
     audience: c.audience || "",
@@ -3742,6 +3757,8 @@ function sanitizeDiscoveryFields(c) {
     languages: c.languages || "",
     fitScore: toNumber(c.fitScore),
     fitReason: c.fitReason || "",
+    pitchAngle: c.pitchAngle || "",
+    leadDepth: toNumber(c.leadDepth),
     tags: Array.isArray(c.tags) ? c.tags : [],
     isKnown: Boolean(c.isKnown),
     scrapedUrls: Array.isArray(c.scrapedUrls) ? c.scrapedUrls : [],
@@ -3791,13 +3808,16 @@ async function runDiscoveryQuick(data, { seeds = [], perSeed = 8, minFitScore = 
     analyze,
     enrich: analyze,
     deadline: Date.now() + 120_000,
+    maxSearches: Math.min(DISCOVERY_MAX_SEARCHES, 20),
   });
-  mergeDiscoveryCandidates(data, result.candidates);
+  mergeDiscoveryCandidates(data, result.candidates.filter((c) => c.status !== "error"));
   data.discoveryState = {
     ...data.discoveryState,
     lastRunAt: nowIso(),
-    lastStatus: "ok",
-    lastMessage: `발견 ${result.stats.kept}명 · 이메일 ${result.stats.withEmail} · 신규 ${result.stats.newCreators}`,
+    lastStatus: result.stats.quotaHit ? "quota" : "ok",
+    lastMessage: result.stats.quotaHit
+      ? "YouTube 일일 검색 할당량 초과 — 내일 리셋됩니다"
+      : `발견 ${result.stats.kept}명 · 이메일 ${result.stats.withEmail} · 신규 ${result.stats.newCreators}`,
     lastStats: result.stats,
   };
   return result;
@@ -3860,6 +3880,8 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
   let expandCount = DISCOVERY_EXPAND_COUNT;
   let sessionFound = 0;
   let lastProgress = "";
+  let totalSearches = 0; // cumulative search.list calls — capped to protect quota
+  let emptyStreak = 0; // consecutive chunks with no new creators
 
   // Mark running in the persisted state.
   {
@@ -3884,6 +3906,12 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
   let chunkNo = 0;
   try {
     while (Date.now() < overallDeadline && !discoveryStop) {
+      // Out of search budget? Stop before spending more API quota.
+      if (totalSearches >= DISCOVERY_MAX_SEARCHES) {
+        status = "capped";
+        dlog(`⏱ 경과 ${elapsed()} · 검색 상한 ${DISCOVERY_MAX_SEARCHES}회 도달 → 종료`, "warn");
+        break;
+      }
       chunkNo += 1;
       const chunkDeadline = Math.min(overallDeadline, Date.now() + DISCOVERY_CHUNK_MS);
       const data = await readData();
@@ -3896,12 +3924,14 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
         expandCount,
         leadDepth: DISCOVERY_LEAD_DEPTH,
         deadline: chunkDeadline,
+        maxSearches: DISCOVERY_MAX_SEARCHES - totalSearches,
         shouldStop: () => discoveryStop,
         onProgress: (m) => {
           lastProgress = m;
           dlog(`⏱ ${elapsed()} · ${m}`);
         },
       });
+      totalSearches += result.stats.searched || 0;
       // Surface per-source skips/errors into the UI log.
       for (const s of result.skipped || []) dlog(`소스 건너뜀 — ${s}`, "warn");
       for (const e of (result.errors || []).slice(0, 5)) dlog(`오류 — ${e}`, "error");
@@ -3928,7 +3958,23 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
         `⏱ 경과 ${elapsed()} · 청크 #${chunkNo} 완료 · 누적 신규 ${sessionFound} · 이번 검색 ${result.stats.seedsSearched} · 분석 ${result.stats.analyzed} · 이메일 ${result.stats.withEmail}`,
       );
 
+      // API quota exhausted (e.g. YouTube daily search limit) → stop now; the
+      // quota won't reset until tomorrow, so re-seeding would just spam a dead API.
+      if (result.stats.quotaHit) {
+        status = "quota";
+        dlog(`⏱ 경과 ${elapsed()} · API 일일 할당량 초과 → 종료 (내일 리셋)`, "error");
+        break;
+      }
+      // Diminishing returns: several chunks in a row found nothing new.
+      emptyStreak = result.stats.newCreators > 0 ? 0 : emptyStreak + 1;
+      if (emptyStreak >= DISCOVERY_MAX_EMPTY_CHUNKS) {
+        status = "dry";
+        dlog(`⏱ 경과 ${elapsed()} · 신규 후보 없는 청크 ${emptyStreak}회 연속 → 종료`);
+        break;
+      }
+
       if (discoveryStop || Date.now() >= overallDeadline) break;
+      if (totalSearches >= DISCOVERY_MAX_SEARCHES) continue; // loop top will stop + log
 
       // Queue drained → ask gemma for a fresh batch to keep the window busy.
       let next = [];
@@ -3957,18 +4003,23 @@ async function runDiscoverySession({ baseSeeds = [], overallDeadline, perSeed = 
     discoveryRunning = false;
     discoveryAbort = null;
     const data = await readData();
-    const finalStatus = discoveryStop ? "stopped" : status === "dry" ? "ok" : status;
+    // "dry"/"capped" are normal completions; quota/error/stopped keep their tag.
+    const finalStatus = discoveryStop ? "stopped" : status === "dry" || status === "capped" ? "ok" : status;
+    const lastMessage =
+      status === "quota"
+        ? `YouTube 일일 검색 할당량 초과 — 내일 리셋됩니다 (이번 세션 신규 ${sessionFound}명, 검색 ${totalSearches}회)`
+        : `세션 종료 (${finalStatus}) — ${elapsed()} 동안 신규 ${sessionFound}명, 검색 ${totalSearches}회`;
     data.discoveryState = {
       ...data.discoveryState,
       running: false,
-      lastStatus: finalStatus,
+      lastStatus: status === "quota" ? "quota" : finalStatus,
       endsAt: "",
       progress: "",
       elapsedMs: Date.now() - sessionStart,
-      lastMessage: `세션 종료 (${finalStatus}) — ${elapsed()} 동안 신규 ${sessionFound}명`,
+      lastMessage,
     };
     await writeData(data);
-    dlog(`■ 세션 종료 (${finalStatus}) — 총 ${elapsed()} 동안 신규 ${sessionFound}명`);
+    dlog(`■ 세션 종료 (${status === "quota" ? "quota" : finalStatus}) — 총 ${elapsed()} 동안 신규 ${sessionFound}명, 검색 ${totalSearches}회`);
   }
   return { started: true };
 }
@@ -5002,6 +5053,24 @@ async function handleApi(req, res, url) {
     dlog("⏹ 사용자 중지 요청", "warn");
     return respondJson(res, 200, { ok: true, stopping: true });
   }
+  // gemma proposes seed search queries (no API quota cost — local model).
+  if (route === "POST /api/discovery/seeds") {
+    const input = await readJson(req);
+    const existing = Array.isArray(input.existingSeeds)
+      ? input.existingSeeds.map((s) => String(s).trim()).filter(Boolean)
+      : toList(input.existingSeeds);
+    const count = Math.max(3, Math.min(20, toNumber(input.count, 10)));
+    try {
+      const seeds = await expandSeeds({
+        gameContext: discoveryGameContext() || "",
+        existingSeeds: existing,
+        count,
+      });
+      return respondJson(res, 200, { seeds });
+    } catch (error) {
+      return respondError(res, 502, error.message || "시드 생성에 실패했습니다. gemma4 서버를 확인하세요.", aiConfig());
+    }
+  }
   const discoveryApproveRoute = url.pathname.match(/^\/api\/discovery\/candidates\/([^/]+)\/approve$/);
   if (discoveryApproveRoute && req.method === "POST") {
     const id = decodeURIComponent(discoveryApproveRoute[1]);
@@ -5011,11 +5080,15 @@ async function handleApi(req, res, url) {
       channelName: candidate.channelName,
       platform: candidate.platform,
       email: candidate.email,
+      country: candidate.country,
       channels: candidate.url ? [{ platform: candidate.platform, url: candidate.url }] : [],
       subscribers: candidate.subscribers,
+      averageViews: candidate.avgViews,
       fitScore: candidate.fitScore,
       tags: candidate.tags,
-      note: [candidate.channelType, candidate.audience, candidate.fitReason].filter(Boolean).join(" · "),
+      note: [candidate.channelType, candidate.audience, candidate.fitReason, candidate.pitchAngle ? `섭외 포인트: ${candidate.pitchAngle}` : ""]
+        .filter(Boolean)
+        .join(" · "),
     });
     candidate.status = "approved";
     candidate.creatorProfileId = profile.id;

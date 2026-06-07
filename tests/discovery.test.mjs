@@ -7,7 +7,8 @@ import {
   rankLinksForContact,
   htmlToText,
 } from "../src/discovery/enrich.mjs";
-import { candidateKey, dedupeCandidates, markKnown } from "../src/discovery/pipeline.mjs";
+import { candidateKey, dedupeCandidates, markKnown, runDiscovery } from "../src/discovery/pipeline.mjs";
+import { fetchYoutubeChannelsByIds, fetchYoutubeFeatured } from "../src/discovery/sources.mjs";
 import { normalizeCreatorAnalysis, normalizeSeedList } from "../src/marketingAgent.mjs";
 import { discoverySeeds, discoveryConfigFromEnv, parseHhmm, discoveryWindow, inWindow, clampSessionMinutes } from "../src/discovery/config.mjs";
 
@@ -192,4 +193,83 @@ test("clampSessionMinutes clamps to 5..360 and rejects junk", () => {
   assert.equal(clampSessionMinutes(2), 5);
   assert.equal(clampSessionMinutes(0), 0);
   assert.equal(clampSessionMinutes("nope"), 0);
+});
+
+// --- pipeline: API budget guards -------------------------------------------
+test("runDiscovery stops immediately on a quota error", async () => {
+  // YouTube returns a 403 quota error → discoverAll records it → pipeline bails.
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({ error: { message: "Quota exceeded for quota metric 'Search Queries'" } }),
+  });
+  const res = await runDiscovery(["a", "b", "c"], {
+    config: { youtube: { apiKey: "k", fetchImpl } },
+    analyze: false,
+    enrich: false,
+  });
+  assert.equal(res.stats.quotaHit, true);
+  assert.equal(res.stats.searched, 1); // stopped after the first search, not all 3
+});
+
+test("runDiscovery respects maxSearches cap", async () => {
+  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ items: [] }) });
+  const res = await runDiscovery(["a", "b", "c", "d", "e"], {
+    config: { youtube: { apiKey: "k", fetchImpl } },
+    analyze: false,
+    enrich: false,
+    maxSearches: 2,
+  });
+  assert.equal(res.stats.searched, 2);
+  assert.equal(res.stats.quotaHit, false);
+});
+
+// --- YouTube cheap-endpoint enrichment + metrics ----------------------------
+const ytResp = (body) => ({ ok: true, status: 200, json: async () => body });
+function ytFetch(url) {
+  const u = String(url);
+  if (u.includes("/channels")) {
+    return ytResp({
+      items: [
+        {
+          id: "UC1",
+          snippet: { title: "Chan", description: "d", customUrl: "@chan", country: "US" },
+          statistics: { subscriberCount: "1000", viewCount: "50000", videoCount: "40" },
+          contentDetails: { relatedPlaylists: { uploads: "UU1" } },
+        },
+      ],
+    });
+  }
+  if (u.includes("/playlistItems")) {
+    return ytResp({ items: [{ contentDetails: { videoId: "v1" } }, { contentDetails: { videoId: "v2" } }] });
+  }
+  if (u.includes("/videos")) {
+    return ytResp({
+      items: [
+        { snippet: { title: "T1", publishedAt: "2026-05-01T00:00:00Z" }, statistics: { viewCount: "1000", likeCount: "100", commentCount: "10" } },
+        { snippet: { title: "T2", publishedAt: "2026-05-11T00:00:00Z" }, statistics: { viewCount: "3000", likeCount: "200", commentCount: "20" } },
+      ],
+    });
+  }
+  if (u.includes("/channelSections")) {
+    return ytResp({ items: [{ contentDetails: { channels: ["UCa", "UCb"] } }, { contentDetails: { channels: ["UCb", "UCc"] } }] });
+  }
+  return ytResp({ items: [] });
+}
+
+test("fetchYoutubeChannelsByIds builds a candidate with real metrics (no search.list)", async () => {
+  const cands = await fetchYoutubeChannelsByIds(["UC1"], { apiKey: "k", fetchImpl: ytFetch });
+  assert.equal(cands.length, 1);
+  const c = cands[0];
+  assert.equal(c.subscribers, 1000);
+  assert.equal(c.metrics.avgViews, 2000); // (1000+3000)/2
+  assert.equal(c.metrics.medianViews, 2000);
+  assert.equal(c.metrics.engagementRate, 8.25); // (330/4000)*100
+  assert.equal(c.metrics.uploadsPerMonth, 6); // 2 uploads over 10 days → 6/month
+  assert.deepEqual(c.recentTitles, ["T1", "T2"]);
+});
+
+test("fetchYoutubeFeatured returns deduped featured channel IDs", async () => {
+  const ids = await fetchYoutubeFeatured("UC1", { apiKey: "k", fetchImpl: ytFetch });
+  assert.deepEqual(ids.sort(), ["UCa", "UCb", "UCc"]);
 });

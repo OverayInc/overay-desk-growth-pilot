@@ -39,11 +39,130 @@ async function postForm(url, form, { fetchImpl = fetch, headers = {}, timeoutMs 
 }
 
 // --- YouTube (Data API v3) --------------------------------------------------
-// search.list finds channels by query; channels.list then fetches description +
-// stats (search snippets are thin). One channels.list call batches up to 50 ids.
+// Cost model (quota units): search.list = 100 (expensive!), channels.list = 1,
+// playlistItems.list = 1, videos.list = 1, channelSections.list = 1. So we spend
+// search.list sparingly (seeds only) and go DEEP/WIDE with the 1-unit endpoints:
+// per-channel video metrics + featured-channel graph crawl.
+const YT = "https://www.googleapis.com/youtube/v3";
+
+const median = (arr) => {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+};
+
+// Compute real performance metrics from a channel's recent uploads.
+function computeVideoMetrics(videos) {
+  const views = videos.map((v) => Number(v.statistics?.viewCount || 0));
+  const likes = videos.map((v) => Number(v.statistics?.likeCount || 0));
+  const comments = videos.map((v) => Number(v.statistics?.commentCount || 0));
+  const dates = videos.map((v) => v.snippet?.publishedAt).filter(Boolean).map((d) => new Date(d).getTime());
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const avgViews = views.length ? Math.round(sum(views) / views.length) : 0;
+  const totalViews = sum(views);
+  const engagementRate = totalViews ? Number((((sum(likes) + sum(comments)) / totalViews) * 100).toFixed(2)) : 0;
+  let uploadsPerMonth = 0;
+  let lastUploadAt = "";
+  if (dates.length) {
+    lastUploadAt = new Date(Math.max(...dates)).toISOString();
+    const spanDays = (Math.max(...dates) - Math.min(...dates)) / 86_400_000;
+    uploadsPerMonth = spanDays > 0 ? Number(((dates.length / spanDays) * 30).toFixed(1)) : dates.length;
+  }
+  return {
+    avgViews,
+    medianViews: median(views),
+    avgLikes: likes.length ? Math.round(sum(likes) / likes.length) : 0,
+    avgComments: comments.length ? Math.round(sum(comments) / comments.length) : 0,
+    engagementRate,
+    uploadsPerMonth,
+    lastUploadAt,
+    sampledVideos: videos.length,
+  };
+}
+
+// Turn channels.list items into rich candidates: real titles + view/engagement
+// metrics from each channel's recent uploads (playlistItems 1u + videos 1u each).
+async function buildYoutubeCandidates(items, { apiKey, fetchImpl, signal, withMetrics = true, perChannel = 12 }) {
+  const out = [];
+  for (const item of items || []) {
+    if (signal?.aborted) break;
+    const uploads = item.contentDetails?.relatedPlaylists?.uploads;
+    let recentTitles = [];
+    let metrics = {};
+    if (uploads) {
+      try {
+        const plUrl = new URL(`${YT}/playlistItems`);
+        plUrl.search = new URLSearchParams({ part: "contentDetails", playlistId: uploads, maxResults: String(perChannel), key: apiKey }).toString();
+        const pl = await getJson(plUrl.toString(), { fetchImpl, signal });
+        const videoIds = (pl.items || []).map((p) => p.contentDetails?.videoId).filter(Boolean);
+        if (videoIds.length && withMetrics) {
+          const vUrl = new URL(`${YT}/videos`);
+          vUrl.search = new URLSearchParams({ part: "snippet,statistics", id: videoIds.join(","), key: apiKey }).toString();
+          const vids = await getJson(vUrl.toString(), { fetchImpl, signal });
+          recentTitles = (vids.items || []).map((v) => v.snippet?.title).filter(Boolean);
+          metrics = computeVideoMetrics(vids.items || []);
+        }
+      } catch {
+        /* metrics are best-effort */
+      }
+    }
+    out.push({
+      source: "youtube",
+      platform: "YouTube",
+      externalId: item.id,
+      channelName: item.snippet?.title || "",
+      handle: item.snippet?.customUrl || "",
+      url: `https://www.youtube.com/channel/${item.id}`,
+      description: item.snippet?.description || "",
+      country: item.snippet?.country || "",
+      recentTitles,
+      links: [],
+      subscribers: Number(item.statistics?.subscriberCount || 0),
+      totalViews: Number(item.statistics?.viewCount || 0),
+      videoCount: Number(item.statistics?.videoCount || 0),
+      uploadsPlaylistId: uploads || "",
+      metrics,
+    });
+  }
+  return out;
+}
+
+// Resolve channel IDs into candidates WITHOUT a search.list (1 unit / 50 ids).
+// This is how graph expansion (featured channels, mentions) stays quota-cheap.
+export async function fetchYoutubeChannelsByIds(ids, { apiKey, fetchImpl = fetch, signal, withMetrics = true } = {}) {
+  const unique = [...new Set((ids || []).filter(Boolean))].slice(0, 50);
+  if (!apiKey || !unique.length) return [];
+  const chUrl = new URL(`${YT}/channels`);
+  chUrl.search = new URLSearchParams({ part: "snippet,statistics,contentDetails", id: unique.join(","), key: apiKey, maxResults: "50" }).toString();
+  const channels = await getJson(chUrl.toString(), { fetchImpl, signal });
+  return buildYoutubeCandidates(channels.items, { apiKey, fetchImpl, signal, withMetrics });
+}
+
+// The channels a creator FEATURES on their page (channelSections, 1 unit) — a
+// hand-curated "similar creators" graph we can crawl instead of paying 100 units
+// per search. Returns channel IDs.
+export async function fetchYoutubeFeatured(channelId, { apiKey, fetchImpl = fetch, signal } = {}) {
+  if (!apiKey || !channelId) return [];
+  try {
+    const url = new URL(`${YT}/channelSections`);
+    url.search = new URLSearchParams({ part: "contentDetails", channelId, key: apiKey }).toString();
+    const data = await getJson(url.toString(), { fetchImpl, signal });
+    const ids = new Set();
+    for (const sec of data.items || []) {
+      for (const cid of sec.contentDetails?.channels || []) ids.add(cid);
+    }
+    return [...ids];
+  } catch {
+    return [];
+  }
+}
+
+// search.list (100 units) finds SEED channels by query; then we enrich with the
+// cheap endpoints above. Used sparingly — graph expansion does the rest.
 export async function discoverYouTube(query, { apiKey, max = 10, fetchImpl = fetch, regionCode, signal } = {}) {
   if (!apiKey) return { source: "youtube", skipped: "YOUTUBE_API_KEY 없음", candidates: [] };
-  const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+  const searchUrl = new URL(`${YT}/search`);
   searchUrl.search = new URLSearchParams({
     part: "snippet",
     q: query,
@@ -57,42 +176,7 @@ export async function discoverYouTube(query, { apiKey, max = 10, fetchImpl = fet
   const ids = (search.items || []).map((i) => i.snippet?.channelId || i.id?.channelId).filter(Boolean);
   if (!ids.length) return { source: "youtube", candidates: [] };
 
-  const chUrl = new URL("https://www.googleapis.com/youtube/v3/channels");
-  chUrl.search = new URLSearchParams({
-    part: "snippet,statistics,contentDetails",
-    id: ids.join(","),
-    key: apiKey,
-    maxResults: "50",
-  }).toString();
-  const channels = await getJson(chUrl.toString(), { fetchImpl, signal });
-
-  const candidates = [];
-  for (const item of channels.items || []) {
-    let recentTitles = [];
-    const uploads = item.contentDetails?.relatedPlaylists?.uploads;
-    if (uploads) {
-      try {
-        const plUrl = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
-        plUrl.search = new URLSearchParams({ part: "snippet", playlistId: uploads, maxResults: "8", key: apiKey }).toString();
-        const pl = await getJson(plUrl.toString(), { fetchImpl, signal });
-        recentTitles = (pl.items || []).map((p) => p.snippet?.title).filter(Boolean);
-      } catch {
-        /* recent titles are optional */
-      }
-    }
-    candidates.push({
-      source: "youtube",
-      platform: "YouTube",
-      externalId: item.id,
-      channelName: item.snippet?.title || "",
-      handle: item.snippet?.customUrl || "",
-      url: `https://www.youtube.com/channel/${item.id}`,
-      description: item.snippet?.description || "",
-      recentTitles,
-      links: [],
-      subscribers: Number(item.statistics?.subscriberCount || 0),
-    });
-  }
+  const candidates = await fetchYoutubeChannelsByIds(ids, { apiKey, fetchImpl, signal });
   return { source: "youtube", candidates };
 }
 

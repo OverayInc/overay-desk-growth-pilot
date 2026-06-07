@@ -12,7 +12,7 @@
 // This module NEVER sends email. Output is a list of structured candidates for
 // human review → manual upsert into creatorProfiles. Sending stays manual.
 
-import { discoverAll } from "./sources.mjs";
+import { discoverAll, fetchYoutubeFeatured, fetchYoutubeChannelsByIds } from "./sources.mjs";
 import { enrichCandidate } from "./enrich.mjs";
 import { analyzeCreatorChannel, expandSeeds, proposeLeads } from "../marketingAgent.mjs";
 
@@ -84,6 +84,9 @@ async function processCandidate(c, { config, gameContext, analyze, enrich }) {
         description: c.description,
         recentTitles: c.recentTitles,
         scrapedText: record.scrapedText || "",
+        subscribers: c.subscribers,
+        country: c.country,
+        metrics: c.metrics,
         ...(gameContext ? { gameContext } : {}),
         signal: config.signal,
       });
@@ -94,6 +97,7 @@ async function processCandidate(c, { config, gameContext, analyze, enrich }) {
       record.languages = a.languages;
       record.fitScore = a.fitScore;
       record.fitReason = a.fitReason;
+      record.pitchAngle = a.pitchAngle;
       record.tags = a.tags;
     } else {
       record.email = record.scrapedEmail || "";
@@ -138,6 +142,7 @@ export async function runDiscovery(seeds, opts = {}) {
     expandCount = 0,
     leadDepth = 0,
     maxAnalyze = 60,
+    maxSearches = Infinity,
     deadline = Infinity,
     now = () => Date.now(),
     shouldStop = () => false,
@@ -151,23 +156,31 @@ export async function runDiscovery(seeds, opts = {}) {
   // frequently (between searches and between candidates) so a stop bails fast.
   const active = () => now() < deadline && !shouldStop();
   const timeLeft = active;
+  const yt = config.youtube || {};
   const seenSeeds = new Set();
-  const queue = []; // { query, depth }
-  const enqueue = (query, depth) => {
+  const seenChannelIds = new Set(); // dedupe channels across search + graph crawl
+  const queue = []; // { query, depth } | { ids, depth, viaName }
+  const enqueueQuery = (query, depth) => {
     const key = String(query).trim().toLowerCase();
     if (!key || seenSeeds.has(key)) return;
     seenSeeds.add(key);
     queue.push({ query: String(query).trim(), depth });
   };
+  // Graph-expansion leads: resolve channel IDs WITHOUT a 100-unit search.list.
+  const enqueueIds = (ids, depth, viaName) => {
+    const novel = (ids || []).filter((id) => id && !seenChannelIds.has(id));
+    novel.forEach((id) => seenChannelIds.add(id));
+    if (novel.length) queue.push({ ids: novel, depth, viaName });
+  };
 
-  for (const s of seedList) enqueue(s, 0);
+  for (const s of seedList) enqueueQuery(s, 0);
 
   // Optional: gemma proposes extra starting queries before we begin searching.
   if (expandCount > 0 && analyze && timeLeft()) {
     try {
       onProgress("질의 확장 (gemma)…");
       const extra = await expandSeeds({ gameContext: gameContext || "", existingSeeds: seedList, count: expandCount, signal: config.signal });
-      for (const q of extra) enqueue(q, 0);
+      for (const q of extra) enqueueQuery(q, 0);
       if (extra.length) onProgress(`확장 시드 +${extra.length}`);
     } catch (err) {
       onProgress(`질의 확장 실패: ${err?.message || err}`);
@@ -179,58 +192,102 @@ export async function runDiscovery(seeds, opts = {}) {
   const errors = [];
   let rawFound = 0;
   let analyzed = 0;
+  let searched = 0;
+  let quotaHit = false; // a source hit its daily/rate quota → stop, don't hammer it
 
   while (queue.length && timeLeft()) {
-    const { query, depth } = queue.shift();
-    onProgress(`검색: "${query}"${depth ? ` (lead d${depth})` : ""}`);
+    const item = queue.shift();
+    const depth = item.depth || 0;
+    let candidates = [];
 
-    let found;
-    try {
-      found = await discoverAll(query, {
-        signal: config.signal,
-        youtube: { max: perSeed, ...(config.youtube || {}) },
-        twitch: { max: perSeed, ...(config.twitch || {}) },
-        web: { max: perSeed, ...(config.web || {}) },
-      });
-    } catch (err) {
-      errors.push(String(err?.message || err));
-      continue;
+    if (item.ids) {
+      // FREE graph expansion: resolve featured/neighbour channel IDs (1 unit/50).
+      onProgress(`이웃 채널 ${item.ids.length}개 확인${item.viaName ? ` (← ${item.viaName})` : ""}`);
+      try {
+        candidates = await fetchYoutubeChannelsByIds(item.ids, { apiKey: yt.apiKey, fetchImpl: yt.fetchImpl, signal: config.signal });
+      } catch (err) {
+        errors.push(String(err?.message || err));
+        if (/quota|rate.?limit|exceeded/i.test(String(err?.message || err))) {
+          quotaHit = true;
+          break;
+        }
+        continue;
+      }
+    } else {
+      if (searched >= maxSearches) continue; // out of search budget — still drain id-leads
+      onProgress(`검색: "${item.query}"${depth ? ` (lead d${depth})` : ""}`);
+      searched += 1;
+      let found;
+      try {
+        found = await discoverAll(item.query, {
+          signal: config.signal,
+          youtube: { max: perSeed, ...(config.youtube || {}) },
+          twitch: { max: perSeed, ...(config.twitch || {}) },
+          web: { max: perSeed, ...(config.web || {}) },
+        });
+      } catch (err) {
+        errors.push(String(err?.message || err));
+        continue;
+      }
+      for (const s of found.skipped || []) skipped.add(s);
+      errors.push(...(found.errors || []));
+      // Quota/rate-limit exhausted → bail; don't spam a dead API or burn gemma.
+      if ((found.errors || []).some((e) => /quota|rate.?limit|exceeded|dailyLimit|userRateLimit/i.test(String(e)))) {
+        quotaHit = true;
+        onProgress("API 할당량 초과 — 검색 중단");
+        break;
+      }
+      candidates = found.candidates;
     }
-    for (const s of found.skipped || []) skipped.add(s);
-    errors.push(...(found.errors || []));
-    rawFound += found.candidates.length;
+
+    rawFound += candidates.length;
 
     // Only process candidates we haven't already handled this run.
-    let fresh = dedupeCandidates(found.candidates).filter((c) => !resultsByKey.has(candidateKey(c)));
+    let fresh = dedupeCandidates(candidates).filter((c) => !resultsByKey.has(candidateKey(c)));
     fresh = markKnown(fresh, knownProfiles);
     // Highest-subscriber, unknown-first; protects the analyze budget for the best.
     fresh.sort((a, b) => Number(a.isKnown) - Number(b.isKnown) || (b.subscribers || 0) - (a.subscribers || 0));
 
     for (const c of fresh) {
       if (!timeLeft()) break;
+      if (c.externalId) seenChannelIds.add(c.externalId);
       const willAnalyze = analyze && analyzed < maxAnalyze;
       if (willAnalyze) onProgress(`분석: ${c.channelName || c.url}`);
       const record = await processCandidate(c, { config, gameContext, analyze: willAnalyze, enrich });
-      record.seedQuery = query;
       record.leadDepth = depth;
       if (willAnalyze) analyzed += 1;
       resultsByKey.set(candidateKey(c), record);
 
-      // Follow the lead: a strong, fresh creator seeds the next hop's queries.
-      if (leadDepth > 0 && depth < leadDepth && willAnalyze && !record.isKnown && (record.fitScore || 0) >= 60 && timeLeft()) {
-        try {
-          const leads = await proposeLeads({
-            channelName: record.channelName,
-            channelType: record.channelType,
-            audience: record.audience,
-            contentTone: record.contentTone,
-            recentTitles: record.recentTitles,
-            signal: config.signal,
-          });
-          for (const q of leads) enqueue(q, depth + 1);
-          if (leads.length) onProgress(`단서 +${leads.length} (from ${record.channelName})`);
-        } catch {
-          /* lead generation is best-effort */
+      // Follow the lead from a strong, fresh creator.
+      if (leadDepth > 0 && depth < leadDepth && willAnalyze && !record.isKnown && (record.fitScore || 0) >= 55 && timeLeft()) {
+        // 1) FREE: crawl the channels this creator FEATURES (no search.list).
+        if (c.platform === "YouTube" && c.externalId && yt.apiKey) {
+          try {
+            const featured = await fetchYoutubeFeatured(c.externalId, { apiKey: yt.apiKey, fetchImpl: yt.fetchImpl, signal: config.signal });
+            const before = queue.length;
+            enqueueIds(featured, depth + 1, record.channelName);
+            const added = queue.length - before;
+            if (added) onProgress(`추천채널 +${added} (← ${record.channelName})`);
+          } catch {
+            /* featured channels are best-effort */
+          }
+        }
+        // 2) gemma lead queries — only when search budget remains (these cost 100u).
+        if (searched < maxSearches) {
+          try {
+            const leads = await proposeLeads({
+              channelName: record.channelName,
+              channelType: record.channelType,
+              audience: record.audience,
+              contentTone: record.contentTone,
+              recentTitles: record.recentTitles,
+              signal: config.signal,
+            });
+            for (const q of leads) enqueueQuery(q, depth + 1);
+            if (leads.length) onProgress(`단서 검색어 +${leads.length} (← ${record.channelName})`);
+          } catch {
+            /* lead generation is best-effort */
+          }
         }
       }
     }
@@ -242,7 +299,7 @@ export async function runDiscovery(seeds, opts = {}) {
 
   return {
     stats: {
-      seedsSearched: seenSeeds.size,
+      seedsSearched: searched,
       rawFound,
       processed: all.length,
       analyzed,
@@ -251,6 +308,8 @@ export async function runDiscovery(seeds, opts = {}) {
       newCreators: kept.filter((c) => !c.isKnown).length,
       timedOut: queue.length > 0 && !timeLeft(),
       pendingQueries: queue.length,
+      quotaHit,
+      searched,
     },
     skipped: [...skipped],
     errors,

@@ -3407,6 +3407,8 @@ const DISCOVERY_STATUS_LABELS = {
   running: "실행 중",
   ok: "완료",
   error: "오류",
+  quota: "할당량 초과",
+  capped: "완료",
   stopped: "중지됨",
   discovered: "검수 대기",
   approved: "승인됨",
@@ -3436,6 +3438,7 @@ function getDiscoverySeeds() {
 let discoveryPollTimer = 0;
 let discoveryStopping = false;
 let discoveryLastStatus = "";
+let discoverySeenIds = null; // null = not yet initialized (avoid bubble flood on first paint)
 function stopDiscoveryPolling() {
   if (discoveryPollTimer) {
     window.clearInterval(discoveryPollTimer);
@@ -3468,9 +3471,9 @@ function renderDiscovery() {
   const sources = d.sources || {};
   const anySource = sources.youtube || sources.twitch || sources.web;
 
-  // Toast on a fresh error result (status flipped to "error" since last render).
-  if (st.lastStatus === "error" && discoveryLastStatus !== "error" && st.lastMessage) {
-    showToast(`찾아봇 오류: ${st.lastMessage}`);
+  // Toast on a fresh error/quota result (status changed since last render).
+  if ((st.lastStatus === "error" || st.lastStatus === "quota") && discoveryLastStatus !== st.lastStatus && st.lastMessage) {
+    showToast(`찾아봇: ${st.lastMessage}`);
   }
   discoveryLastStatus = st.lastStatus;
 
@@ -3533,6 +3536,7 @@ function renderDiscovery() {
   }
 
   renderDiscoveryLog(d.logs || []);
+  renderDiscoveryStage(d, st, running);
 
   const stopBtn = $("#discoveryStop");
   if (stopBtn) {
@@ -3545,11 +3549,92 @@ function renderDiscovery() {
     btn.disabled = running || !anySource;
   }
 
+  // Make the reason for any restriction visible (instead of just greying out buttons).
+  const hint = $("#discoveryRunHint");
+  if (hint) {
+    let msg = "";
+    let level = "warn";
+    if (running) {
+      msg = "세션이 실행 중이에요. 중지한 뒤 다시 실행할 수 있어요.";
+      level = "info";
+    } else if (!anySource) {
+      msg = "⚠ 검색 소스가 없어 실행할 수 없어요. ‘게임 · 설정’ 탭에서 YouTube API 키를 등록하면 켜집니다.";
+      level = "warn";
+    } else if (st.lastStatus === "quota") {
+      msg = "⚠ 오늘 YouTube 검색 할당량을 다 썼어요. 태평양시 자정(보통 오후 4~5시 KST) 리셋 후 다시 시도하세요. 지금 실행하면 바로 멈춥니다.";
+      level = "warn";
+    }
+    hint.textContent = msg;
+    hint.hidden = !msg;
+    hint.dataset.level = level;
+  }
+
   // Auto-manage the live poll: only while a session is running.
   if (running) startDiscoveryPolling();
   else stopDiscoveryPolling();
 
   renderDiscoveryQueue();
+}
+
+const DISCOVERY_IDLE_SPEECH = {
+  never_run: "대기 중… 검색을 시작해 주세요",
+  ok: "탐색 완료! 검수 큐를 확인하세요 ✨",
+  capped: "탐색 완료! 검수 큐를 확인하세요 ✨",
+  quota: "오늘 검색 할당량을 다 썼어요 😴 내일 또 찾을게요",
+  stopped: "중지했어요. 언제든 다시 시작!",
+  error: "앗, 문제가 생겼어요 — 로그를 확인해 주세요",
+};
+
+function spawnFindBubble(c) {
+  const host = $("#stageBubbles");
+  if (!host) return;
+  const el = document.createElement("div");
+  el.className = "find-bubble";
+  el.textContent = `✨ ${c.channelName || "새 채널"}${c.fitScore ? ` (${c.fitScore})` : ""}`;
+  el.style.right = `${Math.floor(Math.random() * 34)}px`;
+  host.appendChild(el);
+  window.setTimeout(() => el.remove(), 2700);
+}
+
+// Drive the cute mascot stage: scanning state, speech, animated counter, and a
+// "found!" bubble for each new creator that pops in during a live session.
+function renderDiscoveryStage(d, st, running) {
+  const stage = $("#discoveryStage");
+  if (!stage) return;
+  stage.dataset.running = running ? "true" : "false";
+
+  const speech = $("#stageSpeech");
+  if (speech) {
+    speech.textContent = running ? st.progress || "탐색 중…" : DISCOVERY_IDLE_SPEECH[st.lastStatus] || "대기 중…";
+  }
+
+  const countEl = $("#stageCount");
+  if (countEl) {
+    const n = st.sessionFound || 0;
+    const prev = Number(String(countEl.textContent).replace(/[^0-9]/g, "")) || 0;
+    countEl.textContent = numberFormat.format(n);
+    if (n > prev) {
+      countEl.classList.remove("bump");
+      void countEl.offsetWidth; // restart the animation
+      countEl.classList.add("bump");
+    }
+  }
+
+  // Pop a bubble for each newly discovered candidate — only during a live run,
+  // and never on the first paint (would flood with the whole existing queue).
+  const cands = d.candidates || [];
+  const ids = cands.map((c) => c.id);
+  if (discoverySeenIds === null) {
+    discoverySeenIds = new Set(ids);
+  } else {
+    if (running) {
+      cands
+        .filter((c) => c.id && c.status === "discovered" && !discoverySeenIds.has(c.id))
+        .slice(0, 2)
+        .forEach((c) => spawnFindBubble(c));
+    }
+    ids.forEach((id) => discoverySeenIds.add(id));
+  }
 }
 
 function renderDiscoveryLog(logs) {
@@ -3558,7 +3643,7 @@ function renderDiscoveryLog(logs) {
   const count = $("#discoveryLogCount");
   if (count) count.textContent = logs.length ? `${logs.length}줄` : "로그 없음";
   if (!logs.length) {
-    panel.innerHTML = `<p class="empty-state">아직 로그가 없습니다. 검색을 실행하면 여기에 진행 상황이 실시간으로 표시됩니다.</p>`;
+    panel.innerHTML = `<p class="discovery-empty">아직 로그가 없습니다. 검색을 실행하면 여기에 진행 상황이 실시간으로 표시됩니다.</p>`;
     return;
   }
   // Stick to bottom only if the user is already near the bottom (don't yank the
@@ -3586,44 +3671,82 @@ function renderDiscoveryQueue() {
   if (count) count.textContent = `${rows.length}명`;
 
   if (!rows.length) {
-    wrap.innerHTML = `<p class="empty-state">${filter === "discovered" ? "검수할 후보가 없습니다. 위에서 검색을 실행하세요." : "해당 상태의 후보가 없습니다."}</p>`;
+    // Empty: collapse the card into a single centered dashed box (no box-in-box).
+    wrap.classList.add("is-empty");
+    wrap.innerHTML = `<p class="discovery-empty">${filter === "discovered" ? "검수할 후보가 없습니다. 위에서 검색을 실행하세요." : "해당 상태의 후보가 없습니다."}</p>`;
     return;
   }
+  wrap.classList.remove("is-empty");
 
-  const body = rows
-    .map((c) => {
-      const fit = c.fitScore || 0;
-      const fitClass = fit >= 70 ? "fit-high" : fit >= 40 ? "fit-mid" : "fit-low";
-      const channel = c.url
-        ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.channelName || c.url)}</a>`
-        : escapeHtml(c.channelName || "-");
-      const email = c.email
-        ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
-        : '<span class="muted">없음</span>';
-      const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
-      const tags = (c.tags || []).slice(0, 4).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join(" ");
-      let actions;
-      if (c.status === "discovered") {
-        actions = `<button type="button" class="mini-button" data-discovery-approve="${escapeHtml(c.id)}">승인</button>
-          <button type="button" class="mini-button ghost" data-discovery-dismiss="${escapeHtml(c.id)}">제외</button>`;
-      } else {
-        actions = `<span class="status-pill small">${escapeHtml(discoveryStatusLabel(c.status))}</span>`;
-      }
-      return `<tr>
-        <td><span class="fit-badge ${fitClass}">${fit}</span></td>
-        <td>${escapeHtml(c.platform || "-")}</td>
-        <td>${channel}${known}<div class="muted small">${escapeHtml(c.channelType || "")}</div></td>
-        <td>${email}</td>
-        <td class="discovery-reason">${escapeHtml(c.fitReason || "")}<div>${tags}</div></td>
-        <td class="discovery-actions-cell">${actions}</td>
-      </tr>`;
-    })
-    .join("");
+  const body = rows.map((c) => discoveryRowHtml(c)).join("");
 
   wrap.innerHTML = `<table class="discovery-table">
-    <thead><tr><th>적합도</th><th>플랫폼</th><th>채널</th><th>이메일</th><th>분석 · 태그</th><th>액션</th></tr></thead>
+    <thead><tr><th>적합도</th><th>채널</th><th>지표</th><th>이메일</th><th>AI 분석</th><th>액션</th></tr></thead>
     <tbody>${body}</tbody>
   </table>`;
+}
+
+function fmtCompact(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
+function discoveryRowHtml(c) {
+  const fit = c.fitScore || 0;
+  const fitClass = fit >= 70 ? "fit-high" : fit >= 40 ? "fit-mid" : "fit-low";
+  const channel = c.url
+    ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.channelName || c.url)}</a>`
+    : escapeHtml(c.channelName || "-");
+  const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
+  const lead = c.leadDepth ? ` <span class="tag-pill" title="그래프 탐색으로 발견">🔗d${c.leadDepth}</span>` : "";
+  const email = c.email
+    ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
+    : '<span class="muted">없음</span>';
+
+  // Dormant warning: no upload in ~90 days.
+  let dormant = "";
+  if (c.lastUploadAt) {
+    const days = Math.floor((Date.now() - new Date(c.lastUploadAt).getTime()) / 86_400_000);
+    if (days > 90) dormant = `<div class="muted small">⚠ ${days}일째 미업로드</div>`;
+  }
+  const metricBits = [
+    c.subscribers ? `구독 <strong>${fmtCompact(c.subscribers)}</strong>` : "",
+    c.avgViews ? `평균조회 <strong>${fmtCompact(c.avgViews)}</strong>` : "",
+    c.engagementRate ? `참여율 <strong>${c.engagementRate}%</strong>` : "",
+    c.uploadsPerMonth ? `${c.uploadsPerMonth}/월` : "",
+  ].filter(Boolean);
+  const metrics = metricBits.length ? metricBits.join(" · ") + dormant : '<span class="muted">-</span>';
+
+  const tags = (c.tags || []).slice(0, 5).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join(" ");
+  const analysis = [
+    c.pitchAngle ? `<div class="discovery-pitch">💡 ${escapeHtml(c.pitchAngle)}</div>` : "",
+    c.audience || c.contentTone
+      ? `<div class="muted small">${escapeHtml([c.audience, c.contentTone, c.languages].filter(Boolean).join(" · "))}</div>`
+      : "",
+    c.fitReason ? `<div class="small">${escapeHtml(c.fitReason)}</div>` : "",
+    tags ? `<div>${tags}</div>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  let actions;
+  if (c.status === "discovered") {
+    actions = `<button type="button" class="mini-button" data-discovery-approve="${escapeHtml(c.id)}">승인</button>
+      <button type="button" class="mini-button ghost" data-discovery-dismiss="${escapeHtml(c.id)}">제외</button>`;
+  } else {
+    actions = `<span class="status-pill small">${escapeHtml(discoveryStatusLabel(c.status))}</span>`;
+  }
+
+  return `<tr>
+    <td><span class="fit-badge ${fitClass}">${fit}</span></td>
+    <td class="discovery-channel">${channel}${known}${lead}<div class="muted small">${escapeHtml(c.channelType || c.platform || "")}</div></td>
+    <td class="discovery-metrics">${metrics}</td>
+    <td>${email}</td>
+    <td class="discovery-reason">${analysis || '<span class="muted">-</span>'}</td>
+    <td class="discovery-actions-cell">${actions}</td>
+  </tr>`;
 }
 
 async function startDiscoveryRun({ durationMinutes = 0 } = {}) {
@@ -3659,6 +3782,32 @@ function initDiscovery() {
   for (const btn of document.querySelectorAll("[data-discovery-minutes]")) {
     btn.addEventListener("click", () => startDiscoveryRun({ durationMinutes: Number(btn.dataset.discoveryMinutes) }));
   }
+
+  // gemma-generated seed keywords → merged into the textarea (deduped).
+  $("#discoverySeedAi")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const ta = $("#discoverySeeds");
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = "생성 중…";
+    try {
+      const existing = getDiscoverySeeds();
+      const { seeds } = await api("/api/discovery/seeds", { method: "POST", body: { existingSeeds: existing, count: 10 } });
+      const have = new Set(existing.map((s) => s.toLowerCase()));
+      const added = (seeds || []).filter((s) => s && !have.has(s.toLowerCase()));
+      if (added.length && ta) {
+        ta.value = [...existing, ...added].join("\n");
+        showToast(`AI 시드 ${added.length}개 추가했습니다.`);
+      } else {
+        showToast("새로 추가할 시드가 없습니다.");
+      }
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
 
   $("#discoveryStop")?.addEventListener("click", async () => {
     discoveryStopping = true;
@@ -3733,7 +3882,7 @@ const VIEW_META = {
   overview: { eyebrow: "Growth Overview", title: "그로스 대시보드" },
   campaigns: { eyebrow: "Campaign Performance", title: "캠페인 성과" },
   creators: { eyebrow: "Creator Relations", title: "크리에이터 & 섭외" },
-  discovery: { eyebrow: "Discovery Bot", title: "크리에이터 찾아봇 🤖" },
+  discovery: { eyebrow: "Discovery Bot", title: "크리에이터 찾아봇" },
   youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
   reddit: { eyebrow: "Reddit Log", title: "레딧 글 기록" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },

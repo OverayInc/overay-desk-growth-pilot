@@ -141,7 +141,7 @@ export async function generateEmailTemplate({ brief, gameName = "", genre = "" }
 // The retrieval layer (YouTube/Twitch/web search + page fetch) lives in
 // src/discovery/*; this function only turns a text bundle into structured JSON.
 
-const ANALYSIS_FIELDS = ["email", "channelType", "audience", "contentTone", "languages", "fitReason"];
+const ANALYSIS_FIELDS = ["email", "channelType", "audience", "contentTone", "languages", "fitReason", "pitchAngle"];
 
 // Coerce a parsed model object into a clean analysis record. `email` is only
 // kept when it actually looks like an email (the model is told to leave it ""
@@ -167,16 +167,17 @@ You receive RAW, messy text about ONE content creator/channel: profile metadata,
 Output rules:
 - Return ONE JSON object only — no prose, no markdown fences — with EXACTLY these keys:
   "email" (string), "channelType" (string), "audience" (string), "contentTone" (string),
-  "languages" (string), "fitScore" (number 0-100), "fitReason" (string), "tags" (array of short strings).
+  "languages" (string), "fitScore" (number 0-100), "fitReason" (string), "pitchAngle" (string), "tags" (array of short strings).
 - "email": the channel's BUSINESS/CONTACT email ONLY if it literally appears in the provided text. If no email is present, return "". NEVER guess, complete, or invent an address. Prefer a business/booking/press address over a personal one.
 - "channelType": e.g. "YouTube let's-play", "Twitch variety streamer", "Steam curator", "horror-focused YouTuber".
-- "audience": who watches (size/region/interest) in one short phrase.
+- "audience": who watches (size/region/interest) in one short phrase — use the metrics (subscribers, avg views, engagement) when given.
 - "contentTone": e.g. "reaction-heavy, comedic", "calm commentary", "scary/immersive".
 - "languages": primary content language(s), e.g. "English", "Korean", "EN/KO".
-- "fitScore": 0-100, how well this channel fits our game (see context). Higher = better target for free-key outreach.
-- "fitReason": one sentence, why that score.
+- "fitScore": 0-100, how well this channel fits our game (see context). Weigh BOTH topical fit AND real reach/engagement: a channel that already plays anomaly/horror/observation games with healthy engagement scores high; an inactive channel (no recent uploads) or off-topic one scores low. If metrics show the channel is dormant or tiny with weak engagement, lower the score even if the topic fits.
+- "fitReason": one sentence, why that score — cite the concrete signal (topic match, avg views, engagement, cadence).
+- "pitchAngle": one short, concrete outreach hook tailored to THIS creator (how to frame the free-key offer so it lands), e.g. "Lean on their love of slow-burn dread and offer giveaway keys for their chat." Empty string if you truly can't tell.
 - "tags": a few lowercase keywords (genres/traits) for filtering.
-- Base every field ONLY on the provided text. When unsure, use "" or a low fitScore — do not speculate.`;
+- Base every field ONLY on the provided text/metrics. When unsure, use "" or a low fitScore — do not speculate.`;
 
 // Analyze one creator from a text bundle. Returns the normalized analysis.
 // `gameContext` describes the game we're scoring fit against (defaults to ours).
@@ -186,14 +187,27 @@ export async function analyzeCreatorChannel({
   description = "",
   recentTitles = [],
   scrapedText = "",
+  subscribers = 0,
+  country = "",
+  metrics = null,
   gameContext = "Our game is a first-person observation / 'spot the anomaly' game (Exit 8-like): the player reads a space and catches the one thing that's subtly off. It is very clippable and audience-participatory (chat/comments hunt the anomaly).",
   signal,
 } = {}) {
   const titles = Array.isArray(recentTitles) ? recentTitles.filter(Boolean) : [];
+  // Real numbers make the fit score meaningful (reach + engagement, not just topic).
+  const metricLines = [];
+  if (subscribers) metricLines.push(`Subscribers: ${subscribers.toLocaleString("en-US")}`);
+  if (metrics && metrics.avgViews) metricLines.push(`Avg views (recent ${metrics.sampledVideos || "?"} uploads): ${metrics.avgViews.toLocaleString("en-US")} (median ${Number(metrics.medianViews || 0).toLocaleString("en-US")})`);
+  if (metrics && metrics.engagementRate) metricLines.push(`Engagement rate (likes+comments/views): ${metrics.engagementRate}%`);
+  if (metrics && metrics.uploadsPerMonth) metricLines.push(`Upload cadence: ~${metrics.uploadsPerMonth}/month`);
+  if (metrics && metrics.lastUploadAt) metricLines.push(`Last upload: ${String(metrics.lastUploadAt).slice(0, 10)}`);
+  if (country) metricLines.push(`Country: ${country}`);
+
   const bundle = [
     `GAME WE ARE SCORING FIT AGAINST:\n${gameContext}`,
     channelName ? `Channel name: ${channelName}` : "",
     platform ? `Platform: ${platform}` : "",
+    metricLines.length ? `CHANNEL METRICS:\n- ${metricLines.join("\n- ")}` : "",
     description ? `About / description:\n${description}` : "",
     titles.length ? `Recent titles:\n- ${titles.slice(0, 15).join("\n- ")}` : "",
     scrapedText ? `Text scraped from linked pages:\n${scrapedText.slice(0, 6000)}` : "",
