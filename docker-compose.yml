@@ -24,6 +24,22 @@ services:
       EMAIL_SEND_MODE: ${EMAIL_SEND_MODE:-smtp}
       DISABLE_SYNC_SCHEDULER: ${DISABLE_SYNC_SCHEDULER:-false}
       SYNC_SCHEDULER_INTERVAL_MS: ${SYNC_SCHEDULER_INTERVAL_MS:-60000}
+      # --- Discovery bot (gemma analyzer + search sources) ---
+      LP_AI_BASE_URL: ${LP_AI_BASE_URL:-}
+      LP_AI_MODEL: ${LP_AI_MODEL:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-}
+      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY:-}
+      # Headless-browser email harvesting (uses the Chromium baked into the image)
+      DISCOVERY_USE_RENDERER: ${DISCOVERY_USE_RENDERER:-false}
+      DISABLE_DISCOVERY_SCHEDULER: ${DISABLE_DISCOVERY_SCHEDULER:-true}
+      # --- Reddit (browser-scraped; the API is gone in 2026) ---
+      REDDIT_REFRESH_HOURS: ${REDDIT_REFRESH_HOURS:-6}
+      # Logged-in session for author-only data (view counts). Capture on a desktop
+      # with `npm run reddit:login`, then drop the file into ./data (gitignored).
+      REDDIT_STATE_FILE: ${REDDIT_STATE_FILE:-/app/data/reddit-state.json}
       # Microsoft (Entra ID) login — empty by default = gate OFF (open). Set
       # MS_CLIENT_ID + AUTH_ALLOWED_EMAILS/DOMAIN (host env or .env) to enable.
       MS_CLIENT_ID: ${MS_CLIENT_ID:-}

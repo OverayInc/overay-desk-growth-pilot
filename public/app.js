@@ -22,6 +22,7 @@ const state = {
   currentEmailDraft: null,
   discovery: null,
   discoveryStatusFilter: "discovered",
+  discoverySortBy: "fit",
 };
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
@@ -1190,22 +1191,9 @@ function renderYoutubeAnalytics() {
 
 function renderRedditPosts() {
   if (!$("#redditTable")) return;
-  const reddit = state.settings?.reddit;
-  const statusEl = $("#redditOAuthStatus");
-  if (statusEl) {
-    statusEl.textContent = reddit?.configured
-      ? "자동 수집: 앱 인증 연결됨 (oauth.reddit.com)"
-      : "자동 수집: 미설정 — 수동/베스트에포트";
-  }
-  const cfgForm = $("#redditOAuthForm");
-  if (cfgForm && document.activeElement !== cfgForm.elements.redditClientId) {
-    cfgForm.elements.redditClientId.value = reddit?.clientId || "";
-  }
-  const configPanel = $("#redditConfigPanel");
-  if (configPanel && reddit && !reddit.configured && !configPanel.dataset.touched) configPanel.setAttribute("open", "");
   $("#redditCount").textContent = `글 ${number(state.redditPosts.length)}개`;
   if (!state.redditPosts.length) {
-    $("#redditTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">기록된 레딧 글이 없습니다.</span></td></tr>';
+    $("#redditTable").innerHTML = '<tr><td data-label="상태" colspan="8"><span class="empty">기록된 레딧 글이 없습니다.</span></td></tr>';
     return;
   }
   $("#redditTable").innerHTML = state.redditPosts
@@ -1220,6 +1208,7 @@ function renderRedditPosts() {
           <td data-label="글"><span class="cell-title">${titleCell}</span><span class="cell-sub">${escapeHtml(post.subreddit || "-")}${ratio}</span></td>
           <td data-label="게임">${escapeHtml(post.gameName || "-")}</td>
           <td data-label="상태"><span class="status ${escapeHtml(post.status)}">${escapeHtml(post.status)}</span></td>
+          <td data-label="조회수" class="num">${post.views ? number(post.views) : "-"}</td>
           <td data-label="업보트" class="num">${number(post.upvotes)}</td>
           <td data-label="댓글" class="num">${number(post.comments)}</td>
           <td data-label="게시일">${escapeHtml(post.postedAt || "-")}</td>
@@ -2858,34 +2847,45 @@ function initForms() {
     }),
   );
 
-  $("#redditConfigPanel")?.addEventListener("toggle", (event) => {
-    event.currentTarget.dataset.touched = "1";
-  });
-
-  $("#redditOAuthForm")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const submitter = form.querySelector("button[type='submit']");
-    submitter.disabled = true;
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        body: {
-          redditClientId: form.elements.redditClientId.value,
-          redditClientSecret: form.elements.redditClientSecret.value,
-          clearRedditClientSecret: form.elements.clearRedditClientSecret.checked,
-        },
-      });
-      form.elements.redditClientSecret.value = "";
-      form.elements.clearRedditClientSecret.checked = false;
-      await loadAll();
-      showToast("Reddit 연동을 저장했습니다.");
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      submitter.disabled = false;
-    }
-  });
+  // Paste a Reddit URL → immediately fetch + pre-fill the form (title/sub/date).
+  const redditForm = $("#redditPostForm");
+  const redditUrlInput = redditForm?.elements?.url;
+  if (redditUrlInput) {
+    let redditAutofillTimer = 0;
+    const runAutofill = async () => {
+      const url = String(redditUrlInput.value || "").trim();
+      if (!url || !/reddit\.com\/.+\/comments\/|redd\.it\//i.test(url)) return;
+      if (redditForm.dataset.autofilledUrl === url) return; // don't refetch the same URL
+      redditForm.dataset.autofilledUrl = url;
+      try {
+        const r = await api("/api/reddit-posts/preview", { method: "POST", body: { url } });
+        if (!r.found) {
+          if (r.warning) showToast(r.warning);
+          return;
+        }
+        const fill = (name, val) => {
+          const el = redditForm.elements[name];
+          if (el && !el.value && val) el.value = val;
+        };
+        fill("subreddit", r.subreddit);
+        fill("title", r.title);
+        fill("postedAt", r.postedAt);
+        // gemma-suggested game → preselect the dropdown if it's still empty.
+        const gameSel = redditForm.elements.gameId;
+        if (r.suggestedGameId && gameSel && !gameSel.value) gameSel.value = r.suggestedGameId;
+        const gameNote = r.suggestedGameName ? ` · 게임: ${r.suggestedGameName}` : "";
+        const viewNote = typeof r.views === "number" ? ` · 조회 ${number(r.views)}` : "";
+        showToast(`불러옴: ${r.title || r.subreddit || r.postId}${viewNote} · 업보트 ${number(r.upvotes)} · 댓글 ${number(r.comments)}${gameNote}`);
+      } catch (error) {
+        showToast(error.message);
+      }
+    };
+    redditUrlInput.addEventListener("input", () => {
+      window.clearTimeout(redditAutofillTimer);
+      redditAutofillTimer = window.setTimeout(runAutofill, 500);
+    });
+    redditUrlInput.addEventListener("change", runAutofill);
+  }
 
   bindForm(
     "#csvForm",
@@ -3147,7 +3147,8 @@ function initForms() {
   });
 
   $("#runScheduleNowButton").addEventListener("click", async (event) => {
-    event.currentTarget.disabled = true;
+    const btn = event.currentTarget;
+    btn.disabled = true;
     try {
       const result = await api("/api/sync-schedule/run-due", {
         method: "POST",
@@ -3158,7 +3159,7 @@ function initForms() {
     } catch (error) {
       showToast(error.message);
     } finally {
-      event.currentTarget.disabled = false;
+      btn.disabled = false;
     }
   });
 
@@ -3272,7 +3273,8 @@ function initForms() {
   });
 
   $("#youtubeSyncButton").addEventListener("click", async (event) => {
-    event.currentTarget.disabled = true;
+    const btn = event.currentTarget;
+    btn.disabled = true;
     try {
       const result = await api("/api/youtube/sync", { method: "POST", body: {} });
       await loadAll();
@@ -3280,7 +3282,7 @@ function initForms() {
     } catch (error) {
       showToast(error.message);
     } finally {
-      event.currentTarget.disabled = false;
+      btn.disabled = false;
     }
   });
 
@@ -3363,15 +3365,20 @@ function initForms() {
   });
 
   $("#redditRefreshButton")?.addEventListener("click", async (event) => {
-    event.currentTarget.disabled = true;
+    // Capture the button now — after an await, event.currentTarget is null.
+    const btn = event.currentTarget;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "갱신 중… (글당 몇 초)";
     try {
       const result = await api("/api/reddit-posts/refresh", { method: "POST", body: {} });
       await loadAll();
       showToast(result.warning ? result.warning : `반응 갱신 완료 · ${result.updated}/${result.total}건`);
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message || "갱신에 실패했습니다.");
     } finally {
-      event.currentTarget.disabled = false;
+      btn.disabled = false;
+      btn.textContent = original;
     }
   });
 
@@ -3663,9 +3670,18 @@ function renderDiscoveryQueue() {
   if (!wrap) return;
   const all = state.discovery?.candidates || [];
   const filter = state.discoveryStatusFilter || "discovered";
-  const rows = (filter === "all" ? all : all.filter((c) => c.status === filter)).slice().sort(
-    (a, b) => (b.fitScore || 0) - (a.fitScore || 0),
-  );
+  const sortBy = state.discoverySortBy || "fit";
+  const num = (v) => Number(v) || 0;
+  const DISCOVERY_SORTERS = {
+    fit: (a, b) => num(b.fitScore) - num(a.fitScore) || num(b.subscribers) - num(a.subscribers),
+    subscribers: (a, b) => num(b.subscribers) - num(a.subscribers),
+    avgViews: (a, b) => num(b.avgViews) - num(a.avgViews),
+    engagement: (a, b) => num(b.engagementRate) - num(a.engagementRate),
+    recent: (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+  };
+  const rows = (filter === "all" ? all : all.filter((c) => c.status === filter))
+    .slice()
+    .sort(DISCOVERY_SORTERS[sortBy] || DISCOVERY_SORTERS.fit);
 
   const count = $("#discoveryQueueCount");
   if (count) count.textContent = `${rows.length}명`;
@@ -3827,6 +3843,11 @@ function initDiscovery() {
 
   $("#discoveryStatusFilter")?.addEventListener("change", (event) => {
     state.discoveryStatusFilter = event.target.value;
+    renderDiscoveryQueue();
+  });
+
+  $("#discoverySortBy")?.addEventListener("change", (event) => {
+    state.discoverySortBy = event.target.value;
     renderDiscoveryQueue();
   });
 

@@ -139,6 +139,7 @@ export async function runDiscovery(seeds, opts = {}) {
     minFitScore = 0,
     enrich = true,
     analyze = true,
+    skipKnown = true, // already-in-roster creators are skipped entirely (not analyzed/queued)
     expandCount = 0,
     leadDepth = 0,
     maxAnalyze = 60,
@@ -193,6 +194,7 @@ export async function runDiscovery(seeds, opts = {}) {
   let rawFound = 0;
   let analyzed = 0;
   let searched = 0;
+  let knownSkipped = 0;
   let quotaHit = false; // a source hit its daily/rate quota → stop, don't hammer it
 
   while (queue.length && timeLeft()) {
@@ -251,6 +253,12 @@ export async function runDiscovery(seeds, opts = {}) {
     for (const c of fresh) {
       if (!timeLeft()) break;
       if (c.externalId) seenChannelIds.add(c.externalId);
+      // Already in our creator roster → skip entirely (no analyze, no queue). We
+      // still recorded its channelId above so graph expansion won't revisit it.
+      if (skipKnown && c.isKnown) {
+        knownSkipped += 1;
+        continue;
+      }
       const willAnalyze = analyze && analyzed < maxAnalyze;
       if (willAnalyze) onProgress(`분석: ${c.channelName || c.url}`);
       const record = await processCandidate(c, { config, gameContext, analyze: willAnalyze, enrich });
@@ -306,6 +314,7 @@ export async function runDiscovery(seeds, opts = {}) {
       kept: kept.length,
       withEmail: kept.filter((c) => c.email).length,
       newCreators: kept.filter((c) => !c.isKnown).length,
+      knownSkipped,
       timedOut: queue.length > 0 && !timeLeft(),
       pendingQueries: queue.length,
       quotaHit,

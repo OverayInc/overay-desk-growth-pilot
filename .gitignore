@@ -5,6 +5,8 @@ npm-debug.log*
 *.log
 data/app-data.json
 data/*.local.json
+data/reddit-state.json
+data/reddit-chrome-profile/
 data/*.db
 data/*.db-shm
 data/*.db-wal

@@ -15,8 +15,10 @@ import {
   AuthError,
 } from "./auth.mjs";
 import { generateEmailTemplate, translateText, aiConfig } from "./marketingAgent.mjs";
+import { fetchRedditMany } from "./redditBrowser.mjs";
+import { hasRedditSession, fetchRedditInsights } from "./redditSession.mjs";
 import { runDiscovery } from "./discovery/pipeline.mjs";
-import { expandSeeds } from "./marketingAgent.mjs";
+import { expandSeeds, detectGameMatch } from "./marketingAgent.mjs";
 import { makeRenderer, closeRenderer } from "./discovery/renderer.mjs";
 import {
   discoverySeeds,
@@ -59,8 +61,8 @@ const STEAM_API_BASE = "https://partner.steam-api.com/IPartnerFinancialsService"
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
 const REDDIT_USER_AGENT =
   process.env.REDDIT_USER_AGENT || "web:launch-pilot-growth-console:1.0 (internal marketing dashboard)";
-const REDDIT_OAUTH_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
-const REDDIT_OAUTH_API_BASE = "https://oauth.reddit.com";
+// How often the background scheduler re-checks registered Reddit posts' stats.
+const REDDIT_REFRESH_HOURS = Math.max(1, Number(process.env.REDDIT_REFRESH_HOURS || 6));
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 const YOUTUBE_ANALYTICS_BASE = "https://youtubeanalytics.googleapis.com/v2/reports";
 const GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -458,11 +460,6 @@ function defaultData() {
       youtubeOAuthConnectedAt: "",
       youtubeOAuthState: "",
       youtubeAutoSyncAt: 0,
-      redditClientId: "",
-      redditClientSecretEncrypted: "",
-      redditClientSecretMasked: "",
-      redditAccessToken: "",
-      redditAccessTokenExpiry: 0,
       updatedAt: "",
     },
     syncSchedule: {
@@ -566,11 +563,6 @@ function normalizeData(data) {
   data.integrationSettings.youtubeOAuthConnectedAt ||= "";
   data.integrationSettings.youtubeOAuthState ||= "";
   data.integrationSettings.youtubeAutoSyncAt ||= 0;
-  data.integrationSettings.redditClientId ||= "";
-  data.integrationSettings.redditClientSecretEncrypted ||= "";
-  data.integrationSettings.redditClientSecretMasked ||= "";
-  data.integrationSettings.redditAccessToken ||= "";
-  data.integrationSettings.redditAccessTokenExpiry ||= 0;
   data.integrationSettings.smtpHost ||= "";
   data.integrationSettings.smtpPort = toNumber(data.integrationSettings.smtpPort, 587);
   data.integrationSettings.smtpUser ||= "";
@@ -1660,7 +1652,6 @@ function effectiveIntegrationConfig(data) {
   const storedYoutubeKey = decryptSecret(settings.youtubeApiKeyEncrypted);
   const storedYoutubeSecret = decryptSecret(settings.youtubeClientSecretEncrypted);
   const storedYoutubeRefresh = decryptSecret(settings.youtubeRefreshTokenEncrypted);
-  const storedRedditSecret = decryptSecret(settings.redditClientSecretEncrypted);
   const storedSmtpPass = decryptSecret(settings.smtpPassEncrypted);
   const storedGraphSecret = decryptSecret(settings.graphClientSecretEncrypted);
   const smtpUser = settings.smtpUser || SMTP_USER;
@@ -1698,9 +1689,6 @@ function effectiveIntegrationConfig(data) {
     youtubeClientSecret: storedYoutubeSecret,
     youtubeRefreshToken: storedYoutubeRefresh,
     youtubeOAuthConnected: Boolean(storedYoutubeRefresh),
-    redditClientId: settings.redditClientId || "",
-    redditClientSecret: storedRedditSecret,
-    redditConfigured: Boolean(settings.redditClientId && storedRedditSecret),
   };
 }
 
@@ -1720,10 +1708,6 @@ function publicSettings(data) {
       configured: Boolean(config.youtubeApiKey),
       source: config.youtubeKeySource,
       keyMasked: config.youtubeKeyMasked,
-    },
-    reddit: {
-      configured: Boolean(config.redditClientId && config.redditClientSecret),
-      clientId: config.redditClientId,
     },
     email: buildEmailStatus(data),
     form: {
@@ -1782,19 +1766,6 @@ function updateIntegrationSettings(data, input = {}) {
   } else if (input.youtubeClientSecret) {
     settings.youtubeClientSecretEncrypted = encryptSecret(input.youtubeClientSecret);
     settings.youtubeClientSecretMasked = maskSecret(input.youtubeClientSecret);
-  }
-
-  if (input.redditClientId !== undefined) settings.redditClientId = String(input.redditClientId).trim();
-  if (input.clearRedditClientSecret) {
-    settings.redditClientSecretEncrypted = "";
-    settings.redditClientSecretMasked = "";
-    settings.redditAccessToken = "";
-    settings.redditAccessTokenExpiry = 0;
-  } else if (input.redditClientSecret) {
-    settings.redditClientSecretEncrypted = encryptSecret(input.redditClientSecret);
-    settings.redditClientSecretMasked = maskSecret(input.redditClientSecret);
-    settings.redditAccessToken = "";
-    settings.redditAccessTokenExpiry = 0;
   }
 
   if (input.clearSmtpPass) {
@@ -1995,7 +1966,7 @@ async function sendEmailViaSmtp(config, { to, subject, body }) {
 }
 
 // Microsoft Graph app-only (client credentials) token, cached on settings until
-// ~1 min before expiry. Mirrors ensureRedditToken.
+// ~1 min before expiry.
 async function ensureGraphToken(data) {
   const settings = data.integrationSettings;
   const config = effectiveIntegrationConfig(data);
@@ -3453,92 +3424,53 @@ function parseRedditPostId(input) {
   return "";
 }
 
-async function ensureRedditToken(data) {
-  const settings = data.integrationSettings;
-  const config = effectiveIntegrationConfig(data);
-  if (!config.redditClientId || !config.redditClientSecret) return "";
-  if (settings.redditAccessToken && settings.redditAccessTokenExpiry && Date.now() < settings.redditAccessTokenExpiry - 60000) {
-    return settings.redditAccessToken;
-  }
-  const auth = Buffer.from(`${config.redditClientId}:${config.redditClientSecret}`).toString("base64");
-  const response = await fetch(REDDIT_OAUTH_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": REDDIT_USER_AGENT,
-    },
-    body: new URLSearchParams({ grant_type: "client_credentials" }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.access_token) {
-    throw new Error(body?.error || body?.message || `Reddit 토큰 발급 실패 (${response.status})`);
-  }
-  settings.redditAccessToken = body.access_token;
-  settings.redditAccessTokenExpiry = Date.now() + toNumber(body.expires_in, 3600) * 1000;
-  return settings.redditAccessToken;
-}
+// Fetch stats for the given posts by driving a real headless browser (Reddit
+// blocks .json/curl with a bot wall; a browser passes it). Returns a map keyed
+// by post.postId so callers stay unchanged. `available:false` → Playwright not
+// installed; we surface an install hint.
+async function redditFetchPosts(posts) {
+  const targets = posts.filter((p) => p.url || p.permalink);
+  if (!targets.length) return { byId: {}, warning: "" };
+  const urls = targets.map((p) => p.url || p.permalink);
 
-// Fetch many posts in a SINGLE request via Reddit's by_id endpoint. Uses app-only
-// OAuth (oauth.reddit.com) when client credentials are configured — reliable from
-// servers — otherwise best-effort anonymous (often 403 from datacenter IPs).
-async function redditFetchByIds(data, ids) {
-  const unique = [...new Set(ids.filter(Boolean))];
-  if (!unique.length) return { byId: {}, warning: "" };
-  const names = unique.map((id) => `t3_${id}`).join(",");
-  const config = effectiveIntegrationConfig(data);
-  let token = "";
-  if (config.redditClientId && config.redditClientSecret) {
-    try {
-      token = await ensureRedditToken(data);
-    } catch (error) {
-      return { byId: {}, warning: error.message };
+  // Prefer a logged-in session: it adds the author-only VIEW COUNT (and works the
+  // same headless). Falls back to the no-login browser (upvotes/comments only).
+  if (hasRedditSession()) {
+    const ins = await fetchRedditInsights(urls);
+    if (ins.available && ins.loggedIn) {
+      const byId = {};
+      let anyFail = false;
+      for (const post of targets) {
+        const stats = ins.byUrl[post.url || post.permalink];
+        if (stats?.found) byId[post.postId] = stats;
+        else anyFail = true;
+      }
+      return { byId, warning: anyFail ? "일부 글의 반응을 가져오지 못했습니다." : "" };
     }
   }
-  const requestUrl = token
-    ? `${REDDIT_OAUTH_API_BASE}/by_id/${names}?raw_json=1`
-    : `https://www.reddit.com/by_id/${names}.json?raw_json=1`;
-  const headers = { "User-Agent": REDDIT_USER_AGENT, Accept: "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  try {
-    const response = await fetch(requestUrl, { headers });
-    if (!response.ok) {
-      return {
-        byId: {},
-        warning: token
-          ? `Reddit API 응답 ${response.status}`
-          : `Reddit 응답 ${response.status} — Reddit 연동 설정에 앱 인증을 등록하면 자동 수집이 동작합니다`,
-      };
-    }
-    const body = await response.json().catch(() => null);
-    const children = body?.data?.children || [];
-    const byId = {};
-    for (const child of children) {
-      const d = child.data || {};
-      if (!d.id) continue;
-      byId[d.id] = {
-        title: d.title || "",
-        subreddit: d.subreddit ? `r/${d.subreddit}` : "",
-        upvotes: toNumber(d.score),
-        comments: toNumber(d.num_comments),
-        upvoteRatio: Number(d.upvote_ratio || 0),
-        author: d.author || "",
-        flair: d.link_flair_text || "",
-        permalink: d.permalink ? `https://www.reddit.com${d.permalink}` : "",
-        createdUtc: d.created_utc || 0,
-        removed: Boolean(d.removed_by_category) || Boolean(d.removed),
-      };
-    }
-    return { byId, warning: "" };
-  } catch (error) {
-    return { byId: {}, warning: `Reddit 호출 실패: ${error.message}` };
+
+  const { available, byUrl, error } = await fetchRedditMany(urls);
+  if (!available) {
+    return {
+      byId: {},
+      warning: "Reddit 수집에는 브라우저(Playwright)가 필요합니다 — `npm i -D playwright && npx playwright install chromium` 후 다시 시도하세요.",
+    };
   }
+  const byId = {};
+  let anyFail = false;
+  for (const post of targets) {
+    const stats = byUrl[post.url || post.permalink];
+    if (stats?.found) byId[post.postId] = stats;
+    else anyFail = true;
+  }
+  return { byId, warning: error || (anyFail ? "일부 글의 반응을 가져오지 못했습니다." : "") };
 }
 
 function applyRedditStats(post, stats) {
   if (!stats) return post;
   post.upvotes = stats.upvotes;
   post.comments = stats.comments;
+  if (typeof stats.views === "number") post.views = stats.views;
   post.upvoteRatio = stats.upvoteRatio;
   if (!post.title && stats.title) post.title = stats.title;
   if (!post.subreddit && stats.subreddit) post.subreddit = stats.subreddit;
@@ -3564,6 +3496,7 @@ function normalizeRedditPost(post) {
   post.postedAt ||= "";
   post.upvotes = toNumber(post.upvotes);
   post.comments = toNumber(post.comments);
+  post.views = toNumber(post.views);
   post.upvoteRatio = Number(post.upvoteRatio || 0);
   post.notes ||= "";
   post.lastFetchedAt ||= "";
@@ -3684,6 +3617,30 @@ async function runYoutubeAutoSnapshot(data) {
   return true;
 }
 
+// Periodically re-check registered Reddit posts' public stats (upvotes/comments/
+// ratio), at most once per REDDIT_REFRESH_HOURS. No OAuth — just the public JSON.
+async function runRedditAutoRefresh(data) {
+  const settings = data.integrationSettings;
+  const targets = data.redditPosts.filter((post) => post.postId);
+  if (!targets.length) return false;
+  const lastAt = Number(settings.redditRefreshedAt || 0);
+  if (lastAt && Date.now() - lastAt < REDDIT_REFRESH_HOURS * 3_600_000) return false;
+  try {
+    const { byId } = await redditFetchPosts(targets);
+    for (const post of targets) {
+      if (byId[post.postId]) {
+        applyRedditStats(post, byId[post.postId]);
+        post.updatedAt = nowIso();
+      }
+    }
+    settings.redditRefreshedAt = Date.now();
+    return true; // persist at least the timestamp so we don't re-fetch every tick
+  } catch (error) {
+    console.error("Reddit auto-refresh failed:", error.message || error);
+    return false;
+  }
+}
+
 async function checkScheduledSync() {
   if (schedulerRunning) return;
   schedulerRunning = true;
@@ -3691,7 +3648,8 @@ async function checkScheduledSync() {
     const data = await readData();
     const result = await runScheduledSync(data);
     const youtubeChanged = await runYoutubeAutoSnapshot(data);
-    if (!result.skipped || youtubeChanged) await writeData(data);
+    const redditChanged = await runRedditAutoRefresh(data);
+    if (!result.skipped || youtubeChanged || redditChanged) await writeData(data);
   } catch (error) {
     console.error("Scheduled sync check failed:", error.message || error);
   } finally {
@@ -3934,7 +3892,7 @@ async function runDiscoverySession({
 
       // Per-chunk heartbeat: how long it's been running + what it found so far.
       dlog(
-        `⏱ 경과 ${elapsed()} · 청크 #${chunkNo} 완료 · 누적 신규 ${sessionFound} · 이번 검색 ${result.stats.seedsSearched} · 분석 ${result.stats.analyzed} · 이메일 ${result.stats.withEmail}`,
+        `⏱ 경과 ${elapsed()} · 청크 #${chunkNo} 완료 · 누적 신규 ${sessionFound} · 이번 검색 ${result.stats.seedsSearched} · 분석 ${result.stats.analyzed} · 기존 제외 ${result.stats.knownSkipped || 0} · 이메일 ${result.stats.withEmail}`,
       );
 
       // API quota exhausted (e.g. YouTube daily search limit) → stop now; the
@@ -4370,13 +4328,12 @@ async function handleApi(req, res, url) {
       postedAt: input.postedAt || "",
       notes: input.notes || "",
     });
-    if (postId) {
-      const { byId } = await redditFetchByIds(data, [postId]);
+    if (postId && post.url) {
+      const { byId } = await redditFetchPosts([post]);
       const stats = byId[postId];
       if (stats) {
         applyRedditStats(post, stats);
         if (!post.postedAt && stats.createdUtc) post.postedAt = toDateString(new Date(stats.createdUtc * 1000));
-        if (!post.url && stats.permalink) post.url = stats.permalink;
       }
     }
     data.redditPosts.push(post);
@@ -4385,9 +4342,9 @@ async function handleApi(req, res, url) {
   }
 
   if (route === "POST /api/reddit-posts/refresh") {
-    const targets = data.redditPosts.filter((post) => post.postId);
+    const targets = data.redditPosts.filter((post) => post.postId && (post.url || post.permalink));
     if (!targets.length) return respondJson(res, 200, { updated: 0, total: 0, warning: "갱신할 글이 없습니다." });
-    const { byId, warning } = await redditFetchByIds(data, targets.map((post) => post.postId));
+    const { byId, warning } = await redditFetchPosts(targets);
     let updated = 0;
     for (const post of targets) {
       if (byId[post.postId]) {
@@ -4398,6 +4355,43 @@ async function handleApi(req, res, url) {
     }
     await writeData(data);
     return respondJson(res, 200, { updated, total: targets.length, warning });
+  }
+
+  // Preview a pasted URL (no save) so the form can auto-fill title/subreddit/date.
+  if (route === "POST /api/reddit-posts/preview") {
+    const input = await readJson(req);
+    const postUrl = String(input.url || "").trim();
+    const postId = parseRedditPostId(postUrl);
+    if (!postId) return respondError(res, 400, "유효한 레딧 글 URL이 아닙니다.");
+    const { byId, warning } = await redditFetchPosts([{ postId, url: postUrl }]);
+    const stats = byId[postId];
+    if (!stats) return respondJson(res, 200, { found: false, postId, warning });
+    // gemma guesses which of the user's games this post is about (title + sub).
+    let suggestedGameId = "";
+    let suggestedGameName = "";
+    try {
+      const games = activeGames(data).map((g) => ({ id: g.id, name: g.name, genre: g.genre }));
+      const text = [stats.title, stats.subreddit].filter(Boolean).join(" — ");
+      suggestedGameId = await detectGameMatch({ text, games });
+      if (suggestedGameId) suggestedGameName = gameNameFor(data, suggestedGameId);
+    } catch {
+      /* game detection is best-effort (gemma may be offline) */
+    }
+    return respondJson(res, 200, {
+      found: true,
+      postId,
+      title: stats.title,
+      subreddit: stats.subreddit,
+      author: stats.author,
+      upvotes: stats.upvotes,
+      comments: stats.comments,
+      views: typeof stats.views === "number" ? stats.views : null,
+      upvoteRatio: stats.upvoteRatio,
+      permalink: stats.permalink,
+      postedAt: stats.createdUtc ? toDateString(new Date(stats.createdUtc * 1000)) : "",
+      suggestedGameId,
+      suggestedGameName,
+    });
   }
 
   const redditPostRoute = url.pathname.match(/^\/api\/reddit-posts\/([^/]+)$/);

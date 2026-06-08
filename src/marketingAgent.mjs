@@ -299,6 +299,35 @@ export async function proposeLeads({ channelName = "", channelType = "", audienc
   return normalizeSeedList(extractJsonObject(content).queries, { max: 5 });
 }
 
+// --- Game matcher -----------------------------------------------------------
+// Given a piece of text (e.g. a Reddit post title) and the user's game catalog,
+// ask gemma which game it's about. Returns the matching gameId, or "" if none
+// clearly match. Short-circuits without a model call when it's unambiguous.
+export async function detectGameMatch({ text = "", games = [], signal } = {}) {
+  const list = (games || []).filter((g) => g && g.id && g.name);
+  if (!list.length) return "";
+  if (list.length === 1) return list[0].id; // only one game → trivially that one
+  const clean = String(text || "").trim();
+  if (!clean) return "";
+  const catalog = list
+    .map((g) => `- id="${g.id}" name="${g.name}"${g.genre ? ` genre="${g.genre}"` : ""}`)
+    .join("\n");
+  const system = `You match a social-media post to ONE game from the poster's own catalog.
+Return ONE JSON object only: {"gameId":"<exact id from the catalog, or empty string>"}.
+Rules: use ONLY an id that appears in the catalog; if the post doesn't clearly reference any listed game, return "". No prose.`;
+  const user = `Catalog:\n${catalog}\n\nPost:\n${clean.slice(0, 1500)}`;
+  const content = await chatCompletion(
+    [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    { maxTokens: 60, temperature: 0, signal },
+  );
+  const parsed = extractJsonObject(content);
+  const id = typeof parsed?.gameId === "string" ? parsed.gameId.trim() : "";
+  return list.some((g) => g.id === id) ? id : "";
+}
+
 const LANG_NAMES = { ko: "Korean", en: "English", ja: "Japanese", de: "German", zh: "Chinese (Simplified)" };
 
 // Translate an outreach email body into the target language, preserving tone,

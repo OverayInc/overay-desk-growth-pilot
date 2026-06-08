@@ -8,9 +8,14 @@
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
     "discover": "node src/discovery/run.mjs",
+    "reddit:login": "node src/redditSession.mjs login",
+    "reddit:dump": "node src/redditSession.mjs dump",
     "test": "node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0"
   }
 }

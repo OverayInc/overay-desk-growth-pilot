@@ -448,6 +448,16 @@
                     <option value="all">전체</option>
                   </select>
                 </label>
+                <label class="matrix-sort">
+                  <span>정렬</span>
+                  <select id="discoverySortBy">
+                    <option value="fit">적합도순</option>
+                    <option value="subscribers">구독자순</option>
+                    <option value="avgViews">평균 조회수순</option>
+                    <option value="engagement">참여율순</option>
+                    <option value="recent">최근 발견순</option>
+                  </select>
+                </label>
                 <span class="muted" id="discoveryQueueCount">-</span>
                 <button type="button" id="discoveryClearBtn" class="secondary-button danger">🗑 비우기</button>
               </div>
@@ -564,29 +574,7 @@
                   <button class="secondary-button" type="button" id="redditRefreshButton">반응 새로고침</button>
                 </div>
               </div>
-              <details class="action-panel" id="redditConfigPanel">
-                <summary><span>Reddit 연동 설정 (자동 수집)</span><span class="summary-icon"></span></summary>
-                <div class="stack-form">
-                  <form class="form-row" id="redditOAuthForm">
-                    <label class="field-wide">
-                      Client ID
-                      <input name="redditClientId" placeholder="reddit.com/prefs/apps → script 앱의 client id" autocomplete="off" />
-                    </label>
-                    <label class="field-wide">
-                      Client Secret
-                      <input name="redditClientSecret" type="password" placeholder="비우면 기존 값 유지" autocomplete="off" />
-                    </label>
-                    <label class="check-row">
-                      <input name="clearRedditClientSecret" type="checkbox" />
-                      저장된 Secret 삭제
-                    </label>
-                    <button type="submit">연동 저장</button>
-                  </form>
-                  <div class="settings-meta" id="redditOAuthStatus">-</div>
-                  <div class="image-picker__hint">reddit.com/prefs/apps → "create app" → 유형 "script" 생성 후 client id/secret 입력. 등록하면 oauth.reddit.com 경유로 자동 수집(업보트·댓글)이 안정적으로 동작합니다.</div>
-                </div>
-              </details>
-              <details class="action-panel">
+              <details class="action-panel" open>
                 <summary><span>새 글 기록</span><span class="summary-icon"></span></summary>
                 <form class="form-row reddit-form" id="redditPostForm">
                   <label class="field-wide">
@@ -624,7 +612,7 @@
                   <button type="submit">글 기록</button>
                 </form>
               </details>
-              <div class="result-line">글 URL만 붙여넣으면 제목·서브레딧·업보트·댓글을 자동으로 가져옵니다. "반응 새로고침"으로 전체 글의 반응을 한 번에 갱신합니다.</div>
+              <div class="result-line">글 URL을 붙여넣는 즉시 제목·서브레딧·게시일이 자동으로 채워집니다(공개 데이터, 인증 불필요·조회수는 비공개라 제외). 등록 후엔 주기적으로 자동 갱신되며, "반응 새로고침"으로 즉시 갱신할 수도 있어요.</div>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -632,6 +620,7 @@
                       <th>글</th>
                       <th>게임</th>
                       <th>상태</th>
+                      <th class="num">조회수</th>
                       <th class="num">업보트</th>
                       <th class="num">댓글</th>
                       <th>게시일</th>

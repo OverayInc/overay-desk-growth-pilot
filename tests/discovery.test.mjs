@@ -228,6 +228,9 @@ test("runDiscovery respects maxSearches cap", async () => {
 const ytResp = (body) => ({ ok: true, status: 200, json: async () => body });
 function ytFetch(url) {
   const u = String(url);
+  if (u.includes("/search")) {
+    return ytResp({ items: [{ snippet: { channelId: "UC1" } }] });
+  }
   if (u.includes("/channels")) {
     return ytResp({
       items: [
@@ -272,4 +275,27 @@ test("fetchYoutubeChannelsByIds builds a candidate with real metrics (no search.
 test("fetchYoutubeFeatured returns deduped featured channel IDs", async () => {
   const ids = await fetchYoutubeFeatured("UC1", { apiKey: "k", fetchImpl: ytFetch });
   assert.deepEqual(ids.sort(), ["UCa", "UCb", "UCc"]);
+});
+
+test("runDiscovery skips creators already in the roster (skipKnown)", async () => {
+  const known = [{ channels: [{ url: "https://www.youtube.com/channel/UC1" }], email: "", handle: "" }];
+  const res = await runDiscovery(["q"], {
+    config: { youtube: { apiKey: "k", fetchImpl: ytFetch } },
+    knownProfiles: known,
+    analyze: false,
+    enrich: false,
+  });
+  assert.equal(res.stats.knownSkipped, 1);
+  assert.equal(res.candidates.length, 0);
+});
+
+test("runDiscovery keeps the creator when not in the roster", async () => {
+  const res = await runDiscovery(["q"], {
+    config: { youtube: { apiKey: "k", fetchImpl: ytFetch } },
+    knownProfiles: [],
+    analyze: false,
+    enrich: false,
+  });
+  assert.equal(res.stats.knownSkipped, 0);
+  assert.equal(res.candidates.length, 1);
 });
