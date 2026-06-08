@@ -1707,18 +1707,22 @@ function toggleEmailModeFields(form) {
   });
 }
 
+function fmtLogTime(v) {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? String(v || "-") : d.toLocaleString("ko-KR", { hour12: false });
+}
+
 function renderOutreachLogs() {
-  $("#outreachLogCount").textContent = `로그 ${number(state.outreachLogs.length)}개`;
+  $("#outreachLogCount").textContent = `최근 30일 ${number(state.outreachLogs.length)}개`;
   if (!state.outreachLogs.length) {
-    $("#outreachLogTable").innerHTML = '<tr><td data-label="상태" colspan="4"><span class="empty">발송 로그가 없습니다.</span></td></tr>';
+    $("#outreachLogTable").innerHTML = '<tr><td data-label="상태" colspan="4"><span class="empty">최근 30일 발송 로그가 없습니다.</span></td></tr>';
     return;
   }
   $("#outreachLogTable").innerHTML = state.outreachLogs
-    .slice(0, 30)
     .map(
       (log) => `
         <tr>
-          <td data-label="시간">${escapeHtml(log.createdAt)}</td>
+          <td data-label="시간">${escapeHtml(fmtLogTime(log.createdAt))}</td>
           <td data-label="상태"><span class="status ${escapeHtml(log.status)}">${escapeHtml(log.status)}</span></td>
           <td data-label="크리에이터">${escapeHtml(log.creatorName || log.to || "-")}<span class="cell-sub">${escapeHtml(log.gameName || "")}</span></td>
           <td data-label="제목"><span class="cell-title">${escapeHtml(log.subject || "-")}</span><span class="cell-sub">${escapeHtml(log.message || log.error || "")}</span></td>
@@ -2021,6 +2025,25 @@ function downloadJson(filename, data) {
   URL.revokeObjectURL(url);
 }
 
+function csvCell(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadCsv(filename, rows, columns) {
+  const head = columns.map((c) => csvCell(c.label)).join(",");
+  const body = rows.map((r) => columns.map((c) => csvCell(c.get(r))).join(",")).join("\n");
+  // BOM so Excel reads UTF-8 Korean correctly.
+  const blob = new Blob(["﻿" + head + "\n" + body], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function renderAll() {
   renderGameSelectors();
   renderGameAdmin();
@@ -2128,7 +2151,7 @@ async function loadAll() {
     api("/api/sync-schedule"),
     api("/api/settings"),
     api("/api/email/status"),
-    api(`/api/outreach-logs?${query}`),
+    api(`/api/outreach-logs?${query}&days=30`),
     api("/api/youtube"),
     api(`/api/reddit-posts?${query}`),
     api("/api/email-templates"),
@@ -3392,6 +3415,38 @@ function initForms() {
     if (event.target.closest("[data-yt-refresh]")) {
       if (state.youtube) state.youtube.analyticsKey = "";
       renderYoutube();
+    }
+  });
+
+  $("#outreachLogDownload")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "준비 중…";
+    try {
+      // days=0 → all logs (server's default is the last 30 days for the table).
+      const logs = await api(`/api/outreach-logs?gameId=${encodeURIComponent(state.selectedGameId)}&days=0`);
+      if (!logs.length) {
+        showToast("다운로드할 로그가 없습니다.");
+        return;
+      }
+      downloadCsv(`outreach-logs-${localDateString()}.csv`, logs, [
+        { label: "시간", get: (l) => l.createdAt },
+        { label: "상태", get: (l) => l.status },
+        { label: "크리에이터", get: (l) => l.creatorName || l.to || "" },
+        { label: "게임", get: (l) => l.gameName || "" },
+        { label: "캠페인", get: (l) => l.campaignName || "" },
+        { label: "제목", get: (l) => l.subject || "" },
+        { label: "수신", get: (l) => l.to || "" },
+        { label: "provider", get: (l) => l.provider || "" },
+        { label: "메시지", get: (l) => l.message || l.error || "" },
+      ]);
+      showToast(`전체 로그 ${number(logs.length)}개 CSV 다운로드`);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
     }
   });
 

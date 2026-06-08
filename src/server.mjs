@@ -5232,10 +5232,21 @@ async function handleApi(req, res, url) {
 
   if (route === "GET /api/outreach-logs") {
     const gameId = requestedGameId(url);
+    // Default to the last 30 days (keeps the UI light); days=0 returns everything
+    // (used by the "full log download").
+    const days = toNumber(url.searchParams.get("days"), 30);
+    let logs = scopedItems(data.outreachLogs, gameId);
+    if (days > 0) {
+      const cutoff = Date.now() - days * 86_400_000;
+      logs = logs.filter((log) => {
+        const t = new Date(log.createdAt || log.sentAt || 0).getTime();
+        return Number.isNaN(t) || t >= cutoff; // keep undated rows
+      });
+    }
     return respondJson(
       res,
       200,
-      scopedItems(data.outreachLogs, gameId).map((log) => ({
+      logs.map((log) => ({
         ...log,
         gameName: log.gameId ? gameNameFor(data, log.gameId) : "",
         creatorName:

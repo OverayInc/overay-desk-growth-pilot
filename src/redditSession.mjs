@@ -31,6 +31,14 @@ async function loadPlaywright() {
   }
 }
 
+// Erase the obvious headless tells before any page script runs.
+const STEALTH_INIT = `
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+  window.chrome = window.chrome || { runtime: {} };
+`;
+
 // Human-like pacing for multi-post refreshes.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (min, max) => Math.floor(min + Math.random() * (max - min));
@@ -142,8 +150,11 @@ export async function fetchRedditInsights(urls, { dump = false, timeoutMs = 3000
       storageState: REDDIT_STATE_FILE,
       userAgent: UA,
       locale: "en-US",
+      timezoneId: "America/New_York",
       viewport: { width: 1280, height: 900 },
+      extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
     });
+    await ctx.addInitScript(STEALTH_INIT);
     const list = [...new Set((urls || []).filter(Boolean))];
     // Pace + shuffle when checking multiple posts (single = snappy) so a refresh
     // looks like a person idly checking, not a bot burst.
@@ -231,18 +242,22 @@ export async function fetchMyRedditPosts({ max = 60, timeoutMs = 30000 } = {}) {
       storageState: REDDIT_STATE_FILE,
       userAgent: UA,
       locale: "en-US",
+      timezoneId: "America/New_York",
       viewport: { width: 1280, height: 1000 },
+      extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
     });
+    await ctx.addInitScript(STEALTH_INIT);
     const page = await ctx.newPage();
     // /user/me/submitted/ redirects to the logged-in user's posts when authed.
     await page.goto("https://www.reddit.com/user/me/submitted/", { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await page.waitForSelector("shreddit-post, shreddit-async-loader, h1", { timeout: timeoutMs }).catch(() => {});
-    await sleep(rand(1500, 3000));
+    await sleep(rand(2500, 4500)); // land + "read" the page like a person
     const username = page.url().match(/\/user\/([^/]+)/)?.[1] || "";
 
     const seen = new Set();
     const posts = [];
-    for (let s = 0; s < 12 && posts.length < max; s++) {
+    let dry = 0;
+    for (let s = 0; s < 16 && posts.length < max && dry < 2; s++) {
       const batch = await page.$$eval("shreddit-post", (els) =>
         els.map((el) => ({
           permalink: el.getAttribute("permalink") || "",
@@ -264,12 +279,13 @@ export async function fetchMyRedditPosts({ max = 60, timeoutMs = 30000 } = {}) {
         added += 1;
         if (posts.length >= max) break;
       }
-      // Infinite scroll to load older posts; stop when nothing new arrives.
+      // Human-like scroll: varied distance + a small mouse move + irregular pause.
       const prevH = await page.evaluate(() => document.body.scrollHeight);
-      await page.mouse.wheel(0, 5000);
-      await sleep(rand(1200, 2600));
+      await page.mouse.move(rand(200, 1000), rand(200, 700)).catch(() => {});
+      await page.mouse.wheel(0, rand(2400, 6000));
+      await sleep(rand(2200, 5200));
       const newH = await page.evaluate(() => document.body.scrollHeight);
-      if (!added && newH === prevH) break;
+      dry = !added && newH === prevH ? dry + 1 : 0; // 2 dry scrolls in a row → done
     }
     await ctx.close().catch(() => {});
     return { available: true, loggedIn: true, username: username === "me" ? "" : username, posts };

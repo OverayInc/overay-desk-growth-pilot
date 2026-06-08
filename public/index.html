@@ -330,10 +330,13 @@
               <div class="email-status-bar" id="emailStatusGrid"></div>
               <div class="panel">
                 <div class="panel-title">
-                  <h3>최근 발송 로그</h3>
-                  <span id="outreachLogCount">로그 0개</span>
+                  <h3>최근 발송 로그 <span class="muted">(최근 30일)</span></h3>
+                  <div class="button-row">
+                    <span id="outreachLogCount">로그 0개</span>
+                    <button type="button" class="secondary-button" id="outreachLogDownload">전체 로그 CSV</button>
+                  </div>
                 </div>
-                <div class="table-wrap">
+                <div class="table-wrap compact">
                   <table>
                     <thead>
                       <tr>
