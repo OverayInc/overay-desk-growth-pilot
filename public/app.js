@@ -22,7 +22,7 @@ const state = {
   currentEmailDraft: null,
   discovery: null,
   discoveryStatusFilter: "discovered",
-  discoverySortBy: "fit",
+  discoverySortBy: "subscribers",
 };
 
 const numberFormat = new Intl.NumberFormat("ko-KR");
@@ -3704,7 +3704,7 @@ function spawnFindBubble(c) {
   if (!host) return;
   const el = document.createElement("div");
   el.className = "find-bubble";
-  el.textContent = `✨ ${c.channelName || "새 채널"}${c.fitScore ? ` (${c.fitScore})` : ""}`;
+  el.textContent = `✨ ${c.channelName || "새 채널"}`;
   el.style.marginLeft = `${-78 + Math.floor(Math.random() * 24 - 12)}px`;
   host.appendChild(el);
   window.setTimeout(() => el.remove(), 2700);
@@ -3776,13 +3776,11 @@ function discoveryPruneCriteria() {
   return {
     minSubs: Number($("#pruneMinSubs")?.value) || 0,
     dormantMonths: Number($("#pruneDormant")?.value) || 0,
-    minFit: Number($("#pruneMinFit")?.value) || 0,
   };
 }
-function discoveryPruneMatches(c, { minSubs, dormantMonths, minFit }) {
+function discoveryPruneMatches(c, { minSubs, dormantMonths }) {
   if (c.status !== "discovered") return false;
   if (minSubs && (Number(c.subscribers) || 0) < minSubs) return true;
-  if (minFit && (Number(c.fitScore) || 0) < minFit) return true;
   if (dormantMonths && c.lastUploadAt && new Date(c.lastUploadAt).getTime() < Date.now() - dormantMonths * 30 * 86400000) return true;
   return false;
 }
@@ -3790,7 +3788,7 @@ function refreshPrunePreview() {
   const el = $("#prunePreview");
   if (!el) return;
   const crit = discoveryPruneCriteria();
-  const any = crit.minSubs || crit.dormantMonths || crit.minFit;
+  const any = crit.minSubs || crit.dormantMonths;
   const n = any ? (state.discovery?.candidates || []).filter((c) => discoveryPruneMatches(c, crit)).length : 0;
   el.textContent = `대상 ${number(n)}명`;
 }
@@ -3801,10 +3799,9 @@ function renderDiscoveryQueue() {
   refreshPrunePreview();
   const all = state.discovery?.candidates || [];
   const filter = state.discoveryStatusFilter || "discovered";
-  const sortBy = state.discoverySortBy || "fit";
+  const sortBy = state.discoverySortBy || "subscribers";
   const num = (v) => Number(v) || 0;
   const DISCOVERY_SORTERS = {
-    fit: (a, b) => num(b.fitScore) - num(a.fitScore) || num(b.subscribers) - num(a.subscribers),
     subscribers: (a, b) => num(b.subscribers) - num(a.subscribers),
     avgViews: (a, b) => num(b.avgViews) - num(a.avgViews),
     engagement: (a, b) => num(b.engagementRate) - num(a.engagementRate),
@@ -3812,7 +3809,7 @@ function renderDiscoveryQueue() {
   };
   const rows = (filter === "all" ? all : all.filter((c) => c.status === filter))
     .slice()
-    .sort(DISCOVERY_SORTERS[sortBy] || DISCOVERY_SORTERS.fit);
+    .sort(DISCOVERY_SORTERS[sortBy] || DISCOVERY_SORTERS.subscribers);
 
   const count = $("#discoveryQueueCount");
   if (count) count.textContent = `${rows.length}명`;
@@ -3828,7 +3825,7 @@ function renderDiscoveryQueue() {
   const body = rows.map((c) => discoveryRowHtml(c)).join("");
 
   wrap.innerHTML = `<table class="discovery-table">
-    <thead><tr><th>적합도</th><th>채널</th><th>지표</th><th>이메일</th><th>AI 분석</th><th>액션</th></tr></thead>
+    <thead><tr><th>채널</th><th>지표</th><th>이메일</th><th>AI 분석</th><th>액션</th></tr></thead>
     <tbody>${body}</tbody>
   </table>`;
 }
@@ -3841,8 +3838,6 @@ function fmtCompact(n) {
 }
 
 function discoveryRowHtml(c) {
-  const fit = c.fitScore || 0;
-  const fitClass = fit >= 70 ? "fit-high" : fit >= 40 ? "fit-mid" : "fit-low";
   const channel = c.url
     ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.channelName || c.url)}</a>`
     : escapeHtml(c.channelName || "-");
@@ -3872,7 +3867,6 @@ function discoveryRowHtml(c) {
     c.audience || c.contentTone
       ? `<div class="muted small">${escapeHtml([c.audience, c.contentTone, c.languages].filter(Boolean).join(" · "))}</div>`
       : "",
-    c.fitReason ? `<div class="small">${escapeHtml(c.fitReason)}</div>` : "",
     tags ? `<div>${tags}</div>` : "",
   ]
     .filter(Boolean)
@@ -3887,7 +3881,6 @@ function discoveryRowHtml(c) {
   }
 
   return `<tr>
-    <td><span class="fit-badge ${fitClass}">${fit}</span></td>
     <td class="discovery-channel">${channel}${known}${lead}<div class="muted small">${escapeHtml(c.channelType || c.platform || "")}</div></td>
     <td class="discovery-metrics">${metrics}</td>
     <td>${email}</td>
@@ -3997,18 +3990,17 @@ function initDiscovery() {
   });
 
   // Conditional prune: live preview count + apply.
-  for (const id of ["#pruneMinSubs", "#pruneDormant", "#pruneMinFit"]) {
+  for (const id of ["#pruneMinSubs", "#pruneDormant"]) {
     $(id)?.addEventListener("input", refreshPrunePreview);
   }
   $("#discoveryPruneBtn")?.addEventListener("click", async (event) => {
     const crit = discoveryPruneCriteria();
-    if (!crit.minSubs && !crit.dormantMonths && !crit.minFit) return showToast("정리 조건을 하나 이상 입력하세요.");
+    if (!crit.minSubs && !crit.dormantMonths) return showToast("정리 조건을 하나 이상 입력하세요.");
     const n = (state.discovery?.candidates || []).filter((c) => discoveryPruneMatches(c, crit)).length;
     if (!n) return showToast("조건에 맞는 후보가 없습니다.");
     const parts = [
       crit.minSubs ? `구독자 ${number(crit.minSubs)} 이하` : "",
       crit.dormantMonths ? `${crit.dormantMonths}개월+ 미활동` : "",
-      crit.minFit ? `적합도 ${crit.minFit} 미만` : "",
     ].filter(Boolean).join(" · ");
     if (!window.confirm(`${parts}\n→ ${n}명을 큐에서 제거할까요? (재검색해도 다시 안 올라옴)`)) return;
     const btn = event.currentTarget;
@@ -4016,7 +4008,7 @@ function initDiscovery() {
     try {
       const r = await api("/api/discovery/prune", {
         method: "POST",
-        body: { minSubscribers: crit.minSubs, dormantMonths: crit.dormantMonths, minFitScore: crit.minFit },
+        body: { minSubscribers: crit.minSubs, dormantMonths: crit.dormantMonths },
       });
       discoverySeenIds = null;
       showToast(`${number(r.removed)}명 정리했습니다.`);

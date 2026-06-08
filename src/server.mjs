@@ -3713,8 +3713,6 @@ function sanitizeDiscoveryFields(c) {
     audience: c.audience || "",
     contentTone: c.contentTone || "",
     languages: c.languages || "",
-    fitScore: toNumber(c.fitScore),
-    fitReason: c.fitReason || "",
     pitchAngle: c.pitchAngle || "",
     leadDepth: toNumber(c.leadDepth),
     tags: Array.isArray(c.tags) ? c.tags : [],
@@ -3787,7 +3785,6 @@ async function runDiscoverySession({
   baseSeeds = [],
   overallDeadline,
   perSeed = 8,
-  minFitScore = 0,
   trigger = "manual",
   expandCount: expandCountInit = DISCOVERY_EXPAND_COUNT,
   leadDepth = DISCOVERY_LEAD_DEPTH,
@@ -3857,7 +3854,6 @@ async function runDiscoverySession({
         gameContext,
         knownProfiles: data.creatorProfiles || [],
         perSeed,
-        minFitScore,
         expandCount,
         leadDepth,
         deadline: chunkDeadline,
@@ -5016,7 +5012,6 @@ async function handleApi(req, res, url) {
     if (discoveryRunning) return respondError(res, 409, "이미 발견 세션이 실행 중입니다.");
 
     const perSeed = Math.max(1, Math.min(25, toNumber(input.perSeed, 8)));
-    const minFitScore = Math.max(0, Math.min(100, toNumber(input.minFitScore, 0)));
     const durationMinutes = clampSessionMinutes(input.durationMinutes);
 
     // Both quick run and time-boxed run go through the SAME background session so
@@ -5027,7 +5022,6 @@ async function handleApi(req, res, url) {
       baseSeeds: seeds,
       overallDeadline,
       perSeed,
-      minFitScore,
       trigger: quick ? "quick" : "manual",
       // Quick = light pass (seeds only, tight search budget); timed = full agent.
       ...(quick ? { expandCount: 0, leadDepth: 1, maxSearchesCap: Math.min(DISCOVERY_MAX_SEARCHES, 12) } : {}),
@@ -5083,9 +5077,8 @@ async function handleApi(req, res, url) {
       channels: candidate.url ? [{ platform: candidate.platform, url: candidate.url }] : [],
       subscribers: candidate.subscribers,
       averageViews: candidate.avgViews,
-      fitScore: candidate.fitScore,
       tags: candidate.tags,
-      note: [candidate.channelType, candidate.audience, candidate.fitReason, candidate.pitchAngle ? `섭외 포인트: ${candidate.pitchAngle}` : ""]
+      note: [candidate.channelType, candidate.audience, candidate.pitchAngle ? `섭외 포인트: ${candidate.pitchAngle}` : ""]
         .filter(Boolean)
         .join(" · "),
     });
@@ -5123,15 +5116,13 @@ async function handleApi(req, res, url) {
     const input = await readJson(req);
     const minSubscribers = Math.max(0, toNumber(input.minSubscribers, 0));
     const dormantMonths = Math.max(0, toNumber(input.dormantMonths, 0));
-    const minFitScore = Math.max(0, toNumber(input.minFitScore, 0));
-    if (!minSubscribers && !dormantMonths && !minFitScore) {
+    if (!minSubscribers && !dormantMonths) {
       return respondError(res, 400, "정리 조건을 하나 이상 지정하세요.");
     }
     const dormantCutoff = dormantMonths ? Date.now() - dormantMonths * 30 * 86_400_000 : 0;
     const matches = (c) => {
       if (c.status !== "discovered") return false;
       if (minSubscribers && toNumber(c.subscribers) < minSubscribers) return true;
-      if (minFitScore && toNumber(c.fitScore) < minFitScore) return true;
       // Dormant: only when we actually know the last upload date.
       if (dormantCutoff && c.lastUploadAt && new Date(c.lastUploadAt).getTime() < dormantCutoff) return true;
       return false;

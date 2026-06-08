@@ -107,23 +107,21 @@ test("markKnown flags by email match", () => {
 });
 
 // --- analysis normalizer ----------------------------------------------------
-test("normalizeCreatorAnalysis clamps fitScore and keeps fields", () => {
+test("normalizeCreatorAnalysis trims fields and dedupes tags", () => {
   const a = normalizeCreatorAnalysis({
     email: "BIZ@Studio.GG",
     channelType: " Twitch streamer ",
-    fitScore: 142,
     tags: ["horror", "horror", " indie "],
   });
   assert.equal(a.email, "biz@studio.gg");
   assert.equal(a.channelType, "Twitch streamer");
-  assert.equal(a.fitScore, 100);
+  assert.equal(a.fitScore, undefined);
   assert.deepEqual(a.tags, ["horror", "indie"]);
 });
 
-test("normalizeCreatorAnalysis drops a malformed email and defaults score", () => {
-  const a = normalizeCreatorAnalysis({ email: "not-an-email", fitScore: "n/a" });
+test("normalizeCreatorAnalysis drops a malformed email", () => {
+  const a = normalizeCreatorAnalysis({ email: "not-an-email" });
   assert.equal(a.email, "");
-  assert.equal(a.fitScore, 0);
   assert.deepEqual(a.tags, []);
 });
 

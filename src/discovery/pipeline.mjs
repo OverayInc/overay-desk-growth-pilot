@@ -95,20 +95,16 @@ async function processCandidate(c, { config, gameContext, analyze, enrich }) {
       record.audience = a.audience;
       record.contentTone = a.contentTone;
       record.languages = a.languages;
-      record.fitScore = a.fitScore;
-      record.fitReason = a.fitReason;
       record.pitchAngle = a.pitchAngle;
       record.tags = a.tags;
     } else {
       record.email = record.scrapedEmail || "";
-      record.fitScore = 0;
     }
     record.status = "discovered";
     record.error = "";
   } catch (err) {
     record.status = "error";
     record.error = String(err?.message || err);
-    record.fitScore = record.fitScore || 0;
   }
   return record;
 }
@@ -120,7 +116,6 @@ async function processCandidate(c, { config, gameContext, analyze, enrich }) {
 //   gameContext   — string passed to analyzer + seed/lead generators
 //   knownProfiles — existing creatorProfiles, to flag duplicates
 //   perSeed       — candidates kept per seed query
-//   minFitScore   — drop analyzed candidates below this
 //   enrich/analyze— stage toggles (analyze:false = retrieval-only dry run)
 //   expandCount   — ask gemma for this many extra seed queries (0 = off)
 //   leadDepth     — follow-the-lead hops from a found creator's niche (0 = off)
@@ -136,7 +131,6 @@ export async function runDiscovery(seeds, opts = {}) {
     gameContext,
     knownProfiles = [],
     perSeed = 8,
-    minFitScore = 0,
     enrich = true,
     analyze = true,
     skipKnown = true, // already-in-roster creators are skipped entirely (not analyzed/queued)
@@ -266,8 +260,8 @@ export async function runDiscovery(seeds, opts = {}) {
       if (willAnalyze) analyzed += 1;
       resultsByKey.set(candidateKey(c), record);
 
-      // Follow the lead from a strong, fresh creator.
-      if (leadDepth > 0 && depth < leadDepth && willAnalyze && !record.isKnown && (record.fitScore || 0) >= 55 && timeLeft()) {
+      // Follow the lead from a real, fresh creator (enough reach to be worth crawling neighbours).
+      if (leadDepth > 0 && depth < leadDepth && willAnalyze && !record.isKnown && (record.subscribers || 0) >= 1000 && timeLeft()) {
         // 1) FREE: crawl the channels this creator FEATURES (no search.list).
         if (c.platform === "YouTube" && c.externalId && yt.apiKey) {
           try {
@@ -302,8 +296,8 @@ export async function runDiscovery(seeds, opts = {}) {
   }
 
   const all = [...resultsByKey.values()];
-  const kept = all.filter((c) => c.status === "error" || (c.fitScore || 0) >= minFitScore);
-  kept.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+  const kept = [...all];
+  kept.sort((a, b) => (b.subscribers || 0) - (a.subscribers || 0));
 
   return {
     stats: {

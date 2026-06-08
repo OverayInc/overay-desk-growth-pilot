@@ -141,7 +141,7 @@ export async function generateEmailTemplate({ brief, gameName = "", genre = "" }
 // The retrieval layer (YouTube/Twitch/web search + page fetch) lives in
 // src/discovery/*; this function only turns a text bundle into structured JSON.
 
-const ANALYSIS_FIELDS = ["email", "channelType", "audience", "contentTone", "languages", "fitReason", "pitchAngle"];
+const ANALYSIS_FIELDS = ["email", "channelType", "audience", "contentTone", "languages", "pitchAngle"];
 
 // Coerce a parsed model object into a clean analysis record. `email` is only
 // kept when it actually looks like an email (the model is told to leave it ""
@@ -156,8 +156,6 @@ export function normalizeCreatorAnalysis(obj) {
   out.tags = Array.isArray(obj?.tags)
     ? [...new Set(obj.tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 12)
     : [];
-  const score = Number(obj?.fitScore);
-  out.fitScore = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
   return out;
 }
 
@@ -167,18 +165,16 @@ You receive RAW, messy text about ONE content creator/channel: profile metadata,
 Output rules:
 - Return ONE JSON object only — no prose, no markdown fences — with EXACTLY these keys:
   "email" (string), "channelType" (string), "audience" (string), "contentTone" (string),
-  "languages" (string), "fitScore" (number 0-100), "fitReason" (string), "pitchAngle" (string), "tags" (array of short strings).
+  "languages" (string), "pitchAngle" (string), "tags" (array of short strings).
 - "email": the channel's BUSINESS/CONTACT email ONLY if it literally appears in the provided text. If no email is present, return "". NEVER guess, complete, or invent an address. Prefer a business/booking/press address over a personal one.
-- LANGUAGE: Write "channelType", "audience", "contentTone", "languages", "fitReason", and "pitchAngle" in natural KOREAN (한국어). The ONLY exception is "tags", which stays in short English lowercase. "email" is the raw address.
+- LANGUAGE: Write "channelType", "audience", "contentTone", "languages", and "pitchAngle" in natural KOREAN (한국어). The ONLY exception is "tags", which stays in short English lowercase. "email" is the raw address.
 - "channelType": 채널 유형, 예: "유튜브 공포게임 실황", "트위치 버라이어티 스트리머", "스팀 큐레이터".
 - "audience": 시청자층(규모/지역/관심사)을 짧은 한 구절로 — 주어진 지표(구독자, 평균 조회수, 참여율)를 활용.
 - "contentTone": 톤/분위기, 예: "리액션 중심, 코믹", "차분한 해설", "공포·몰입형".
 - "languages": 주 콘텐츠 언어, 예: "영어", "한국어", "영어/한국어".
-- "fitScore": 0-100, 우리 게임(맥락 참고)과의 적합도. 주제 적합성과 실제 도달/참여를 함께 반영: 이상현상·공포·관찰 게임을 이미 다루고 참여율이 건강하면 높게; 비활성(최근 업로드 없음)·무관·소형 저참여 채널은 낮게.
-- "fitReason": 그 점수를 준 이유를 한 문장으로(주제 일치·평균 조회수·참여율·업로드 주기 등 구체적 근거 인용). 한국어.
 - "pitchAngle": 이 크리에이터에 맞춘 구체적인 섭외 한 줄(무료 키 제안을 어떻게 어필할지). 한국어. 예: "느린 긴장감을 좋아하니 채팅 증정용 키를 강조". 정말 모르겠으면 빈 문자열.
 - "tags": 필터용 짧은 영어 소문자 키워드 몇 개 (예: "horror", "indie", "reaction").
-- Base every field ONLY on the provided text/metrics. When unsure, use "" or a low fitScore — do not speculate.`;
+- Base every field ONLY on the provided text/metrics. When unsure, use "" — do not speculate.`;
 
 // Analyze one creator from a text bundle. Returns the normalized analysis.
 // `gameContext` describes the game we're scoring fit against (defaults to ours).
