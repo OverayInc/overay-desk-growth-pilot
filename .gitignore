@@ -5,7 +5,8 @@ npm-debug.log*
 *.log
 data/app-data.json
 data/*.local.json
-data/reddit-state.json
+# data/reddit-state.json  ← intentionally committed (private internal repo). It's
+# a Reddit login session for author-only data; re-commit it when it expires.
 data/reddit-chrome-profile/
 data/*.db
 data/*.db-shm
