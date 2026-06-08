@@ -35,6 +35,19 @@ function loadPlaywright() {
   return pwPromise;
 }
 
+// Human-like pacing helpers — so a multi-post refresh looks like a person idly
+// checking posts, not a bot hammering N requests back-to-back.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rand = (min, max) => Math.floor(min + Math.random() * (max - min));
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function normalize(d) {
   const num = (v) => {
     const n = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
@@ -82,12 +95,18 @@ export async function fetchRedditMany(urls, { timeoutMs = 30000 } = {}) {
     });
     await context.addInitScript(STEALTH_INIT);
 
-    for (const url of list) {
+    // Shuffle + pace only when checking multiple posts (a single preview stays snappy).
+    const ordered = list.length > 1 ? shuffle(list) : list;
+    let idx = 0;
+    for (const url of ordered) {
+      if (list.length > 1 && idx > 0) await sleep(rand(4000, 11000)); // idle gap between posts
+      idx += 1;
       const page = await context.newPage();
       try {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
         // Wait past the "please wait for verification" wall until the post renders.
         await page.waitForSelector("shreddit-post", { timeout: timeoutMs });
+        await sleep(rand(700, 2200)); // brief "reading" pause
         const d = await page.$eval("shreddit-post", (el) => ({
           score: el.getAttribute("score"),
           comments: el.getAttribute("comment-count"),

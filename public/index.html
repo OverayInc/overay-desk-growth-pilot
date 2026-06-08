@@ -461,6 +461,17 @@
                 <span class="muted" id="discoveryQueueCount">-</span>
                 <button type="button" id="discoveryClearBtn" class="secondary-button danger">🗑 비우기</button>
               </div>
+              <details class="action-panel" id="discoveryPrunePanel">
+                <summary><span>조건부 정리 (구독자 · 미활동 · 적합도)</span><span class="summary-icon"></span></summary>
+                <div class="discovery-prune">
+                  <label>구독자 <input type="number" id="pruneMinSubs" min="0" step="100" placeholder="1000" /> 명 이하 제거</label>
+                  <label><input type="number" id="pruneDormant" min="0" step="1" placeholder="6" /> 개월 이상 미활동 제거</label>
+                  <label>적합도 <input type="number" id="pruneMinFit" min="0" max="100" step="5" placeholder="40" /> 미만 제거</label>
+                  <span class="muted" id="prunePreview">대상 0명</span>
+                  <button type="button" id="discoveryPruneBtn" class="secondary-button danger">정리 실행</button>
+                </div>
+                <p class="muted small">검수 대기(discovered) 후보만 대상이며, 제거된 항목은 큐에서 빠지고 재검색해도 다시 올라오지 않아요.</p>
+              </details>
               <div class="table-wrap scroll-y" id="discoveryQueueWrap"></div>
             </section>
           </div>
@@ -571,6 +582,7 @@
                 </div>
                 <div class="button-row">
                   <span class="muted" id="redditCount">글 0개</span>
+                  <button class="secondary-button" type="button" id="redditImportMineButton">내 글 불러오기</button>
                   <button class="secondary-button" type="button" id="redditRefreshButton">반응 새로고침</button>
                 </div>
               </div>
@@ -724,6 +736,19 @@
                     <input name="note" placeholder="비고" />
                   </label>
                   <button type="submit">키 추가</button>
+                </form>
+              </details>
+              <details class="action-panel" open>
+                <summary><span>키 일괄 붙여넣기 (1회용)</span><span class="summary-icon"></span></summary>
+                <form class="stack-form" id="keyPoolBulkForm">
+                  <label class="field-wide">
+                    <span>스팀 키 목록 <span class="muted">(한 줄에 하나씩 · 각 키는 자동으로 1회용으로 등록)</span></span>
+                    <textarea name="keys" rows="8" placeholder="C8C2H-L7ZA4-WXA74&#10;2XP0R-BB6RR-YPLLI&#10;LDLDL-VZD7Z-M89D5&#10;..." style="font-family:ui-monospace,Menlo,Consolas,monospace"></textarea>
+                  </label>
+                  <div class="button-row">
+                    <span class="muted" id="keyPoolBulkCount">0개 감지</span>
+                    <button type="submit">일괄 등록 (1회용)</button>
+                  </div>
                 </form>
               </details>
               <div class="panel">

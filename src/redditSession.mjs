@@ -31,6 +31,18 @@ async function loadPlaywright() {
   }
 }
 
+// Human-like pacing for multi-post refreshes.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rand = (min, max) => Math.floor(min + Math.random() * (max - min));
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // Parse a possibly-abbreviated count: "516", "1,234", "1.2k", "1.2천", "조회 3만회".
 export function parseCount(raw) {
   if (!raw) return 0;
@@ -132,11 +144,19 @@ export async function fetchRedditInsights(urls, { dump = false, timeoutMs = 3000
       locale: "en-US",
       viewport: { width: 1280, height: 900 },
     });
-    for (const url of [...new Set((urls || []).filter(Boolean))]) {
+    const list = [...new Set((urls || []).filter(Boolean))];
+    // Pace + shuffle when checking multiple posts (single = snappy) so a refresh
+    // looks like a person idly checking, not a bot burst.
+    const ordered = list.length > 1 ? shuffle(list) : list;
+    let idx = 0;
+    for (const url of ordered) {
+      if (list.length > 1 && idx > 0) await sleep(rand(4000, 11000));
+      idx += 1;
       const page = await ctx.newPage();
       try {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
         await page.waitForSelector("shreddit-post", { timeout: timeoutMs });
+        await sleep(rand(700, 2200));
         if (dump) {
           const attrs = await page.$eval("shreddit-post", (el) =>
             el.getAttributeNames().reduce((o, n) => ((o[n] = el.getAttribute(n)), o), {}),
@@ -191,6 +211,71 @@ export async function fetchRedditInsights(urls, { dump = false, timeoutMs = 3000
     if (browser) await browser.close().catch(() => {});
   }
   return { available: true, loggedIn: true, byUrl };
+}
+
+// Scrape the logged-in user's OWN submitted posts (URLs) from their profile, so
+// they can be bulk-imported without pasting each URL. Returns { posts: [{url,
+// title, subreddit, postId}] }.
+export async function fetchMyRedditPosts({ max = 60, timeoutMs = 30000 } = {}) {
+  const pw = await loadPlaywright();
+  if (!pw) return { available: false, posts: [] };
+  if (!existsSync(REDDIT_STATE_FILE)) return { available: true, loggedIn: false, posts: [] };
+
+  let browser;
+  try {
+    browser = await pw.chromium.launch({
+      headless: true,
+      args: ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    const ctx = await browser.newContext({
+      storageState: REDDIT_STATE_FILE,
+      userAgent: UA,
+      locale: "en-US",
+      viewport: { width: 1280, height: 1000 },
+    });
+    const page = await ctx.newPage();
+    // /user/me/submitted/ redirects to the logged-in user's posts when authed.
+    await page.goto("https://www.reddit.com/user/me/submitted/", { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    await page.waitForSelector("shreddit-post, shreddit-async-loader, h1", { timeout: timeoutMs }).catch(() => {});
+    await sleep(rand(1500, 3000));
+    const username = page.url().match(/\/user\/([^/]+)/)?.[1] || "";
+
+    const seen = new Set();
+    const posts = [];
+    for (let s = 0; s < 12 && posts.length < max; s++) {
+      const batch = await page.$$eval("shreddit-post", (els) =>
+        els.map((el) => ({
+          permalink: el.getAttribute("permalink") || "",
+          title: el.getAttribute("post-title") || "",
+          subreddit: el.getAttribute("subreddit-prefixed-name") || "",
+          id: (el.getAttribute("id") || "").replace(/^t3_/, ""),
+        })),
+      );
+      let added = 0;
+      for (const b of batch) {
+        if (!b.permalink || seen.has(b.permalink)) continue;
+        seen.add(b.permalink);
+        posts.push({
+          url: `https://www.reddit.com${b.permalink}`,
+          title: b.title,
+          subreddit: b.subreddit,
+          postId: b.id,
+        });
+        added += 1;
+        if (posts.length >= max) break;
+      }
+      // Infinite scroll to load older posts; stop when nothing new arrives.
+      const prevH = await page.evaluate(() => document.body.scrollHeight);
+      await page.mouse.wheel(0, 5000);
+      await sleep(rand(1200, 2600));
+      const newH = await page.evaluate(() => document.body.scrollHeight);
+      if (!added && newH === prevH) break;
+    }
+    await ctx.close().catch(() => {});
+    return { available: true, loggedIn: true, username: username === "me" ? "" : username, posts };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
 }
 
 // --- CLI (only when run directly, not when imported by the server) ----------

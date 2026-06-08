@@ -16,7 +16,7 @@ import {
 } from "./auth.mjs";
 import { generateEmailTemplate, translateText, aiConfig } from "./marketingAgent.mjs";
 import { fetchRedditMany } from "./redditBrowser.mjs";
-import { hasRedditSession, fetchRedditInsights } from "./redditSession.mjs";
+import { hasRedditSession, fetchRedditInsights, fetchMyRedditPosts } from "./redditSession.mjs";
 import { runDiscovery } from "./discovery/pipeline.mjs";
 import { expandSeeds, detectGameMatch } from "./marketingAgent.mjs";
 import { makeRenderer, closeRenderer } from "./discovery/renderer.mjs";
@@ -4357,6 +4357,46 @@ async function handleApi(req, res, url) {
     return respondJson(res, 200, { updated, total: targets.length, warning });
   }
 
+  // Bulk-import the logged-in user's OWN posts (scraped from their profile).
+  if (route === "POST /api/reddit-posts/import-mine") {
+    if (!hasRedditSession()) {
+      return respondError(res, 400, "레딧 로그인 세션이 필요합니다. 데스크톱에서 `npm run reddit:login`을 먼저 실행하세요.");
+    }
+    const input = await readJson(req);
+    const max = Math.max(1, Math.min(200, toNumber(input.max, 60)));
+    const detect = input.detectGame !== false;
+    let mine;
+    try {
+      mine = await fetchMyRedditPosts({ max });
+    } catch (error) {
+      return respondError(res, 502, error.message || "내 글을 불러오지 못했습니다.");
+    }
+    if (!mine.available) return respondError(res, 400, "Reddit 수집에는 브라우저(Playwright)가 필요합니다.");
+    if (!mine.loggedIn) return respondError(res, 400, "로그인 세션이 만료되었습니다. 다시 로그인하세요.");
+
+    const existing = new Set(data.redditPosts.map((p) => p.postId).filter(Boolean));
+    const games = detect ? activeGames(data).map((g) => ({ id: g.id, name: g.name, genre: g.genre })) : [];
+    let imported = 0;
+    for (const p of mine.posts) {
+      if (!p.postId || existing.has(p.postId)) continue;
+      existing.add(p.postId);
+      let gameId = "";
+      if (detect && games.length) {
+        try {
+          gameId = await detectGameMatch({ text: [p.title, p.subreddit].filter(Boolean).join(" — "), games });
+        } catch {
+          /* gemma offline → leave unassigned */
+        }
+      }
+      data.redditPosts.push(
+        normalizeRedditPost({ url: p.url, postId: p.postId, title: p.title, subreddit: p.subreddit, gameId, status: "posted" }),
+      );
+      imported += 1;
+    }
+    if (imported) await writeData(data);
+    return respondJson(res, 200, { imported, found: mine.posts.length, username: mine.username || "" });
+  }
+
   // Preview a pasted URL (no save) so the form can auto-fill title/subreddit/date.
   if (route === "POST /api/reddit-posts/preview") {
     const input = await readJson(req);
@@ -5075,6 +5115,37 @@ async function handleApi(req, res, url) {
     const removed = before - data.discoveryCandidates.length;
     await writeData(data);
     return respondJson(res, 200, { ok: true, removed, remaining: data.discoveryCandidates.length });
+  }
+  // Conditional cleanup: dismiss DISCOVERED candidates matching any given rule
+  // (subscribers below, dormant N+ months, fit below). Dismissed = out of the
+  // review queue AND won't be re-added on the next run.
+  if (route === "POST /api/discovery/prune") {
+    const input = await readJson(req);
+    const minSubscribers = Math.max(0, toNumber(input.minSubscribers, 0));
+    const dormantMonths = Math.max(0, toNumber(input.dormantMonths, 0));
+    const minFitScore = Math.max(0, toNumber(input.minFitScore, 0));
+    if (!minSubscribers && !dormantMonths && !minFitScore) {
+      return respondError(res, 400, "정리 조건을 하나 이상 지정하세요.");
+    }
+    const dormantCutoff = dormantMonths ? Date.now() - dormantMonths * 30 * 86_400_000 : 0;
+    const matches = (c) => {
+      if (c.status !== "discovered") return false;
+      if (minSubscribers && toNumber(c.subscribers) < minSubscribers) return true;
+      if (minFitScore && toNumber(c.fitScore) < minFitScore) return true;
+      // Dormant: only when we actually know the last upload date.
+      if (dormantCutoff && c.lastUploadAt && new Date(c.lastUploadAt).getTime() < dormantCutoff) return true;
+      return false;
+    };
+    let removed = 0;
+    for (const c of data.discoveryCandidates) {
+      if (matches(c)) {
+        c.status = "dismissed";
+        c.updatedAt = nowIso();
+        removed += 1;
+      }
+    }
+    if (removed) await writeData(data);
+    return respondJson(res, 200, { ok: true, removed });
   }
   if (route === "POST /api/ai/translate") {
     const input = await readJson(req);

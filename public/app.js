@@ -2989,6 +2989,37 @@ function initForms() {
   $("#keyPoolType")?.addEventListener("change", (event) => {
     $("#keyPoolMaxWrap").hidden = event.target.value !== "multi";
   });
+
+  // Bulk paste → register each line as a single-use key.
+  const bulkForm = $("#keyPoolBulkForm");
+  const bulkKeys = bulkForm?.elements?.keys;
+  const countKeys = (txt) => String(txt || "").split(/[\r\n]+/).map((s) => s.trim()).filter(Boolean).length;
+  bulkKeys?.addEventListener("input", () => {
+    $("#keyPoolBulkCount").textContent = `${countKeys(bulkKeys.value)}개 감지`;
+  });
+  bulkForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = String(bulkKeys.value || "").trim();
+    const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
+    if (!text) return showToast("키를 붙여넣어 주세요.");
+    if (!gameId) return showToast("먼저 게임을 선택하세요.");
+    const btn = bulkForm.querySelector("button[type='submit']");
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "등록 중…";
+    try {
+      const r = await api("/api/import/key-pool", { method: "POST", body: { csvText: text, gameId } });
+      showToast(`키 ${r.imported}개 등록 (1회용)${r.skippedDuplicates ? ` · 중복 ${r.skippedDuplicates}개 건너뜀` : ""} · 총 ${r.totalRows}줄`);
+      bulkForm.reset();
+      $("#keyPoolBulkCount").textContent = "0개 감지";
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
   $("#keyPoolForm")?.addEventListener("reset", () => {
     $("#keyPoolMaxWrap").hidden = true;
   });
@@ -3369,13 +3400,34 @@ function initForms() {
     const btn = event.currentTarget;
     const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "갱신 중… (글당 몇 초)";
+    btn.textContent = "갱신 중… (사람처럼 천천히)";
     try {
       const result = await api("/api/reddit-posts/refresh", { method: "POST", body: {} });
       await loadAll();
       showToast(result.warning ? result.warning : `반응 갱신 완료 · ${result.updated}/${result.total}건`);
     } catch (error) {
       showToast(error.message || "갱신에 실패했습니다.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+
+  $("#redditImportMineButton")?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "불러오는 중… (약 30초)";
+    try {
+      const r = await api("/api/reddit-posts/import-mine", { method: "POST", body: { max: 80 } });
+      showToast(
+        r.imported
+          ? `내 글 ${r.imported}개 추가${r.username ? ` (u/${r.username})` : ""} · 발견 ${r.found}개. "반응 새로고침"으로 조회수/반응을 채우세요.`
+          : `새로 추가할 글이 없습니다 (발견 ${r.found}개, 모두 등록됨).`,
+      );
+      await loadAll();
+    } catch (error) {
+      showToast(error.message);
     } finally {
       btn.disabled = false;
       btn.textContent = original;
@@ -3665,9 +3717,33 @@ function renderDiscoveryLog(logs) {
   if (atBottom) panel.scrollTop = panel.scrollHeight;
 }
 
+function discoveryPruneCriteria() {
+  return {
+    minSubs: Number($("#pruneMinSubs")?.value) || 0,
+    dormantMonths: Number($("#pruneDormant")?.value) || 0,
+    minFit: Number($("#pruneMinFit")?.value) || 0,
+  };
+}
+function discoveryPruneMatches(c, { minSubs, dormantMonths, minFit }) {
+  if (c.status !== "discovered") return false;
+  if (minSubs && (Number(c.subscribers) || 0) < minSubs) return true;
+  if (minFit && (Number(c.fitScore) || 0) < minFit) return true;
+  if (dormantMonths && c.lastUploadAt && new Date(c.lastUploadAt).getTime() < Date.now() - dormantMonths * 30 * 86400000) return true;
+  return false;
+}
+function refreshPrunePreview() {
+  const el = $("#prunePreview");
+  if (!el) return;
+  const crit = discoveryPruneCriteria();
+  const any = crit.minSubs || crit.dormantMonths || crit.minFit;
+  const n = any ? (state.discovery?.candidates || []).filter((c) => discoveryPruneMatches(c, crit)).length : 0;
+  el.textContent = `대상 ${number(n)}명`;
+}
+
 function renderDiscoveryQueue() {
   const wrap = $("#discoveryQueueWrap");
   if (!wrap) return;
+  refreshPrunePreview();
   const all = state.discovery?.candidates || [];
   const filter = state.discoveryStatusFilter || "discovered";
   const sortBy = state.discoverySortBy || "fit";
@@ -3862,6 +3938,38 @@ function initDiscovery() {
       await loadDiscovery();
     } catch (error) {
       showToast(error.message);
+    }
+  });
+
+  // Conditional prune: live preview count + apply.
+  for (const id of ["#pruneMinSubs", "#pruneDormant", "#pruneMinFit"]) {
+    $(id)?.addEventListener("input", refreshPrunePreview);
+  }
+  $("#discoveryPruneBtn")?.addEventListener("click", async (event) => {
+    const crit = discoveryPruneCriteria();
+    if (!crit.minSubs && !crit.dormantMonths && !crit.minFit) return showToast("정리 조건을 하나 이상 입력하세요.");
+    const n = (state.discovery?.candidates || []).filter((c) => discoveryPruneMatches(c, crit)).length;
+    if (!n) return showToast("조건에 맞는 후보가 없습니다.");
+    const parts = [
+      crit.minSubs ? `구독자 ${number(crit.minSubs)} 이하` : "",
+      crit.dormantMonths ? `${crit.dormantMonths}개월+ 미활동` : "",
+      crit.minFit ? `적합도 ${crit.minFit} 미만` : "",
+    ].filter(Boolean).join(" · ");
+    if (!window.confirm(`${parts}\n→ ${n}명을 큐에서 제거할까요? (재검색해도 다시 안 올라옴)`)) return;
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await api("/api/discovery/prune", {
+        method: "POST",
+        body: { minSubscribers: crit.minSubs, dormantMonths: crit.dormantMonths, minFitScore: crit.minFit },
+      });
+      discoverySeenIds = null;
+      showToast(`${number(r.removed)}명 정리했습니다.`);
+      await loadDiscovery();
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      btn.disabled = false;
     }
   });
 

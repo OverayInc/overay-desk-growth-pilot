@@ -2150,3 +2150,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .stage-radar .find-bubble {
   left: 50%; bottom: 4px; right: auto; width: 156px; text-align: center;
 }
+
+/* Discovery queue conditional prune */
+.discovery-prune { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 18px 18px 6px; }
+#discoveryPrunePanel > p { margin: 0; padding: 0 18px 16px; }
+.discovery-prune label { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
+.discovery-prune input { width: 80px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.discovery-prune #prunePreview { margin-left: auto; font-weight: 600; }
