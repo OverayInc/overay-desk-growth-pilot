@@ -12,13 +12,39 @@
 //
 // Needs Playwright: npm i -D playwright && npx playwright install chromium
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REDDIT_STATE_FILE =
   process.env.REDDIT_STATE_FILE || path.join(__dirname, "..", "data", "reddit-state.json");
+
+// Small sidecar holding the human-readable identity of the saved session
+// (username/email/capturedAt). It's derived data we can show in the UI without a
+// network call — handy on a headless cloud box where you can't re-run `login`.
+// Lives next to the state file and is safe to commit alongside it.
+export const REDDIT_META_FILE =
+  process.env.REDDIT_META_FILE ||
+  REDDIT_STATE_FILE.replace(/reddit-state\.json$/, "reddit-session-meta.json");
+
+function readSessionMeta() {
+  try {
+    return JSON.parse(readFileSync(REDDIT_META_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeSessionMeta(patch) {
+  const next = { ...readSessionMeta(), ...patch };
+  try {
+    writeFileSync(REDDIT_META_FILE, JSON.stringify(next, null, 2));
+  } catch {
+    /* read-only fs → skip; status still works from the state file */
+  }
+  return next;
+}
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -88,6 +114,75 @@ export function hasRedditSession() {
   return existsSync(REDDIT_STATE_FILE);
 }
 
+// Read-only, no network: describe the saved session so the UI can show who's
+// logged in AND so a headless server can explain *where* it looked when the file
+// is missing (the #1 deploy confusion: the committed file is shadowed by a
+// bind-mounted/empty ./data on the host).
+export function redditSessionStatus() {
+  const meta = readSessionMeta();
+  const base = {
+    present: false,
+    path: REDDIT_STATE_FILE,
+    pathFromEnv: Boolean(process.env.REDDIT_STATE_FILE),
+    cookieCount: 0,
+    hasAuthCookies: false,
+    loginTime: "",
+    username: meta.username || "",
+    email: meta.email || "",
+    capturedAt: meta.capturedAt || "",
+  };
+  if (!existsSync(REDDIT_STATE_FILE)) return base;
+  base.present = true;
+  try {
+    const state = JSON.parse(readFileSync(REDDIT_STATE_FILE, "utf8"));
+    const cookies = state.cookies || [];
+    const names = cookies.map((c) => c.name);
+    base.cookieCount = cookies.length;
+    base.hasAuthCookies = names.includes("reddit_session") && names.some((n) => /token/i.test(n));
+    const ls = (state.origins || []).flatMap((o) => o.localStorage || []);
+    base.loginTime = ls.find((e) => e.name === "login-time")?.value || "";
+  } catch {
+    /* corrupt file → present but unreadable; treat as no usable session */
+    base.present = false;
+  }
+  return base;
+}
+
+// Resolve the logged-in username by visiting /user/me/ (redirects to the real
+// handle when authed) and cache it into the sidecar meta. Network + headless, so
+// it's opt-in (status endpoint only calls this on ?refresh=1).
+export async function redditWhoami({ timeoutMs = 20000 } = {}) {
+  const pw = await loadPlaywright();
+  if (!pw) return { available: false, loggedIn: false, username: "" };
+  if (!existsSync(REDDIT_STATE_FILE)) return { available: true, loggedIn: false, username: "" };
+
+  let browser;
+  try {
+    browser = await pw.chromium.launch({
+      headless: true,
+      args: ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    const ctx = await browser.newContext({
+      storageState: REDDIT_STATE_FILE,
+      userAgent: UA,
+      locale: "en-US",
+      viewport: { width: 1280, height: 900 },
+      extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+    });
+    await ctx.addInitScript(STEALTH_INIT);
+    const page = await ctx.newPage();
+    await page.goto("https://www.reddit.com/user/me/", { waitUntil: "domcontentloaded", timeout: timeoutMs }).catch(() => {});
+    await sleep(rand(800, 1800));
+    const username = page.url().match(/\/user\/([^/]+)/)?.[1] || "";
+    await ctx.close().catch(() => {});
+    const loggedIn = Boolean(username) && username !== "me";
+    if (loggedIn) writeSessionMeta({ username, checkedAt: new Date().toISOString() });
+    return { available: true, loggedIn, username: loggedIn ? username : "" };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
 // Resolve until the user presses Enter in the terminal.
 function waitForEnter() {
   return new Promise((resolve) => {
@@ -128,7 +223,19 @@ export async function captureRedditSession() {
   await waitForEnter();
 
   await ctx.storageState({ path: REDDIT_STATE_FILE });
+  // Record who we just logged in as (best-effort) so the dashboard can show it.
+  let username = "";
+  try {
+    await page.goto("https://www.reddit.com/user/me/", { waitUntil: "domcontentloaded" }).catch(() => {});
+    await sleep(1500);
+    username = page.url().match(/\/user\/([^/]+)/)?.[1] || "";
+    if (username === "me") username = "";
+  } catch {
+    /* ignore — session is saved regardless */
+  }
+  writeSessionMeta({ username, capturedAt: new Date().toISOString() });
   await ctx.close().catch(() => {});
+  if (username) console.log(`   로그인 계정: u/${username}`);
   return REDDIT_STATE_FILE;
 }
 
@@ -288,7 +395,9 @@ export async function fetchMyRedditPosts({ max = 60, timeoutMs = 30000 } = {}) {
       dry = !added && newH === prevH ? dry + 1 : 0; // 2 dry scrolls in a row → done
     }
     await ctx.close().catch(() => {});
-    return { available: true, loggedIn: true, username: username === "me" ? "" : username, posts };
+    const handle = username === "me" ? "" : username;
+    if (handle) writeSessionMeta({ username: handle, checkedAt: new Date().toISOString() });
+    return { available: true, loggedIn: true, username: handle, posts };
   } finally {
     if (browser) await browser.close().catch(() => {});
   }

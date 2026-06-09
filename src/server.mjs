@@ -16,7 +16,13 @@ import {
 } from "./auth.mjs";
 import { generateEmailTemplate, translateText, aiConfig } from "./marketingAgent.mjs";
 import { fetchRedditMany } from "./redditBrowser.mjs";
-import { hasRedditSession, fetchRedditInsights, fetchMyRedditPosts } from "./redditSession.mjs";
+import {
+  hasRedditSession,
+  fetchRedditInsights,
+  fetchMyRedditPosts,
+  redditSessionStatus,
+  redditWhoami,
+} from "./redditSession.mjs";
 import { runDiscovery } from "./discovery/pipeline.mjs";
 import { expandSeeds, detectGameMatch } from "./marketingAgent.mjs";
 import { makeRenderer, closeRenderer } from "./discovery/renderer.mjs";
@@ -4298,6 +4304,22 @@ async function handleApi(req, res, url) {
     return respondJson(res, 200, { channelId: channel.id, channelTitle: channel.title, ...analytics });
   }
 
+  // Who is the saved Reddit session logged in as? Read-only by default (instant);
+  // ?refresh=1 verifies live via a headless visit and caches the username.
+  if (route === "GET /api/reddit/session") {
+    let status = redditSessionStatus();
+    if (status.present && url.searchParams.get("refresh") === "1") {
+      try {
+        const who = await redditWhoami();
+        if (who.loggedIn) status = { ...status, username: who.username, verified: true };
+        else status = { ...status, verified: false, loggedIn: false };
+      } catch {
+        /* network/browser hiccup → fall back to the cached read-only view */
+      }
+    }
+    return respondJson(res, 200, status);
+  }
+
   if (route === "GET /api/reddit-posts") {
     const gameId = requestedGameId(url);
     const posts = scopedItems(data.redditPosts, gameId)
@@ -4356,7 +4378,14 @@ async function handleApi(req, res, url) {
   // Bulk-import the logged-in user's OWN posts (scraped from their profile).
   if (route === "POST /api/reddit-posts/import-mine") {
     if (!hasRedditSession()) {
-      return respondError(res, 400, "레딧 로그인 세션이 필요합니다. 데스크톱에서 `npm run reddit:login`을 먼저 실행하세요.");
+      const st = redditSessionStatus();
+      return respondError(
+        res,
+        400,
+        `레딧 세션 파일을 찾지 못했습니다 (${st.path}). 이 서버는 headless라 여기서 로그인할 수 없어요 — ` +
+          "데스크톱에서 `npm run reddit:login`으로 세션을 만든 뒤 data/reddit-state.json 을 커밋/배포해서 이 경로에 두세요. " +
+          "(Docker라면 ./data 볼륨에 파일이 있는지 확인하세요.)",
+      );
     }
     const input = await readJson(req);
     const max = Math.max(1, Math.min(200, toNumber(input.max, 60)));

@@ -37,8 +37,11 @@ services:
       DISABLE_DISCOVERY_SCHEDULER: ${DISABLE_DISCOVERY_SCHEDULER:-true}
       # --- Reddit (browser-scraped; the API is gone in 2026) ---
       REDDIT_REFRESH_HOURS: ${REDDIT_REFRESH_HOURS:-6}
-      # Logged-in session for author-only data (view counts). Capture on a desktop
-      # with `npm run reddit:login`, then drop the file into ./data (gitignored).
+      # Logged-in session for author-only data (view counts). Captured on a desktop
+      # with `npm run reddit:login` and COMMITTED to the repo (data/reddit-state.json
+      # + reddit-session-meta.json, private internal repo). NOTE: the ./data bind
+      # mount below shadows the image's copy, so on the host this resolves to
+      # <repo>/data/reddit-state.json — make sure `git pull` brought it in.
       REDDIT_STATE_FILE: ${REDDIT_STATE_FILE:-/app/data/reddit-state.json}
       # Microsoft (Entra ID) login — empty by default = gate OFF (open). Set
       # MS_CLIENT_ID + AUTH_ALLOWED_EMAILS/DOMAIN (host env or .env) to enable.

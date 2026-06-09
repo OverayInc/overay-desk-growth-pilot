@@ -1189,6 +1189,35 @@ function renderYoutubeAnalytics() {
   container.innerHTML = `${head}${cardsHtml}${sparkHtml}<div class="insight-grid">${countriesHtml}${trafficHtml}</div>${videosHtml}`;
 }
 
+// Show who the saved Reddit session belongs to (and, when missing, WHERE the
+// server looked — the usual headless-deploy gotcha). Click to re-verify live.
+async function loadRedditSessionInfo({ refresh = false } = {}) {
+  const el = $("#redditSessionInfo");
+  if (!el) return;
+  if (refresh) el.textContent = "계정 확인 중…";
+  let s;
+  try {
+    s = await api(`/api/reddit/session${refresh ? "?refresh=1" : ""}`);
+  } catch {
+    el.innerHTML = '<span class="reddit-session-dot off"></span>세션 상태를 불러오지 못했습니다.';
+    return;
+  }
+  if (!s.present) {
+    el.innerHTML =
+      '<span class="reddit-session-dot off"></span>로그인 세션 없음 — ' +
+      `<code>${escapeHtml(s.path || "data/reddit-state.json")}</code> 에 세션 파일이 없습니다. ` +
+      "데스크톱에서 만들어 커밋/배포하세요.";
+    el.title = "이 서버는 headless라 여기서 직접 로그인할 수 없습니다. 세션 파일을 이 경로에 두세요.";
+    return;
+  }
+  const who = s.username
+    ? `<strong>u/${escapeHtml(s.username)}</strong>${s.email ? ` · ${escapeHtml(s.email)}` : ""}`
+    : '계정 미확인 <span class="link-look">(클릭해 확인)</span>';
+  const when = s.capturedAt ? ` · ${new Date(s.capturedAt).toLocaleDateString("ko-KR")} 저장` : "";
+  el.innerHTML = `<span class="reddit-session-dot on"></span>로그인: ${who}${when}`;
+  el.title = `쿠키 ${s.cookieCount}개${s.loginTime ? ` · 로그인 ${s.loginTime}` : ""} · 클릭하면 계정을 다시 확인합니다`;
+}
+
 function renderRedditPosts() {
   if (!$("#redditTable")) return;
   $("#redditCount").textContent = `글 ${number(state.redditPosts.length)}개`;
@@ -3481,6 +3510,7 @@ function initForms() {
           : `새로 추가할 글이 없습니다 (발견 ${r.found}개, 모두 등록됨).`,
       );
       await loadAll();
+      loadRedditSessionInfo();
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -3488,6 +3518,10 @@ function initForms() {
       btn.textContent = original;
     }
   });
+
+  // Click the session line to re-verify the logged-in account live (headless visit).
+  $("#redditSessionInfo")?.addEventListener("click", () => loadRedditSessionInfo({ refresh: true }));
+  loadRedditSessionInfo();
 
   $("#redditTable")?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-del-reddit]");
