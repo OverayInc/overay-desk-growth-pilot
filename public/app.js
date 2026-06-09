@@ -1218,6 +1218,38 @@ async function loadRedditSessionInfo({ refresh = false } = {}) {
   el.title = `쿠키 ${s.cookieCount}개${s.loginTime ? ` · 로그인 ${s.loginTime}` : ""} · 클릭하면 계정을 다시 확인합니다`;
 }
 
+// Start a slow Reddit background job (import-mine / refresh) and poll it to
+// completion. The slow scrape runs server-side, so each request here is quick —
+// this is what avoids the reverse-proxy upstream timeout (503) on long actions.
+async function runRedditJob({ startPath, body, btn, busyText, useGameScope = false }) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = busyText;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    await api(startPath, { method: "POST", body });
+    let job = null;
+    for (let i = 0; i < 200; i++) {
+      await sleep(3000);
+      job = await api("/api/reddit-posts/job");
+      if (!job.running) break;
+      if (job.message) btn.textContent = job.message.length > 28 ? busyText : job.message;
+    }
+    if (job?.error) {
+      showToast(job.error);
+    } else {
+      showToast(job?.message || "완료했습니다.");
+      await loadAll();
+      loadRedditSessionInfo();
+    }
+  } catch (error) {
+    showToast(error.message || "작업에 실패했습니다.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
 function renderRedditPosts() {
   if (!$("#redditTable")) return;
   $("#redditCount").textContent = `글 ${number(state.redditPosts.length)}개`;
@@ -3479,44 +3511,22 @@ function initForms() {
     }
   });
 
-  $("#redditRefreshButton")?.addEventListener("click", async (event) => {
-    // Capture the button now — after an await, event.currentTarget is null.
-    const btn = event.currentTarget;
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "갱신 중… (사람처럼 천천히)";
-    try {
-      const result = await api("/api/reddit-posts/refresh", { method: "POST", body: {} });
-      await loadAll();
-      showToast(result.warning ? result.warning : `반응 갱신 완료 · ${result.updated}/${result.total}건`);
-    } catch (error) {
-      showToast(error.message || "갱신에 실패했습니다.");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = original;
-    }
+  $("#redditRefreshButton")?.addEventListener("click", (event) => {
+    runRedditJob({
+      startPath: "/api/reddit-posts/refresh",
+      body: {},
+      btn: event.currentTarget,
+      busyText: "갱신 중… (사람처럼 천천히)",
+    });
   });
 
-  $("#redditImportMineButton")?.addEventListener("click", async (event) => {
-    const btn = event.currentTarget;
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "불러오는 중… (약 30초)";
-    try {
-      const r = await api("/api/reddit-posts/import-mine", { method: "POST", body: { max: 80 } });
-      showToast(
-        r.imported
-          ? `내 글 ${r.imported}개 추가${r.username ? ` (u/${r.username})` : ""} · 발견 ${r.found}개. "반응 새로고침"으로 조회수/반응을 채우세요.`
-          : `새로 추가할 글이 없습니다 (발견 ${r.found}개, 모두 등록됨).`,
-      );
-      await loadAll();
-      loadRedditSessionInfo();
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = original;
-    }
+  $("#redditImportMineButton")?.addEventListener("click", (event) => {
+    runRedditJob({
+      startPath: "/api/reddit-posts/import-mine",
+      body: { max: 80 },
+      btn: event.currentTarget,
+      busyText: "불러오는 중… (사람처럼 천천히, 약 1분)",
+    });
   });
 
   // Click the session line to re-verify the logged-in account live (headless visit).

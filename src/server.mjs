@@ -3473,6 +3473,122 @@ async function redditFetchPosts(posts) {
   return { byId, warning: error || (anyFail ? "일부 글의 반응을 가져오지 못했습니다." : "") };
 }
 
+// Reddit import/refresh drive a human-paced headless browser that can run 60–90s.
+// Holding the HTTP request open that long trips a reverse proxy's upstream
+// timeout (→ 503). So we run them in the BACKGROUND and let the client poll
+// GET /api/reddit-posts/job. Only one runs at a time (both use the one session).
+let redditJob = null; // { kind, running, startedAt, finishedAt, message, error, result }
+
+function redditJobSnapshot() {
+  return redditJob ? { ...redditJob } : { running: false, kind: "", message: "", error: "", result: null };
+}
+
+function startRedditImportJob({ max, detect }) {
+  redditJob = {
+    kind: "import",
+    running: true,
+    startedAt: nowIso(),
+    finishedAt: "",
+    message: "내 글을 불러오는 중… (사람처럼 천천히, 약 1분)",
+    error: "",
+    result: null,
+  };
+  const started = redditJob.startedAt;
+  (async () => {
+    try {
+      const mine = await fetchMyRedditPosts({ max });
+      if (!mine.available) throw new Error("Reddit 수집에는 브라우저(Playwright)가 필요합니다.");
+      if (!mine.loggedIn) throw new Error("로그인 세션이 만료되었습니다. 다시 로그인하세요.");
+      const data = await readData();
+      const existing = new Set(data.redditPosts.map((p) => p.postId).filter(Boolean));
+      const games = detect ? activeGames(data).map((g) => ({ id: g.id, name: g.name, genre: g.genre })) : [];
+      let imported = 0;
+      for (const p of mine.posts) {
+        if (!p.postId || existing.has(p.postId)) continue;
+        existing.add(p.postId);
+        let gameId = "";
+        if (detect && games.length) {
+          try {
+            gameId = await detectGameMatch({ text: [p.title, p.subreddit].filter(Boolean).join(" — "), games });
+          } catch {
+            /* gemma offline → leave unassigned */
+          }
+        }
+        data.redditPosts.push(
+          normalizeRedditPost({ url: p.url, postId: p.postId, title: p.title, subreddit: p.subreddit, gameId, status: "posted" }),
+        );
+        imported += 1;
+      }
+      if (imported) await writeData(data);
+      redditJob = {
+        kind: "import",
+        running: false,
+        startedAt: started,
+        finishedAt: nowIso(),
+        message: imported
+          ? `내 글 ${imported}개 추가${mine.username ? ` (u/${mine.username})` : ""} · 발견 ${mine.posts.length}개`
+          : `새로 추가할 글이 없습니다 (발견 ${mine.posts.length}개, 모두 등록됨)`,
+        error: "",
+        result: { imported, found: mine.posts.length, username: mine.username || "" },
+      };
+    } catch (error) {
+      redditJob = {
+        kind: "import",
+        running: false,
+        startedAt: started,
+        finishedAt: nowIso(),
+        message: "",
+        error: error.message || "내 글을 불러오지 못했습니다.",
+        result: null,
+      };
+    }
+  })();
+}
+
+function startRedditRefreshJob() {
+  redditJob = {
+    kind: "refresh",
+    running: true,
+    startedAt: nowIso(),
+    finishedAt: "",
+    message: "반응을 갱신하는 중… (사람처럼 천천히)",
+    error: "",
+    result: null,
+  };
+  const started = redditJob.startedAt;
+  (async () => {
+    try {
+      const data = await readData();
+      const targets = data.redditPosts.filter((post) => post.postId && (post.url || post.permalink));
+      if (!targets.length) {
+        redditJob = { kind: "refresh", running: false, startedAt: started, finishedAt: nowIso(), message: "갱신할 글이 없습니다.", error: "", result: { updated: 0, total: 0 } };
+        return;
+      }
+      const { byId, warning } = await redditFetchPosts(targets);
+      let updated = 0;
+      for (const post of targets) {
+        if (byId[post.postId]) {
+          applyRedditStats(post, byId[post.postId]);
+          post.updatedAt = nowIso();
+          updated += 1;
+        }
+      }
+      await writeData(data);
+      redditJob = {
+        kind: "refresh",
+        running: false,
+        startedAt: started,
+        finishedAt: nowIso(),
+        message: `반응 갱신 완료 · ${updated}/${targets.length}건${warning ? ` · ${warning}` : ""}`,
+        error: "",
+        result: { updated, total: targets.length, warning },
+      };
+    } catch (error) {
+      redditJob = { kind: "refresh", running: false, startedAt: started, finishedAt: nowIso(), message: "", error: error.message || "갱신에 실패했습니다.", result: null };
+    }
+  })();
+}
+
 function applyRedditStats(post, stats) {
   if (!stats) return post;
   post.upvotes = stats.upvotes;
@@ -4360,23 +4476,22 @@ async function handleApi(req, res, url) {
     return respondJson(res, 201, post);
   }
 
+  // Async: a refresh of many posts is slow (human-paced), so run it in the
+  // background and return immediately — the client polls /api/reddit-posts/job.
   if (route === "POST /api/reddit-posts/refresh") {
-    const targets = data.redditPosts.filter((post) => post.postId && (post.url || post.permalink));
-    if (!targets.length) return respondJson(res, 200, { updated: 0, total: 0, warning: "갱신할 글이 없습니다." });
-    const { byId, warning } = await redditFetchPosts(targets);
-    let updated = 0;
-    for (const post of targets) {
-      if (byId[post.postId]) {
-        applyRedditStats(post, byId[post.postId]);
-        post.updatedAt = nowIso();
-        updated += 1;
-      }
-    }
-    await writeData(data);
-    return respondJson(res, 200, { updated, total: targets.length, warning });
+    if (redditJob?.running) return respondError(res, 409, "이미 레딧 작업이 실행 중입니다.");
+    startRedditRefreshJob();
+    return respondJson(res, 202, { started: true, kind: "refresh" });
+  }
+
+  // Poll the running/last Reddit background job (import-mine or refresh).
+  if (route === "GET /api/reddit-posts/job") {
+    return respondJson(res, 200, redditJobSnapshot());
   }
 
   // Bulk-import the logged-in user's OWN posts (scraped from their profile).
+  // Async: the scrape is human-paced (~1min) and would trip a proxy timeout if
+  // held open, so start a background job and let the client poll the job route.
   if (route === "POST /api/reddit-posts/import-mine") {
     if (!hasRedditSession()) {
       const st = redditSessionStatus();
@@ -4388,39 +4503,12 @@ async function handleApi(req, res, url) {
           "(Docker라면 ./data 볼륨에 파일이 있는지 확인하세요.)",
       );
     }
+    if (redditJob?.running) return respondError(res, 409, "이미 레딧 작업이 실행 중입니다.");
     const input = await readJson(req);
     const max = Math.max(1, Math.min(200, toNumber(input.max, 60)));
     const detect = input.detectGame !== false;
-    let mine;
-    try {
-      mine = await fetchMyRedditPosts({ max });
-    } catch (error) {
-      return respondError(res, 502, error.message || "내 글을 불러오지 못했습니다.");
-    }
-    if (!mine.available) return respondError(res, 400, "Reddit 수집에는 브라우저(Playwright)가 필요합니다.");
-    if (!mine.loggedIn) return respondError(res, 400, "로그인 세션이 만료되었습니다. 다시 로그인하세요.");
-
-    const existing = new Set(data.redditPosts.map((p) => p.postId).filter(Boolean));
-    const games = detect ? activeGames(data).map((g) => ({ id: g.id, name: g.name, genre: g.genre })) : [];
-    let imported = 0;
-    for (const p of mine.posts) {
-      if (!p.postId || existing.has(p.postId)) continue;
-      existing.add(p.postId);
-      let gameId = "";
-      if (detect && games.length) {
-        try {
-          gameId = await detectGameMatch({ text: [p.title, p.subreddit].filter(Boolean).join(" — "), games });
-        } catch {
-          /* gemma offline → leave unassigned */
-        }
-      }
-      data.redditPosts.push(
-        normalizeRedditPost({ url: p.url, postId: p.postId, title: p.title, subreddit: p.subreddit, gameId, status: "posted" }),
-      );
-      imported += 1;
-    }
-    if (imported) await writeData(data);
-    return respondJson(res, 200, { imported, found: mine.posts.length, username: mine.username || "" });
+    startRedditImportJob({ max, detect });
+    return respondJson(res, 202, { started: true, kind: "import" });
   }
 
   // Preview a pasted URL (no save) so the form can auto-fill title/subreddit/date.
