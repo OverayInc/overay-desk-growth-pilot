@@ -1345,6 +1345,15 @@ function creatorSlug(input) {
   return slugify(input.handle || input.channelName || input.name || input.email || "creator", "creator");
 }
 
+// Game-platform tags: a creator covers PC games, VR games, or both. Constrained
+// to this fixed set (unlike the free-form `tags`) so they stay filterable.
+const GAME_PLATFORMS = ["PC", "VR"];
+function sanitizeGamePlatforms(value) {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,\s]+/) : [];
+  const upper = new Set(raw.map((v) => String(v).trim().toUpperCase()).filter(Boolean));
+  return GAME_PLATFORMS.filter((p) => upper.has(p));
+}
+
 function normalizeCreatorProfile(profile) {
   profile.id ||= makeId("profile", profile.channelName || profile.handle || profile.email || "creator");
   profile.channelName ||= profile.name || profile.handle || profile.email || "Untitled Creator";
@@ -1355,6 +1364,7 @@ function normalizeCreatorProfile(profile) {
   profile.email ||= "";
   profile.country ||= "";
   profile.tags = toList(profile.tags || profile.niche);
+  profile.gamePlatforms = sanitizeGamePlatforms(profile.gamePlatforms);
   profile.subscribers = toNumber(profile.subscribers || profile.followers);
   profile.averageViews = toNumber(profile.averageViews);
   profile.fitScore = Math.max(0, Math.min(100, toNumber(profile.fitScore)));
@@ -1404,6 +1414,8 @@ function upsertCreatorProfile(data, input = {}) {
     profile.email ||= input.email || input.recipientEmail || "";
     profile.country ||= input.country || "";
     profile.tags = [...new Set([...(profile.tags || []), ...incomingTags])];
+    if (input.gamePlatforms !== undefined)
+      profile.gamePlatforms = sanitizeGamePlatforms([...(profile.gamePlatforms || []), ...sanitizeGamePlatforms(input.gamePlatforms)]);
     profile.subscribers ||= toNumber(input.subscribers || input.followers);
     profile.averageViews ||= toNumber(input.averageViews);
     profile.fitScore = Math.max(toNumber(profile.fitScore), Math.max(0, Math.min(100, toNumber(input.fitScore))));
@@ -1423,6 +1435,7 @@ function upsertCreatorProfile(data, input = {}) {
     email: input.email || input.recipientEmail || "",
     country: input.country || "",
     tags: toList(input.tags || input.niche),
+    gamePlatforms: sanitizeGamePlatforms(input.gamePlatforms),
     subscribers: toNumber(input.subscribers || input.followers),
     averageViews: toNumber(input.averageViews),
     fitScore: Math.max(0, Math.min(100, toNumber(input.fitScore))),
@@ -3839,6 +3852,7 @@ function sanitizeDiscoveryFields(c) {
     pitchAngle: c.pitchAngle || "",
     leadDepth: toNumber(c.leadDepth),
     tags: Array.isArray(c.tags) ? c.tags : [],
+    gamePlatforms: sanitizeGamePlatforms(c.gamePlatforms?.length ? c.gamePlatforms : discoverySessionPlatforms),
     isKnown: Boolean(c.isKnown),
     scrapedUrls: Array.isArray(c.scrapedUrls) ? c.scrapedUrls : [],
     error: c.error || "",
@@ -3880,6 +3894,7 @@ function mergeDiscoveryCandidates(data, found) {
 let discoveryRunning = false; // authoritative at runtime (vs the persisted flag)
 let discoveryStop = false;
 let discoveryAbort = null; // aborts in-flight fetch/gemma calls for instant stop
+let discoverySessionPlatforms = []; // VR/PC tags chosen for the current run; stamped onto found candidates
 
 // In-memory ring buffer of recent discovery log lines, surfaced to the web UI
 // via GET /api/discovery so progress is visible without the server terminal.
@@ -3912,10 +3927,12 @@ async function runDiscoverySession({
   expandCount: expandCountInit = DISCOVERY_EXPAND_COUNT,
   leadDepth = DISCOVERY_LEAD_DEPTH,
   maxSearchesCap = DISCOVERY_MAX_SEARCHES,
+  gamePlatforms = [],
 } = {}) {
   if (discoveryRunning) return { started: false, reason: "already_running" };
   discoveryRunning = true;
   discoveryStop = false;
+  discoverySessionPlatforms = sanitizeGamePlatforms(gamePlatforms);
   discoveryAbort = new AbortController();
   const signal = discoveryAbort.signal;
   const sessionStart = Date.now();
@@ -4704,6 +4721,7 @@ async function handleApi(req, res, url) {
     if (input.email !== undefined) profile.email = String(input.email).trim();
     if (input.country !== undefined) profile.country = String(input.country).trim();
     if (input.tags !== undefined) profile.tags = toList(input.tags);
+    if (input.gamePlatforms !== undefined) profile.gamePlatforms = sanitizeGamePlatforms(input.gamePlatforms);
     if (input.note !== undefined) profile.note = String(input.note);
     if (input.subscribers !== undefined) profile.subscribers = toNumber(input.subscribers);
     if (input.averageViews !== undefined) profile.averageViews = toNumber(input.averageViews);
@@ -5140,6 +5158,7 @@ async function handleApi(req, res, url) {
       baseSeeds: seeds,
       overallDeadline,
       perSeed,
+      gamePlatforms: sanitizeGamePlatforms(input.gamePlatforms),
       trigger: quick ? "quick" : "manual",
       // Quick = light pass (seeds only, tight search budget); timed = full agent.
       ...(quick ? { expandCount: 0, leadDepth: 1, maxSearchesCap: Math.min(DISCOVERY_MAX_SEARCHES, 12) } : {}),
@@ -5196,6 +5215,7 @@ async function handleApi(req, res, url) {
       subscribers: candidate.subscribers,
       averageViews: candidate.avgViews,
       tags: candidate.tags,
+      gamePlatforms: candidate.gamePlatforms,
       note: [candidate.channelType, candidate.audience, candidate.pitchAngle ? `섭외 포인트: ${candidate.pitchAngle}` : ""]
         .filter(Boolean)
         .join(" · "),

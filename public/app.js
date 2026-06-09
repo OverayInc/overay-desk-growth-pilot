@@ -1484,7 +1484,10 @@ function renderCreatorMatrix() {
   const reviewCount = (id) => state.creators.filter((c) => c.creatorProfileId === id && c.status === "review").length;
   const sentCount = (id) => state.creators.filter((c) => c.creatorProfileId === id && ["sent", "review"].includes(c.status)).length;
   const sortMode = state.matrixSort || "name";
-  const profiles = [...state.creatorProfiles].sort((a, b) => {
+  const platformFilter = state.platformFilter || "all";
+  const profiles = [...state.creatorProfiles]
+    .filter((p) => platformFilter === "all" || (p.gamePlatforms || []).includes(platformFilter))
+    .sort((a, b) => {
     if (sortMode === "reviews") return reviewCount(b.id) - reviewCount(a.id) || a.channelName.localeCompare(b.channelName);
     if (sortMode === "sent") return sentCount(b.id) - sentCount(a.id) || a.channelName.localeCompare(b.channelName);
     if (sortMode === "fit") return toNumber(b.fitScore) - toNumber(a.fitScore) || a.channelName.localeCompare(b.channelName);
@@ -1523,7 +1526,10 @@ function renderCreatorMatrix() {
       const sub = p.email
         ? `<span class="cell-sub cell-copy" data-copy="${escapeHtml(p.email)}" title="클릭하여 이메일 복사">${escapeHtml(p.email)}</span>`
         : `<span class="cell-sub">${escapeHtml(p.country || "")}</span>`;
-      const nameCell = `<td class="matrix-name-col"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${sub}</td>`;
+      const platforms = (p.gamePlatforms || [])
+        .map((pf) => `<span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+        .join("");
+      const nameCell = `<td class="matrix-name-col"><span class="cell-title-line"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${platforms}</span>${sub}</td>`;
       const chanCell = `<td class="matrix-chan-col"><div class="channel-links">${icons || '<span class="cell-sub">-</span>'}</div></td>`;
       const actions = `<td class="matrix-act-col"><div class="icon-actions">
         <button type="button" class="icon-btn" data-edit-profile="${escapeHtml(p.id)}" title="편집" aria-label="편집">${ICON_EDIT}</button>
@@ -2945,6 +2951,10 @@ function initForms() {
     profileForm.elements.email.value = profile?.email || "";
     profileForm.elements.country.value = profile?.country || "";
     profileForm.elements.tags.value = (profile?.tags || []).join(", ");
+    const platforms = new Set(profile?.gamePlatforms || []);
+    profileForm.querySelectorAll('input[name="gamePlatforms"]').forEach((el) => {
+      el.checked = platforms.has(el.value);
+    });
     profileForm.elements.averageViews.value = profile?.averageViews || "";
     profileForm.elements.fitScore.value = profile?.fitScore || "";
     $("#profileModalTitle").textContent = profile ? "크리에이터 편집" : "크리에이터 추가";
@@ -2960,6 +2970,9 @@ function initForms() {
     submit.disabled = true;
     try {
       const data = formData(profileForm);
+      // Checkboxes share the name "gamePlatforms" → collect them explicitly
+      // (formData/Object.fromEntries would keep only one).
+      data.gamePlatforms = [...profileForm.querySelectorAll('input[name="gamePlatforms"]:checked')].map((el) => el.value);
       const id = String(data.id || "").trim();
       if (id) {
         await api(`/api/creator-profiles/${encodeURIComponent(id)}`, { method: "PUT", body: data });
@@ -3008,6 +3021,11 @@ function initForms() {
   // Creator sort.
   $("#matrixSort")?.addEventListener("change", (event) => {
     state.matrixSort = event.target.value;
+    renderCreatorMatrix();
+  });
+  // Filter creators by game platform (VR / PC).
+  $("#matrixPlatformFilter")?.addEventListener("change", (event) => {
+    state.platformFilter = event.target.value;
     renderCreatorMatrix();
   });
 
@@ -4021,6 +4039,9 @@ function discoveryRowHtml(c) {
     : escapeHtml(c.channelName || "-");
   const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
   const lead = c.leadDepth ? ` <span class="tag-pill" title="그래프 탐색으로 발견">🔗d${c.leadDepth}</span>` : "";
+  const plat = (c.gamePlatforms || [])
+    .map((pf) => ` <span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+    .join("");
   const email = c.email
     ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
     : '<span class="muted">없음</span>';
@@ -4059,7 +4080,7 @@ function discoveryRowHtml(c) {
   }
 
   return `<tr>
-    <td class="discovery-channel">${channel}${known}${lead}<div class="muted small">${escapeHtml(c.channelType || c.platform || "")}</div></td>
+    <td class="discovery-channel">${channel}${known}${lead}${plat}<div class="muted small">${escapeHtml(c.channelType || c.platform || "")}</div></td>
     <td class="discovery-metrics">${metrics}</td>
     <td>${email}</td>
     <td class="discovery-reason">${analysis || '<span class="muted">-</span>'}</td>
@@ -4069,8 +4090,9 @@ function discoveryRowHtml(c) {
 
 async function startDiscoveryRun({ durationMinutes = 0 } = {}) {
   const seeds = getDiscoverySeeds();
+  const gamePlatforms = [...document.querySelectorAll('input[name="discoveryPlatform"]:checked')].map((el) => el.value);
   try {
-    const result = await api("/api/discovery/run", { method: "POST", body: { seeds, durationMinutes } });
+    const result = await api("/api/discovery/run", { method: "POST", body: { seeds, durationMinutes, gamePlatforms } });
     if (result.started) {
       showToast(`${durationMinutes}분 세션을 시작했습니다.`);
       startDiscoveryPolling();

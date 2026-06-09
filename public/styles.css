@@ -1310,6 +1310,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .matrix-table thead th.matrix-act-col,
 .matrix-table tbody td.matrix-act-col { border-right: 2px solid var(--border-strong); }
 .matrix-name-col .cell-title { display: block; font-size: 14.5px; font-weight: 650; line-height: 1.3; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* Keep name + VR/PC chips on one line (chips stay, name truncates) so the row
+   height doesn't grow. */
+.matrix-name-col .cell-title-line { display: flex; align-items: center; gap: 5px; max-width: 100%; }
+.matrix-name-col .cell-title-line .cell-title { min-width: 0; flex: 0 1 auto; }
+.matrix-name-col .cell-title-line .plat-chip { flex: 0 0 auto; margin-left: 0; }
 .matrix-name-col .cell-sub { display: block; margin-top: 2px; font-size: 12px; line-height: 1.25; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .matrix-name-col .cell-copy { cursor: pointer; }
 .matrix-name-col .cell-copy:hover { color: var(--brand); text-decoration: underline; }
@@ -1431,6 +1436,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .key-pool-game-thumb { flex: 0 0 auto; display: inline-flex; align-items: center; }
 .key-pool-game-thumb:empty { display: none; }
 .nowrap { white-space: nowrap; }
+/* Game-platform (VR/PC) tags */
+.platform-checks { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.platform-check { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+.platform-check input { width: auto; }
+.discovery-platforms { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 8px 0; }
+.plat-chip { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 5px; font-size: 10px; font-weight: 700; vertical-align: middle; line-height: 16px; }
+.plat-chip.plat-pc { background: var(--brand-soft); color: var(--brand); }
+.plat-chip.plat-vr { background: #ede9fe; color: #7c3aed; }
 .key-pool-row-game { display: inline-flex; align-items: center; gap: 7px; }
 .key-pool-row-game > span:last-child { white-space: nowrap; }
 /* Mail modal: in-modal key assignment (pool) */
