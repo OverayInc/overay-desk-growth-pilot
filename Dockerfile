@@ -21,6 +21,12 @@ COPY public ./public
 COPY data ./data
 COPY docs ./docs
 
+# The docker-compose bind mount (./data:/app/data) shadows the committed Reddit
+# session above. Keep an UN-shadowed copy at /app/seed so the server can restore
+# it into an empty/bind-mounted volume on boot (ensureRedditSessionSeeded()).
+RUN mkdir -p /app/seed \
+    && cp -f data/reddit-state.json data/reddit-session-meta.json /app/seed/ 2>/dev/null || true
+
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=4173

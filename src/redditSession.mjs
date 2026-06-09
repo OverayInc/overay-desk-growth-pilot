@@ -12,7 +12,7 @@
 //
 // Needs Playwright: npm i -D playwright && npx playwright install chromium
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -112,6 +112,32 @@ const PROFILE_DIR = process.env.REDDIT_PROFILE_DIR || path.join(__dirname, "..",
 
 export function hasRedditSession() {
   return existsSync(REDDIT_STATE_FILE);
+}
+
+// Self-heal the #1 deploy gotcha: the committed session lives in the image under
+// /app/data, but docker-compose bind-mounts the host's ./data over /app/data,
+// shadowing it — so a fresh/empty volume looks "logged out" even though the file
+// is in git. The image also bakes an UN-shadowed copy at /app/seed; on boot we
+// copy it into the data dir if (and only if) it's missing there. No-op locally
+// (no seed dir) and on a volume that already has the file.
+export function ensureRedditSessionSeeded() {
+  const seedDir = process.env.REDDIT_SEED_DIR || path.join(__dirname, "..", "seed");
+  const pairs = [
+    [path.join(seedDir, "reddit-state.json"), REDDIT_STATE_FILE],
+    [path.join(seedDir, "reddit-session-meta.json"), REDDIT_META_FILE],
+  ];
+  const seeded = [];
+  for (const [src, dest] of pairs) {
+    try {
+      if (existsSync(dest) || !existsSync(src)) continue;
+      mkdirSync(path.dirname(dest), { recursive: true });
+      copyFileSync(src, dest);
+      seeded.push(dest);
+    } catch {
+      /* read-only fs / perms → skip; status route still explains the path */
+    }
+  }
+  return seeded;
 }
 
 // Read-only, no network: describe the saved session so the UI can show who's

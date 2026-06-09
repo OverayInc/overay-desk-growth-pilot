@@ -22,6 +22,7 @@ import {
   fetchMyRedditPosts,
   redditSessionStatus,
   redditWhoami,
+  ensureRedditSessionSeeded,
 } from "./redditSession.mjs";
 import { runDiscovery } from "./discovery/pipeline.mjs";
 import { expandSeeds, detectGameMatch } from "./marketingAgent.mjs";
@@ -5441,6 +5442,10 @@ async function handleRequest(req, res) {
 }
 
 ensureDb();
+
+// Restore the committed Reddit session into a bind-mounted/empty data volume.
+const seededSession = ensureRedditSessionSeeded();
+if (seededSession.length) console.log(`[reddit] seeded session into volume: ${seededSession.join(", ")}`);
 
 createServer(handleRequest).listen(PORT, HOST, () => {
   console.log(`Launch Pilot Growth Dashboard running at http://${HOST}:${PORT}`);
