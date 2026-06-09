@@ -1425,6 +1425,15 @@ tbody tr:last-child td { border-bottom: 0; }
 /* Key pool (distribution tab) */
 .key-pool-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .key-pool-tools select { min-width: 180px; }
+.key-pool-game-thumb:empty { display: none; }
+.key-pool-row-game { display: inline-flex; align-items: center; gap: 7px; }
+.key-pool-row-game > span:last-child { white-space: nowrap; }
+/* Mail modal: in-modal key assignment (pool) */
+.mail-key-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-inset); }
+.mail-key-status { font-size: 12.5px; font-weight: 650; color: var(--text-muted); }
+.mail-key-status.has-key { color: var(--text); }
+.mail-key-row select { min-width: 200px; }
+.mail-key-row .image-picker__hint { flex-basis: 100%; }
 .pool-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 650; }
 .pool-badge.available { background: var(--success-soft); color: var(--success-text); }
 .pool-badge.exhausted { background: var(--surface-muted); color: var(--text-muted); }

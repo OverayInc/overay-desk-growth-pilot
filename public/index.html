@@ -705,6 +705,7 @@
                   <h2>게임별 키 풀</h2>
                 </div>
                 <div class="key-pool-tools">
+                  <span id="keyPoolGameThumb" class="key-pool-game-thumb" aria-hidden="true"></span>
                   <select id="keyPoolGame" data-game-select></select>
                   <button type="button" class="secondary-button" data-open-csv="pool">CSV 일괄 등록</button>
                 </div>
@@ -1415,6 +1416,13 @@
                 <option value="zh">中文</option>
               </select>
             </label>
+          </div>
+          <div class="mail-key-row" id="mailKeyRow">
+            <span class="mail-key-status" id="mailKeyStatus"></span>
+            <select id="mailPoolSelect"><option value="">— 풀 키 선택 —</option></select>
+            <button type="button" class="secondary-button mini" id="mailAssignBtn">풀에서 배정</button>
+            <button type="button" class="secondary-button mini" id="mailUnassignBtn" hidden>회수</button>
+            <span class="image-picker__hint" id="mailPoolRemaining"></span>
           </div>
           <label>
             받는 사람

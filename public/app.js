@@ -1904,10 +1904,103 @@ function initMailModal() {
     $("#mailStatusHint").textContent = email.configured
       ? `메일 발송 가능 (${email.mode || "smtp"})`
       : "메일 발송 미설정 — '메일 앱으로 열기'로 보내세요.";
+    renderMailKey();
     await loadDraft();
     modal.showModal();
   }
   openMailModal = open;
+
+  // Key assignment from inside the mail modal: if this creator×game has no key,
+  // assign one from the game's pool (reuses the same /assign-key API as the
+  // matrix cell editor), then refresh the draft so {{key}} fills in.
+  function currentMailRec() {
+    return state.creators.find((c) => c.creatorProfileId === ctx.profileId && c.gameId === ctx.gameId) || null;
+  }
+  function renderMailKey() {
+    if (!$("#mailKeyRow")) return;
+    const rec = currentMailRec();
+    const poolKeys = state.keyPool.filter((e) => e.gameId === ctx.gameId);
+    const pickable = poolKeys.filter((e) => e.available || e.id === rec?.keyPoolId);
+    const hasKey = Boolean(rec?.steamKeyMasked || rec?.steamKey);
+    const statusEl = $("#mailKeyStatus");
+    if (statusEl) {
+      statusEl.textContent = hasKey
+        ? `🔑 배정됨: ${rec.steamKeyMasked || rec.steamKey}${rec.keyPoolId ? " (풀)" : ""}`
+        : "🔑 배정된 키 없음";
+      statusEl.classList.toggle("has-key", hasKey);
+    }
+    $("#mailPoolSelect").innerHTML =
+      '<option value="">— 풀 키 선택 —</option>' +
+      pickable
+        .map(
+          (e) =>
+            `<option value="${escapeHtml(e.id)}"${e.id === rec?.keyPoolId ? " selected" : ""}>${escapeHtml(e.masked)} · ${escapeHtml(poolTypeLabel(e))} · ${e.assignedCount}/${e.maxUses == null ? "∞" : e.maxUses}</option>`,
+        )
+        .join("");
+    const remaining = poolKeys.filter((e) => e.available).length;
+    $("#mailPoolRemaining").textContent = poolKeys.length
+      ? `풀 잔여 ${remaining}개 / 전체 ${poolKeys.length}개`
+      : "이 게임의 풀에 키가 없습니다 (키 풀 탭에서 등록).";
+    $("#mailUnassignBtn").hidden = !rec?.keyPoolId;
+  }
+  async function ensureMailRecord() {
+    const rec = currentMailRec();
+    if (rec) {
+      ctx.recordId = rec.id;
+      return rec.id;
+    }
+    const profile = state.creatorProfiles.find((p) => p.id === ctx.profileId);
+    const created = await api("/api/creators", {
+      method: "POST",
+      body: {
+        gameId: ctx.gameId,
+        creatorProfileId: ctx.profileId,
+        channelName: profile?.channelName || "",
+        email: profile?.email || "",
+        country: profile?.country || "",
+        platform: profile?.platform || "",
+      },
+    });
+    ctx.recordId = created.id;
+    return created.id;
+  }
+  async function assignMailPoolKey(keyPoolId) {
+    const id = await ensureMailRecord();
+    await api(`/api/creators/${encodeURIComponent(id)}/assign-key`, { method: "POST", body: keyPoolId ? { keyPoolId } : {} });
+    showToast("키를 배정했습니다.");
+    await loadAll();
+    renderMailKey();
+    await loadDraft(); // the body's {{key}} placeholder now fills in
+  }
+  $("#mailAssignBtn")?.addEventListener("click", async () => {
+    try {
+      await assignMailPoolKey($("#mailPoolSelect").value); // empty = auto next available
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $("#mailPoolSelect")?.addEventListener("change", async (event) => {
+    const keyPoolId = event.target.value;
+    if (!keyPoolId) return;
+    try {
+      await assignMailPoolKey(keyPoolId);
+    } catch (error) {
+      showToast(error.message);
+      renderMailKey();
+    }
+  });
+  $("#mailUnassignBtn")?.addEventListener("click", async () => {
+    if (!ctx.recordId) return;
+    try {
+      await api(`/api/creators/${encodeURIComponent(ctx.recordId)}/unassign-key`, { method: "POST", body: {} });
+      showToast("키를 회수했습니다.");
+      await loadAll();
+      renderMailKey();
+      await loadDraft();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
   $("#mailTemplate").addEventListener("change", () => {
     try {
       localStorage.setItem("lp:lastMailTemplateId", $("#mailTemplate").value);
@@ -2135,6 +2228,9 @@ function renderKeyPool() {
   const wrap = $("#keyPoolTableWrap");
   if (!wrap) return;
   const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
+  const game = gameById(gameId);
+  const thumbEl = $("#keyPoolGameThumb");
+  if (thumbEl) thumbEl.innerHTML = game ? gameThumb(game, "game-thumb--sm") : "";
   const rows = state.keyPool.filter((e) => e.gameId === gameId);
   const avail = rows.filter((e) => e.available).length;
   const summary = $("#keyPoolSummary");
@@ -2145,7 +2241,7 @@ function renderKeyPool() {
   }
   wrap.innerHTML = `
     <table>
-      <thead><tr><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>작업</th></tr></thead>
+      <thead><tr><th>게임</th><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>작업</th></tr></thead>
       <tbody>
         ${rows
           .map((e) => {
@@ -2154,6 +2250,7 @@ function renderKeyPool() {
               ? '<span class="pool-badge available">가용</span>'
               : '<span class="pool-badge exhausted">소진</span>';
             return `<tr>
+              <td data-label="게임"><span class="key-pool-row-game">${gameThumb(game, "game-thumb--sm")}<span>${escapeHtml(game?.name || "—")}</span></span></td>
               <td data-label="Key"><span class="matrix-chip" data-copy="${escapeHtml(e.value || e.masked)}" data-tip="🔑 ${escapeHtml(e.value || e.masked)}\n클릭하여 복사">🔑</span> <code>${escapeHtml(e.masked)}</code></td>
               <td data-label="유형">${escapeHtml(poolTypeLabel(e))}</td>
               <td data-label="사용" class="num">${number(e.assignedCount)} / ${total}</td>
