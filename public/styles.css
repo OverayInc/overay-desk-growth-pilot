@@ -1423,16 +1423,23 @@ tbody tr:last-child td { border-bottom: 0; }
 .email-pill b { font-weight: 600; color: var(--text-muted); }
 
 /* Key pool (distribution tab) */
-.key-pool-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.key-pool-tools select { min-width: 180px; }
+.key-pool-tools { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+/* The global `select { width: 100% }` would make the select eat the whole row
+   and push the thumb/CSV button onto their own lines — pin it to content width. */
+.key-pool-tools select { width: auto; min-width: 150px; max-width: 240px; flex: 0 1 auto; }
+.key-pool-tools .secondary-button { flex: 0 0 auto; white-space: nowrap; }
+.key-pool-game-thumb { flex: 0 0 auto; display: inline-flex; align-items: center; }
 .key-pool-game-thumb:empty { display: none; }
+.nowrap { white-space: nowrap; }
 .key-pool-row-game { display: inline-flex; align-items: center; gap: 7px; }
 .key-pool-row-game > span:last-child { white-space: nowrap; }
 /* Mail modal: in-modal key assignment (pool) */
 .mail-key-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-inset); }
 .mail-key-status { font-size: 12.5px; font-weight: 650; color: var(--text-muted); }
 .mail-key-status.has-key { color: var(--text); }
-.mail-key-row select { min-width: 200px; }
+.mail-key-row select { width: auto; min-width: 180px; flex: 1 1 200px; }
+.mail-key-row .secondary-button { flex: 0 0 auto; white-space: nowrap; }
+.mail-key-status { flex: 0 0 auto; }
 .mail-key-row .image-picker__hint { flex-basis: 100%; }
 .pool-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 650; }
 .pool-badge.available { background: var(--success-soft); color: var(--success-text); }

@@ -266,12 +266,22 @@ function renderGameSelectors() {
   filter.value = current === "all" || state.games.some((game) => game.id === current) ? current : "all";
 
   for (const select of document.querySelectorAll("[data-game-select]")) {
-    const previous = state.selectedGameId === "all" ? select.value || selectedGameForForms() : selectedGameForForms();
+    // The key-pool game selector must be chosen explicitly — registering keys to
+    // the wrong game is painful to undo — so it gets a blank placeholder and is
+    // never auto-defaulted, unlike the other game selects.
+    const requireExplicit = select.id === "keyPoolGame";
+    const previous = requireExplicit
+      ? select.value
+      : state.selectedGameId === "all"
+        ? select.value || selectedGameForForms()
+        : selectedGameForForms();
     select.disabled = !state.games.length;
-    select.innerHTML = state.games.length
+    const gameOptions = state.games.length
       ? state.games.map((game) => `<option value="${escapeHtml(game.id)}">${escapeHtml(game.name)}</option>`).join("")
       : '<option value="">게임을 먼저 추가</option>';
-    select.value = state.games.some((game) => game.id === previous) ? previous : selectedGameForForms();
+    select.innerHTML =
+      requireExplicit && state.games.length ? `<option value="">— 게임을 선택하세요 —</option>${gameOptions}` : gameOptions;
+    select.value = state.games.some((game) => game.id === previous) ? previous : requireExplicit ? "" : selectedGameForForms();
   }
 
   const syncSelect = document.querySelector("#syncForm select[name='gameId']");
@@ -2227,10 +2237,16 @@ function poolTypeLabel(entry) {
 function renderKeyPool() {
   const wrap = $("#keyPoolTableWrap");
   if (!wrap) return;
-  const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
+  const gameId = $("#keyPoolGame")?.value || "";
   const game = gameById(gameId);
   const thumbEl = $("#keyPoolGameThumb");
   if (thumbEl) thumbEl.innerHTML = game ? gameThumb(game, "game-thumb--sm") : "";
+  if (!gameId) {
+    const summary = $("#keyPoolSummary");
+    if (summary) summary.textContent = "게임 미선택";
+    wrap.innerHTML = '<table><tbody><tr><td><span class="empty">위에서 게임을 먼저 선택하세요.</span></td></tr></tbody></table>';
+    return;
+  }
   const rows = state.keyPool.filter((e) => e.gameId === gameId);
   const avail = rows.filter((e) => e.available).length;
   const summary = $("#keyPoolSummary");
@@ -2241,7 +2257,7 @@ function renderKeyPool() {
   }
   wrap.innerHTML = `
     <table>
-      <thead><tr><th>게임</th><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>작업</th></tr></thead>
+      <thead><tr><th>게임</th><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>등록일</th><th>작업</th></tr></thead>
       <tbody>
         ${rows
           .map((e) => {
@@ -2257,6 +2273,7 @@ function renderKeyPool() {
               <td data-label="상태">${badge}</td>
               <td data-label="라벨">${escapeHtml(e.label || "-")}</td>
               <td data-label="배정 대상">${e.assignedTo?.length ? escapeHtml(e.assignedTo.join(", ")) : "-"}</td>
+              <td data-label="등록일" class="muted nowrap">${escapeHtml(formatDateTime(e.createdAt) || "-")}</td>
               <td data-label="작업"><button type="button" class="secondary-button table-button danger-button" data-del-pool="${escapeHtml(e.id)}">삭제</button></td>
             </tr>`;
           })
@@ -2425,7 +2442,12 @@ function initCsvImportModal() {
     textEl.value = "";
     fileEl.value = "";
     $("#csvModalPreview").innerHTML = "";
-    if (cfg.game && state.selectedGameId !== "all") gameSel.value = state.selectedGameId;
+    if (cfg.game) {
+      // For the key pool, mirror the inline game selection (which must be chosen
+      // explicitly); other game-scoped imports default to the dashboard scope.
+      if (type === "pool") gameSel.value = $("#keyPoolGame")?.value || "";
+      else if (state.selectedGameId !== "all") gameSel.value = state.selectedGameId;
+    }
     modal.showModal();
   }
 
@@ -2465,6 +2487,18 @@ function initCsvImportModal() {
     if (!textEl.value.trim()) {
       showToast("CSV 내용이 비어 있습니다.");
       return;
+    }
+    // Game-scoped imports (keys / key pool): require an explicit game and confirm
+    // it before writing — registering to the wrong game is painful to undo.
+    if (CONFIG[current].game) {
+      const gid = gameSel.value;
+      if (!gid) {
+        showToast("먼저 게임을 선택하세요.");
+        gameSel.focus();
+        return;
+      }
+      const lines = textEl.value.split(/[\r\n]+/).filter((s) => s.trim()).length;
+      if (!confirm(`‘${gameName(gid)}’ 게임에 ${number(lines)}줄을 등록합니다.\n게임이 맞나요?`)) return;
     }
     const btn = event.currentTarget;
     btn.disabled = true;
@@ -3159,12 +3193,14 @@ function initForms() {
 
   // ---- Key pool (distribution tab) ----
   bindForm("#keyPoolForm", (data) => {
+    const gameId = $("#keyPoolGame")?.value || "";
+    if (!gameId) throw new Error("먼저 게임을 선택하세요.");
     const raw = data.type; // single | multi | multi-unlimited
     const type = raw === "single" ? "single" : "multi";
     const maxUses = raw === "multi" ? data.maxUses : ""; // single/unlimited → no cap
     return api("/api/key-pool", {
       method: "POST",
-      body: { value: data.value, type, maxUses, label: data.label, note: data.note, gameId: $("#keyPoolGame")?.value || selectedGameForForms() },
+      body: { value: data.value, type, maxUses, label: data.label, note: data.note, gameId },
     });
   });
   $("#keyPoolType")?.addEventListener("change", (event) => {
@@ -3181,9 +3217,10 @@ function initForms() {
   bulkForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const text = String(bulkKeys.value || "").trim();
-    const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
-    if (!text) return showToast("키를 붙여넣어 주세요.");
+    const gameId = $("#keyPoolGame")?.value || "";
     if (!gameId) return showToast("먼저 게임을 선택하세요.");
+    if (!text) return showToast("키를 붙여넣어 주세요.");
+    if (!confirm(`‘${gameName(gameId)}’ 게임에 키 ${countKeys(text)}개를 등록합니다.\n게임이 맞나요?`)) return;
     const btn = bulkForm.querySelector("button[type='submit']");
     btn.disabled = true;
     const original = btn.textContent;
