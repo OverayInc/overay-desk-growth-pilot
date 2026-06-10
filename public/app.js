@@ -266,12 +266,22 @@ function renderGameSelectors() {
   filter.value = current === "all" || state.games.some((game) => game.id === current) ? current : "all";
 
   for (const select of document.querySelectorAll("[data-game-select]")) {
-    const previous = state.selectedGameId === "all" ? select.value || selectedGameForForms() : selectedGameForForms();
+    // The key-pool game selector must be chosen explicitly — registering keys to
+    // the wrong game is painful to undo — so it gets a blank placeholder and is
+    // never auto-defaulted, unlike the other game selects.
+    const requireExplicit = select.id === "keyPoolGame";
+    const previous = requireExplicit
+      ? select.value
+      : state.selectedGameId === "all"
+        ? select.value || selectedGameForForms()
+        : selectedGameForForms();
     select.disabled = !state.games.length;
-    select.innerHTML = state.games.length
+    const gameOptions = state.games.length
       ? state.games.map((game) => `<option value="${escapeHtml(game.id)}">${escapeHtml(game.name)}</option>`).join("")
       : '<option value="">게임을 먼저 추가</option>';
-    select.value = state.games.some((game) => game.id === previous) ? previous : selectedGameForForms();
+    select.innerHTML =
+      requireExplicit && state.games.length ? `<option value="">— 게임을 선택하세요 —</option>${gameOptions}` : gameOptions;
+    select.value = state.games.some((game) => game.id === previous) ? previous : requireExplicit ? "" : selectedGameForForms();
   }
 
   const syncSelect = document.querySelector("#syncForm select[name='gameId']");
@@ -1474,7 +1484,10 @@ function renderCreatorMatrix() {
   const reviewCount = (id) => state.creators.filter((c) => c.creatorProfileId === id && c.status === "review").length;
   const sentCount = (id) => state.creators.filter((c) => c.creatorProfileId === id && ["sent", "review"].includes(c.status)).length;
   const sortMode = state.matrixSort || "name";
-  const profiles = [...state.creatorProfiles].sort((a, b) => {
+  const platformFilter = state.platformFilter || "all";
+  const profiles = [...state.creatorProfiles]
+    .filter((p) => platformFilter === "all" || (p.gamePlatforms || []).includes(platformFilter))
+    .sort((a, b) => {
     if (sortMode === "reviews") return reviewCount(b.id) - reviewCount(a.id) || a.channelName.localeCompare(b.channelName);
     if (sortMode === "sent") return sentCount(b.id) - sentCount(a.id) || a.channelName.localeCompare(b.channelName);
     if (sortMode === "fit") return toNumber(b.fitScore) - toNumber(a.fitScore) || a.channelName.localeCompare(b.channelName);
@@ -1513,7 +1526,10 @@ function renderCreatorMatrix() {
       const sub = p.email
         ? `<span class="cell-sub cell-copy" data-copy="${escapeHtml(p.email)}" title="클릭하여 이메일 복사">${escapeHtml(p.email)}</span>`
         : `<span class="cell-sub">${escapeHtml(p.country || "")}</span>`;
-      const nameCell = `<td class="matrix-name-col"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${sub}</td>`;
+      const platforms = (p.gamePlatforms || [])
+        .map((pf) => `<span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+        .join("");
+      const nameCell = `<td class="matrix-name-col"><span class="cell-title-line"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${platforms}</span>${sub}</td>`;
       const chanCell = `<td class="matrix-chan-col"><div class="channel-links">${icons || '<span class="cell-sub">-</span>'}</div></td>`;
       const actions = `<td class="matrix-act-col"><div class="icon-actions">
         <button type="button" class="icon-btn" data-edit-profile="${escapeHtml(p.id)}" title="편집" aria-label="편집">${ICON_EDIT}</button>
@@ -1904,10 +1920,103 @@ function initMailModal() {
     $("#mailStatusHint").textContent = email.configured
       ? `메일 발송 가능 (${email.mode || "smtp"})`
       : "메일 발송 미설정 — '메일 앱으로 열기'로 보내세요.";
+    renderMailKey();
     await loadDraft();
     modal.showModal();
   }
   openMailModal = open;
+
+  // Key assignment from inside the mail modal: if this creator×game has no key,
+  // assign one from the game's pool (reuses the same /assign-key API as the
+  // matrix cell editor), then refresh the draft so {{key}} fills in.
+  function currentMailRec() {
+    return state.creators.find((c) => c.creatorProfileId === ctx.profileId && c.gameId === ctx.gameId) || null;
+  }
+  function renderMailKey() {
+    if (!$("#mailKeyRow")) return;
+    const rec = currentMailRec();
+    const poolKeys = state.keyPool.filter((e) => e.gameId === ctx.gameId);
+    const pickable = poolKeys.filter((e) => e.available || e.id === rec?.keyPoolId);
+    const hasKey = Boolean(rec?.steamKeyMasked || rec?.steamKey);
+    const statusEl = $("#mailKeyStatus");
+    if (statusEl) {
+      statusEl.textContent = hasKey
+        ? `🔑 배정됨: ${rec.steamKeyMasked || rec.steamKey}${rec.keyPoolId ? " (풀)" : ""}`
+        : "🔑 배정된 키 없음";
+      statusEl.classList.toggle("has-key", hasKey);
+    }
+    $("#mailPoolSelect").innerHTML =
+      '<option value="">— 풀 키 선택 —</option>' +
+      pickable
+        .map(
+          (e) =>
+            `<option value="${escapeHtml(e.id)}"${e.id === rec?.keyPoolId ? " selected" : ""}>${escapeHtml(e.masked)} · ${escapeHtml(poolTypeLabel(e))} · ${e.assignedCount}/${e.maxUses == null ? "∞" : e.maxUses}</option>`,
+        )
+        .join("");
+    const remaining = poolKeys.filter((e) => e.available).length;
+    $("#mailPoolRemaining").textContent = poolKeys.length
+      ? `풀 잔여 ${remaining}개 / 전체 ${poolKeys.length}개`
+      : "이 게임의 풀에 키가 없습니다 (키 풀 탭에서 등록).";
+    $("#mailUnassignBtn").hidden = !rec?.keyPoolId;
+  }
+  async function ensureMailRecord() {
+    const rec = currentMailRec();
+    if (rec) {
+      ctx.recordId = rec.id;
+      return rec.id;
+    }
+    const profile = state.creatorProfiles.find((p) => p.id === ctx.profileId);
+    const created = await api("/api/creators", {
+      method: "POST",
+      body: {
+        gameId: ctx.gameId,
+        creatorProfileId: ctx.profileId,
+        channelName: profile?.channelName || "",
+        email: profile?.email || "",
+        country: profile?.country || "",
+        platform: profile?.platform || "",
+      },
+    });
+    ctx.recordId = created.id;
+    return created.id;
+  }
+  async function assignMailPoolKey(keyPoolId) {
+    const id = await ensureMailRecord();
+    await api(`/api/creators/${encodeURIComponent(id)}/assign-key`, { method: "POST", body: keyPoolId ? { keyPoolId } : {} });
+    showToast("키를 배정했습니다.");
+    await loadAll();
+    renderMailKey();
+    await loadDraft(); // the body's {{key}} placeholder now fills in
+  }
+  $("#mailAssignBtn")?.addEventListener("click", async () => {
+    try {
+      await assignMailPoolKey($("#mailPoolSelect").value); // empty = auto next available
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+  $("#mailPoolSelect")?.addEventListener("change", async (event) => {
+    const keyPoolId = event.target.value;
+    if (!keyPoolId) return;
+    try {
+      await assignMailPoolKey(keyPoolId);
+    } catch (error) {
+      showToast(error.message);
+      renderMailKey();
+    }
+  });
+  $("#mailUnassignBtn")?.addEventListener("click", async () => {
+    if (!ctx.recordId) return;
+    try {
+      await api(`/api/creators/${encodeURIComponent(ctx.recordId)}/unassign-key`, { method: "POST", body: {} });
+      showToast("키를 회수했습니다.");
+      await loadAll();
+      renderMailKey();
+      await loadDraft();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
   $("#mailTemplate").addEventListener("change", () => {
     try {
       localStorage.setItem("lp:lastMailTemplateId", $("#mailTemplate").value);
@@ -2134,7 +2243,16 @@ function poolTypeLabel(entry) {
 function renderKeyPool() {
   const wrap = $("#keyPoolTableWrap");
   if (!wrap) return;
-  const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
+  const gameId = $("#keyPoolGame")?.value || "";
+  const game = gameById(gameId);
+  const thumbEl = $("#keyPoolGameThumb");
+  if (thumbEl) thumbEl.innerHTML = game ? gameThumb(game, "game-thumb--sm") : "";
+  if (!gameId) {
+    const summary = $("#keyPoolSummary");
+    if (summary) summary.textContent = "게임 미선택";
+    wrap.innerHTML = '<table><tbody><tr><td><span class="empty">위에서 게임을 먼저 선택하세요.</span></td></tr></tbody></table>';
+    return;
+  }
   const rows = state.keyPool.filter((e) => e.gameId === gameId);
   const avail = rows.filter((e) => e.available).length;
   const summary = $("#keyPoolSummary");
@@ -2145,7 +2263,7 @@ function renderKeyPool() {
   }
   wrap.innerHTML = `
     <table>
-      <thead><tr><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>작업</th></tr></thead>
+      <thead><tr><th>게임</th><th>Key</th><th>유형</th><th>사용</th><th>상태</th><th>라벨</th><th>배정 대상</th><th>등록일</th><th>작업</th></tr></thead>
       <tbody>
         ${rows
           .map((e) => {
@@ -2154,12 +2272,14 @@ function renderKeyPool() {
               ? '<span class="pool-badge available">가용</span>'
               : '<span class="pool-badge exhausted">소진</span>';
             return `<tr>
+              <td data-label="게임"><span class="key-pool-row-game">${gameThumb(game, "game-thumb--sm")}<span>${escapeHtml(game?.name || "—")}</span></span></td>
               <td data-label="Key"><span class="matrix-chip" data-copy="${escapeHtml(e.value || e.masked)}" data-tip="🔑 ${escapeHtml(e.value || e.masked)}\n클릭하여 복사">🔑</span> <code>${escapeHtml(e.masked)}</code></td>
               <td data-label="유형">${escapeHtml(poolTypeLabel(e))}</td>
               <td data-label="사용" class="num">${number(e.assignedCount)} / ${total}</td>
               <td data-label="상태">${badge}</td>
               <td data-label="라벨">${escapeHtml(e.label || "-")}</td>
               <td data-label="배정 대상">${e.assignedTo?.length ? escapeHtml(e.assignedTo.join(", ")) : "-"}</td>
+              <td data-label="등록일" class="muted nowrap">${escapeHtml(formatDateTime(e.createdAt) || "-")}</td>
               <td data-label="작업"><button type="button" class="secondary-button table-button danger-button" data-del-pool="${escapeHtml(e.id)}">삭제</button></td>
             </tr>`;
           })
@@ -2328,7 +2448,12 @@ function initCsvImportModal() {
     textEl.value = "";
     fileEl.value = "";
     $("#csvModalPreview").innerHTML = "";
-    if (cfg.game && state.selectedGameId !== "all") gameSel.value = state.selectedGameId;
+    if (cfg.game) {
+      // For the key pool, mirror the inline game selection (which must be chosen
+      // explicitly); other game-scoped imports default to the dashboard scope.
+      if (type === "pool") gameSel.value = $("#keyPoolGame")?.value || "";
+      else if (state.selectedGameId !== "all") gameSel.value = state.selectedGameId;
+    }
     modal.showModal();
   }
 
@@ -2368,6 +2493,18 @@ function initCsvImportModal() {
     if (!textEl.value.trim()) {
       showToast("CSV 내용이 비어 있습니다.");
       return;
+    }
+    // Game-scoped imports (keys / key pool): require an explicit game and confirm
+    // it before writing — registering to the wrong game is painful to undo.
+    if (CONFIG[current].game) {
+      const gid = gameSel.value;
+      if (!gid) {
+        showToast("먼저 게임을 선택하세요.");
+        gameSel.focus();
+        return;
+      }
+      const lines = textEl.value.split(/[\r\n]+/).filter((s) => s.trim()).length;
+      if (!confirm(`‘${gameName(gid)}’ 게임에 ${number(lines)}줄을 등록합니다.\n게임이 맞나요?`)) return;
     }
     const btn = event.currentTarget;
     btn.disabled = true;
@@ -2814,6 +2951,10 @@ function initForms() {
     profileForm.elements.email.value = profile?.email || "";
     profileForm.elements.country.value = profile?.country || "";
     profileForm.elements.tags.value = (profile?.tags || []).join(", ");
+    const platforms = new Set(profile?.gamePlatforms || []);
+    profileForm.querySelectorAll('input[name="gamePlatforms"]').forEach((el) => {
+      el.checked = platforms.has(el.value);
+    });
     profileForm.elements.averageViews.value = profile?.averageViews || "";
     profileForm.elements.fitScore.value = profile?.fitScore || "";
     $("#profileModalTitle").textContent = profile ? "크리에이터 편집" : "크리에이터 추가";
@@ -2829,6 +2970,9 @@ function initForms() {
     submit.disabled = true;
     try {
       const data = formData(profileForm);
+      // Checkboxes share the name "gamePlatforms" → collect them explicitly
+      // (formData/Object.fromEntries would keep only one).
+      data.gamePlatforms = [...profileForm.querySelectorAll('input[name="gamePlatforms"]:checked')].map((el) => el.value);
       const id = String(data.id || "").trim();
       if (id) {
         await api(`/api/creator-profiles/${encodeURIComponent(id)}`, { method: "PUT", body: data });
@@ -2877,6 +3021,11 @@ function initForms() {
   // Creator sort.
   $("#matrixSort")?.addEventListener("change", (event) => {
     state.matrixSort = event.target.value;
+    renderCreatorMatrix();
+  });
+  // Filter creators by game platform (VR / PC).
+  $("#matrixPlatformFilter")?.addEventListener("change", (event) => {
+    state.platformFilter = event.target.value;
     renderCreatorMatrix();
   });
 
@@ -3062,12 +3211,14 @@ function initForms() {
 
   // ---- Key pool (distribution tab) ----
   bindForm("#keyPoolForm", (data) => {
+    const gameId = $("#keyPoolGame")?.value || "";
+    if (!gameId) throw new Error("먼저 게임을 선택하세요.");
     const raw = data.type; // single | multi | multi-unlimited
     const type = raw === "single" ? "single" : "multi";
     const maxUses = raw === "multi" ? data.maxUses : ""; // single/unlimited → no cap
     return api("/api/key-pool", {
       method: "POST",
-      body: { value: data.value, type, maxUses, label: data.label, note: data.note, gameId: $("#keyPoolGame")?.value || selectedGameForForms() },
+      body: { value: data.value, type, maxUses, label: data.label, note: data.note, gameId },
     });
   });
   $("#keyPoolType")?.addEventListener("change", (event) => {
@@ -3084,9 +3235,10 @@ function initForms() {
   bulkForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const text = String(bulkKeys.value || "").trim();
-    const gameId = $("#keyPoolGame")?.value || selectedGameForForms();
-    if (!text) return showToast("키를 붙여넣어 주세요.");
+    const gameId = $("#keyPoolGame")?.value || "";
     if (!gameId) return showToast("먼저 게임을 선택하세요.");
+    if (!text) return showToast("키를 붙여넣어 주세요.");
+    if (!confirm(`‘${gameName(gameId)}’ 게임에 키 ${countKeys(text)}개를 등록합니다.\n게임이 맞나요?`)) return;
     const btn = bulkForm.querySelector("button[type='submit']");
     btn.disabled = true;
     const original = btn.textContent;
@@ -3887,6 +4039,9 @@ function discoveryRowHtml(c) {
     : escapeHtml(c.channelName || "-");
   const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
   const lead = c.leadDepth ? ` <span class="tag-pill" title="그래프 탐색으로 발견">🔗d${c.leadDepth}</span>` : "";
+  const plat = (c.gamePlatforms || [])
+    .map((pf) => ` <span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+    .join("");
   const email = c.email
     ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
     : '<span class="muted">없음</span>';
@@ -3925,7 +4080,7 @@ function discoveryRowHtml(c) {
   }
 
   return `<tr>
-    <td class="discovery-channel">${channel}${known}${lead}<div class="muted small">${escapeHtml(c.channelType || c.platform || "")}</div></td>
+    <td class="discovery-channel">${channel}${known}${lead}${plat}<div class="muted small">${escapeHtml(c.channelType || c.platform || "")}</div></td>
     <td class="discovery-metrics">${metrics}</td>
     <td>${email}</td>
     <td class="discovery-reason">${analysis || '<span class="muted">-</span>'}</td>
@@ -3935,8 +4090,9 @@ function discoveryRowHtml(c) {
 
 async function startDiscoveryRun({ durationMinutes = 0 } = {}) {
   const seeds = getDiscoverySeeds();
+  const gamePlatforms = [...document.querySelectorAll('input[name="discoveryPlatform"]:checked')].map((el) => el.value);
   try {
-    const result = await api("/api/discovery/run", { method: "POST", body: { seeds, durationMinutes } });
+    const result = await api("/api/discovery/run", { method: "POST", body: { seeds, durationMinutes, gamePlatforms } });
     if (result.started) {
       showToast(`${durationMinutes}분 세션을 시작했습니다.`);
       startDiscoveryPolling();

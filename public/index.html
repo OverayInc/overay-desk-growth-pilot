@@ -310,6 +310,14 @@
                     <option value="fit">적합도순</option>
                   </select>
                 </label>
+                <label class="matrix-sort">
+                  <span>플랫폼</span>
+                  <select id="matrixPlatformFilter">
+                    <option value="all">전체</option>
+                    <option value="PC">PC</option>
+                    <option value="VR">VR</option>
+                  </select>
+                </label>
                 <details class="matrix-filter">
                   <summary class="secondary-button"><span id="matrixGameFilterSummary">게임 필터</span></summary>
                   <div class="matrix-filter-panel" id="matrixGameFilter"></div>
@@ -411,6 +419,11 @@
                     </span>
                     <textarea id="discoverySeeds" rows="3" placeholder="spot the anomaly game&#10;Exit 8 gameplay&#10;이상현상 찾기 게임"></textarea>
                   </label>
+                  <div class="discovery-platforms">
+                    <span class="muted">게임 플랫폼 태그 (찾은 크리에이터에 표시):</span>
+                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="PC" /> PC</label>
+                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="VR" /> VR</label>
+                  </div>
                   <div class="discovery-actions">
                     <button type="button" id="discoveryQuickRun" class="secondary-button">빠른 실행 (1회)</button>
                     <span class="discovery-sep">시간 박스:</span>
@@ -705,6 +718,7 @@
                   <h2>게임별 키 풀</h2>
                 </div>
                 <div class="key-pool-tools">
+                  <span id="keyPoolGameThumb" class="key-pool-game-thumb" aria-hidden="true"></span>
                   <select id="keyPoolGame" data-game-select></select>
                   <button type="button" class="secondary-button" data-open-csv="pool">CSV 일괄 등록</button>
                 </div>
@@ -748,8 +762,8 @@
                     <textarea name="keys" rows="8" placeholder="C8C2H-L7ZA4-WXA74&#10;2XP0R-BB6RR-YPLLI&#10;LDLDL-VZD7Z-M89D5&#10;..." style="font-family:ui-monospace,Menlo,Consolas,monospace"></textarea>
                   </label>
                   <div class="button-row">
-                    <span class="muted" id="keyPoolBulkCount">0개 감지</span>
                     <button type="submit">일괄 등록 (1회용)</button>
+                    <span class="muted" id="keyPoolBulkCount">0개 감지</span>
                   </div>
                 </form>
               </details>
@@ -1416,6 +1430,13 @@
               </select>
             </label>
           </div>
+          <div class="mail-key-row" id="mailKeyRow">
+            <span class="mail-key-status" id="mailKeyStatus"></span>
+            <select id="mailPoolSelect"><option value="">— 풀 키 선택 —</option></select>
+            <button type="button" class="secondary-button mini" id="mailAssignBtn">풀에서 배정</button>
+            <button type="button" class="secondary-button mini" id="mailUnassignBtn" hidden>회수</button>
+            <span class="image-picker__hint" id="mailPoolRemaining"></span>
+          </div>
           <label>
             받는 사람
             <input id="mailTo" type="email" placeholder="email@example.com" />
@@ -1542,6 +1563,13 @@
             <label>
               태그
               <input name="tags" placeholder="anomaly, backrooms" />
+            </label>
+            <label class="field-full">
+              게임 플랫폼 <span class="muted">(PC 게임 / VR 게임 — 둘 다 선택 가능)</span>
+              <span class="platform-checks">
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="PC" /> PC</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="VR" /> VR</label>
+              </span>
             </label>
             <label>
               평균 조회수
