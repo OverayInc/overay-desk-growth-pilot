@@ -1448,7 +1448,7 @@
           <div class="mail-body-cols">
             <div class="mail-body-col">
               <div class="mail-ko-head"><span class="mail-col-title">본문 (실제 보내는 내용)</span></div>
-              <textarea id="mailBody" class="mail-body-main" rows="14"></textarea>
+              <div class="rich-field"><div class="rich-editor mail-body-main" id="mailBody" contenteditable="true" data-placeholder="메일 본문 (HTML — 서식이 그대로 발송됩니다)"></div></div>
               <span class="mail-ko-status" aria-hidden="true"></span>
             </div>
             <div class="mail-body-col">
@@ -1506,26 +1506,26 @@
               <div class="tmpl-cols">
                 <div class="tmpl-col">
                   <label>제목 (EN)<input name="subjectEn" /></label>
-                  <label>본문 (EN)<textarea name="bodyEn" rows="14"></textarea></label>
+                  <label class="rich-label">본문 (EN)<div class="rich-field"><div class="rich-editor" contenteditable="true" data-name="bodyEn" data-placeholder="HTML 본문 — 볼드·색상·링크 사용 가능"></div></div></label>
                 </div>
                 <div class="tmpl-col">
                   <label>제목 (KO)<input name="subjectKo" /></label>
-                  <label>본문 (KO)<textarea name="bodyKo" rows="14"></textarea></label>
+                  <label class="rich-label">본문 (KO)<div class="rich-field"><div class="rich-editor" contenteditable="true" data-name="bodyKo" data-placeholder="HTML 본문 — 볼드·색상·링크 사용 가능"></div></div></label>
                 </div>
               </div>
               <label class="tmpl-multilang-toggle"><input type="checkbox" id="tmplMultilang" /> 다국어 추가 (日本語 · Deutsch · 中文) — 비워두면 발송 시 한국어를 AI가 번역</label>
               <div class="tmpl-cols tmpl-extra-langs" id="tmplExtraLangs" hidden>
                 <div class="tmpl-col">
                   <label>제목 (JA)<input name="subjectJa" /></label>
-                  <label>본문 (JA)<textarea name="bodyJa" rows="12"></textarea></label>
+                  <label class="rich-label">본문 (JA)<div class="rich-field"><div class="rich-editor" contenteditable="true" data-name="bodyJa" data-placeholder="HTML 본문"></div></div></label>
                 </div>
                 <div class="tmpl-col">
                   <label>제목 (DE)<input name="subjectDe" /></label>
-                  <label>본문 (DE)<textarea name="bodyDe" rows="12"></textarea></label>
+                  <label class="rich-label">본문 (DE)<div class="rich-field"><div class="rich-editor" contenteditable="true" data-name="bodyDe" data-placeholder="HTML 본문"></div></div></label>
                 </div>
                 <div class="tmpl-col">
                   <label>제목 (ZH)<input name="subjectZh" /></label>
-                  <label>본문 (ZH)<textarea name="bodyZh" rows="12"></textarea></label>
+                  <label class="rich-label">본문 (ZH)<div class="rich-field"><div class="rich-editor" contenteditable="true" data-name="bodyZh" data-placeholder="HTML 본문"></div></div></label>
                 </div>
               </div>
               <p class="muted tmpl-hint">치환 변수: <code>{{creator}}</code> <code>{{game}}</code> <code>{{key}}</code> <code>{{utm}}</code> <code>{{embargo}}</code> <code>{{genre}}</code></p>

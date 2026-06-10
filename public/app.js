@@ -256,6 +256,91 @@ function formData(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
 
+// --- WYSIWYG rich editor (templates + mail composer) -----------------------
+// Toolbar buttons drive document.execCommand on the adjacent contenteditable.
+// No deps; the produced HTML is allowlist-sanitized on the server when saved/sent.
+const RICH_TOOLBAR_HTML = `<div class="rich-toolbar">
+  <button type="button" data-cmd="bold" title="볼드"><b>B</b></button>
+  <button type="button" data-cmd="italic" title="기울임"><i>I</i></button>
+  <button type="button" data-cmd="underline" title="밑줄"><span style="text-decoration:underline">U</span></button>
+  <span class="rich-sep"></span>
+  <button type="button" data-cmd="foreColor" data-color="#e03131" title="빨강" style="color:#e03131">A</button>
+  <button type="button" data-cmd="foreColor" data-color="#1c7ed6" title="파랑" style="color:#1c7ed6">A</button>
+  <button type="button" data-cmd="foreColor" data-color="#2f9e44" title="초록" style="color:#2f9e44">A</button>
+  <button type="button" data-cmd="foreColor" data-color="#f08c00" title="주황" style="color:#f08c00">A</button>
+  <button type="button" data-cmd="foreColor" data-color="#1a1a1a" title="기본색">A</button>
+  <span class="rich-sep"></span>
+  <button type="button" data-cmd="fontSize" data-size="2" title="작게" style="font-size:11px">작게</button>
+  <button type="button" data-cmd="fontSize" data-size="3" title="보통">보통</button>
+  <button type="button" data-cmd="fontSize" data-size="5" title="크게" style="font-size:16px">크게</button>
+  <span class="rich-sep"></span>
+  <button type="button" data-cmd="createLink" title="링크">🔗</button>
+  <button type="button" data-cmd="insertUnorderedList" title="목록">• 목록</button>
+  <button type="button" data-cmd="removeFormat" title="서식 지우기">✕</button>
+</div>`;
+
+function initRichEditors() {
+  for (const field of document.querySelectorAll(".rich-field")) {
+    if (!field.querySelector(".rich-toolbar")) field.insertAdjacentHTML("afterbegin", RICH_TOOLBAR_HTML);
+  }
+  // Don't let a toolbar click steal the editor's selection.
+  document.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".rich-toolbar")) e.preventDefault();
+  });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".rich-toolbar button[data-cmd]");
+    if (!btn) return;
+    const editor = btn.closest(".rich-field")?.querySelector(".rich-editor");
+    if (!editor) return;
+    editor.focus();
+    const cmd = btn.dataset.cmd;
+    if (cmd === "foreColor") {
+      document.execCommand("styleWithCSS", false, true);
+      document.execCommand("foreColor", false, btn.dataset.color || "#1a1a1a");
+      document.execCommand("styleWithCSS", false, false);
+    } else if (cmd === "fontSize") {
+      document.execCommand("styleWithCSS", false, true);
+      document.execCommand("fontSize", false, btn.dataset.size || "3");
+      document.execCommand("styleWithCSS", false, false);
+    } else if (cmd === "createLink") {
+      const url = prompt("링크 URL을 입력하세요:", "https://");
+      if (url) document.execCommand("createLink", false, url.trim());
+    } else if (cmd === "removeFormat") {
+      document.execCommand("removeFormat");
+      document.execCommand("unlink");
+    } else {
+      document.execCommand(cmd, false, null);
+    }
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function isHtmlContent(s) {
+  return /<(?:p|br|div|span|strong|b|i|em|u|a|ul|ol|li|h[1-3]|blockquote)\b/i.test(String(s || ""));
+}
+function plainToHtml(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br>");
+}
+function htmlToText(html) {
+  const tmp = document.createElement("div");
+  tmp.innerHTML = String(html || "")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-3]|blockquote)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ");
+  return (tmp.textContent || "").replace(/\n{3,}/g, "\n\n").trim();
+}
+// Set/get a rich editor's content (migrating legacy plain text to HTML on set).
+function setRich(editor, content) {
+  if (editor) editor.innerHTML = isHtmlContent(content) ? String(content || "") : plainToHtml(content);
+}
+function getRich(editor) {
+  return editor ? editor.innerHTML.trim() : "";
+}
+
 function renderGameSelectors() {
   const filter = $("#gameFilter");
   const current = state.selectedGameId;
@@ -1861,6 +1946,15 @@ function initMailModal() {
   if (!modal) return;
   let ctx = { profileId: null, gameId: null, recordId: null };
 
+  // The body is a rich (HTML) editor; the Korean panel stays a plain textarea.
+  // Read/write each as the right type (the body round-trips through plain text
+  // for translation, which is inherently text-based).
+  const readField = (sel) => (sel === "#mailBody" ? htmlToText(getRich($("#mailBody"))) : $(sel).value || "");
+  const writeField = (sel, text) => {
+    if (sel === "#mailBody") setRich($("#mailBody"), plainToHtml(text));
+    else $(sel).value = text;
+  };
+
   // Regenerate the draft from the currently selected template + language.
   async function loadDraft() {
     let draft = {};
@@ -1880,7 +1974,7 @@ function initMailModal() {
     }
     $("#mailTo").value = draft.to || "";
     $("#mailSubject").value = draft.subject || "";
-    $("#mailBody").value = draft.body || "";
+    setRich($("#mailBody"), draft.body);
     const utm = draft.utmLink || "";
     $("#mailUtm").textContent = utm || "-";
     $("#mailUtm").href = utm || "#";
@@ -2030,7 +2124,7 @@ function initMailModal() {
   // AI translation: read/edit the email in Korean, then push edits back into the
   // sending language. Convenience for a Korean sender writing non-Korean mail.
   async function translateBody(targetLang, sourceId, destId) {
-    const src = ($(sourceId).value || "").trim();
+    const src = readField(sourceId).trim();
     const statusEl = $("#mailKoStatus");
     if (!src) {
       showToast(sourceId === "#mailBody" ? "번역할 본문이 없습니다." : "반영할 한글 내용이 없습니다.");
@@ -2041,7 +2135,7 @@ function initMailModal() {
     if (statusEl) statusEl.textContent = "번역 중…";
     try {
       const r = await api("/api/ai/translate", { method: "POST", body: { text: src, targetLang } });
-      $(destId).value = r.text || "";
+      writeField(destId, r.text || "");
       if (statusEl) {
         statusEl.textContent =
           destId === "#mailBodyKo"
@@ -2059,7 +2153,7 @@ function initMailModal() {
   $("#mailFromKo")?.addEventListener("click", () => translateBody($("#mailLang").value, "#mailBodyKo", "#mailBody"));
 
   const mailtoUrl = () =>
-    `mailto:${encodeURIComponent($("#mailTo").value.trim())}?subject=${encodeURIComponent($("#mailSubject").value)}&body=${encodeURIComponent($("#mailBody").value)}`;
+    `mailto:${encodeURIComponent($("#mailTo").value.trim())}?subject=${encodeURIComponent($("#mailSubject").value)}&body=${encodeURIComponent(htmlToText(getRich($("#mailBody"))))}`;
 
   // Bump the creator to 발송 (creating the per-game record if needed) and append a
   // "메일 발송 <시각>" line to the memo so the send is logged automatically.
@@ -2084,7 +2178,7 @@ function initMailModal() {
   modal.querySelectorAll("[data-mail-close]").forEach((b) => b.addEventListener("click", () => modal.close()));
   $("#mailCopyBody").addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText($("#mailBody").value);
+      await navigator.clipboard.writeText(htmlToText(getRich($("#mailBody"))));
       showToast("본문을 복사했습니다.");
     } catch {
       showToast("복사 실패 — 직접 선택해 복사하세요.");
@@ -2118,7 +2212,7 @@ function initMailModal() {
       const draft = {
         to: $("#mailTo").value.trim(),
         subject: $("#mailSubject").value,
-        body: $("#mailBody").value,
+        body: getRich($("#mailBody")),
         utmLink: $("#mailUtm").textContent,
         gameId: ctx.gameId,
         creatorId: ctx.recordId || "",
@@ -2781,8 +2875,14 @@ function initTemplateManager() {
     if (cb) cb.checked = show;
     if (box) box.hidden = !show;
   }
+  const BODY_FIELDS = ["bodyEn", "bodyKo", "bodyJa", "bodyDe", "bodyZh"];
+  const bodyEditor = (name) => form.querySelector(`.rich-editor[data-name="${name}"]`);
   function resetForm() {
     form.reset();
+    BODY_FIELDS.forEach((n) => {
+      const ed = bodyEditor(n);
+      if (ed) ed.innerHTML = "";
+    });
     setMultilang(false);
     form.elements.id.value = "";
     state.editingTemplateId = null;
@@ -2794,15 +2894,15 @@ function initTemplateManager() {
     form.elements.id.value = t.id;
     form.elements.name.value = t.name || "";
     form.elements.subjectEn.value = t.subjectEn || "";
-    form.elements.bodyEn.value = t.bodyEn || "";
+    setRich(bodyEditor("bodyEn"), t.bodyEn);
     form.elements.subjectKo.value = t.subjectKo || "";
-    form.elements.bodyKo.value = t.bodyKo || "";
+    setRich(bodyEditor("bodyKo"), t.bodyKo);
     form.elements.subjectJa.value = t.subjectJa || "";
-    form.elements.bodyJa.value = t.bodyJa || "";
+    setRich(bodyEditor("bodyJa"), t.bodyJa);
     form.elements.subjectDe.value = t.subjectDe || "";
-    form.elements.bodyDe.value = t.bodyDe || "";
+    setRich(bodyEditor("bodyDe"), t.bodyDe);
     form.elements.subjectZh.value = t.subjectZh || "";
-    form.elements.bodyZh.value = t.bodyZh || "";
+    setRich(bodyEditor("bodyZh"), t.bodyZh);
     setMultilang(Boolean(t.subjectJa || t.bodyJa || t.subjectDe || t.bodyDe || t.subjectZh || t.bodyZh));
     state.editingTemplateId = t.id;
     $("#templateFormTitle").textContent = `편집 중 · ${t.name}`;
@@ -2846,6 +2946,7 @@ function initTemplateManager() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = formData(form);
+    BODY_FIELDS.forEach((n) => (data[n] = getRich(bodyEditor(n))));
     const id = String(data.id || "").trim();
     const submit = $("#templateSubmit");
     submit.disabled = true;
@@ -2890,9 +2991,9 @@ function initTemplateManager() {
       state.editingTemplateId = null;
       form.elements.name.value = draft.name || "";
       form.elements.subjectEn.value = draft.subjectEn || "";
-      form.elements.bodyEn.value = draft.bodyEn || "";
+      setRich(bodyEditor("bodyEn"), draft.bodyEn);
       form.elements.subjectKo.value = draft.subjectKo || "";
-      form.elements.bodyKo.value = draft.bodyKo || "";
+      setRich(bodyEditor("bodyKo"), draft.bodyKo);
       $("#templateFormTitle").textContent = "AI 초안 · 검토 후 추가";
       $("#templateSubmit").textContent = "추가";
       renderList();
@@ -3013,6 +3114,7 @@ function initForms() {
     }
   });
 
+  initRichEditors();
   initCsvImportModal();
   initMatrixModal();
   initMailModal();

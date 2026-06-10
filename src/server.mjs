@@ -1556,11 +1556,36 @@ function fillTemplate(str, vars) {
   });
 }
 
+// Fill placeholders in an HTML body. Values are HTML-escaped, and inline styling
+// tags wrapping the variable INSIDE the braces (e.g. {{<span style=color>creator
+// </span>}} from double-click + color) are preserved so the filled value keeps
+// the chosen formatting.
+function fillTemplateHtml(str, vars) {
+  return String(str || "").replace(/\{\{\s*(<[^>]+>)?\s*(\w+)\s*(<\/[^>]+>)?\s*\}\}/g, (m, open, key, close) => {
+    const value = vars[key];
+    if (value === undefined) return m; // unknown token → leave untouched
+    const v = value !== null && value !== "" ? escapeHtmlText(String(value)) : `[${key}]`;
+    return `${open || ""}${v}${close || ""}`;
+  });
+}
+
 // Korean is the base language; emails can also be sent in EN/JA/DE/ZH. Templates
 // always carry KO+EN; JA/DE/ZH are opt-in. Missing languages are AI-translated
 // from the Korean base on the fly.
 const SUPPORTED_LANGS = ["ko", "en", "ja", "de", "zh"];
 const LANG_SUFFIX = { ko: "Ko", en: "En", ja: "Ja", de: "De", zh: "Zh" };
+
+// Resolve a creator's actual Steam key value. Pool-assigned keys live on the
+// pool entry (creator only keeps keyPoolId + masked); manual keys live on the
+// creator. Both buildEmailDraft and the send path must use this.
+function creatorKeyValue(data, creator) {
+  if (!creator) return "";
+  if (creator.keyPoolId) {
+    const entry = (data.keyPool || []).find((e) => e.id === creator.keyPoolId);
+    return entry?.valueEncrypted ? decryptSecret(entry.valueEncrypted) : "";
+  }
+  return creator.steamKeyEncrypted ? decryptSecret(creator.steamKeyEncrypted) : "";
+}
 
 async function buildEmailDraft(data, input = {}) {
   const gameId = resolveGameId(data, input, data.meta.primaryGameId || DEFAULT_GAME_ID);
@@ -1594,7 +1619,7 @@ async function buildEmailDraft(data, input = {}) {
       content: contentSlug,
     });
   const greetingName = profile.channelName || profile.handle || "there";
-  const keyValue = creator?.steamKeyEncrypted ? decryptSecret(creator.steamKeyEncrypted) : "";
+  const keyValue = creatorKeyValue(data, creator);
   const vars = {
     creator: greetingName,
     game: game.name,
@@ -1626,12 +1651,17 @@ async function buildEmailDraft(data, input = {}) {
     if (!subjRaw) subjRaw = template.subjectKo || template.subjectEn || "";
     if (!bodyRaw) bodyRaw = template.bodyKo || template.bodyEn || "";
     subject = input.subject || fillTemplate(subjRaw, vars);
-    body = input.body || fillTemplate(bodyRaw, vars);
+    // Body is HTML (WYSIWYG). For HTML templates, escape substituted values; for
+    // legacy plain templates, fill then convert to minimal HTML.
+    if (input.body !== undefined) body = input.body;
+    else if (htmlLooksRich(bodyRaw)) body = fillTemplateHtml(bodyRaw, vars);
+    else body = plainTextToHtml(fillTemplate(bodyRaw, vars));
   } else {
     subject = input.subject || `${game.name} Steam key for creator preview`;
-    body =
-      input.body ||
-      [
+    const plain =
+      input.body !== undefined
+        ? null
+        : [
         `Hi ${greetingName},`,
         "",
         `I'm reaching out from the team behind ${game.name}. We thought your channel could be a strong fit, especially for viewers who like ${game.genre || "indie games"}.`,
@@ -1645,13 +1675,17 @@ async function buildEmailDraft(data, input = {}) {
         "Thanks,",
         "Immersed Player, Overay Inc.",
       ].join("\n");
+    body = input.body !== undefined ? input.body : plainTextToHtml(plain);
   }
   const to = profile.email || creator?.email || "";
-  const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const bodyText = htmlToPlainText(body);
+  const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
   return {
     to,
     subject,
     body,
+    bodyText,
+    key: keyValue,
     mailto,
     utmLink: link,
     gameId,
@@ -1867,17 +1901,135 @@ function dotStuff(message) {
   return String(message).replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..");
 }
 
-function buildRawEmail({ from, to, replyTo, subject, body }) {
-  const headers = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${encodeHeader(subject)}`,
-    "MIME-Version: 1.0",
+function escapeHtmlText(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// HTML-escape every placeholder value so substituting into an HTML template body
+// can't inject markup (e.g. a game name with "&" or "<").
+function htmlEscapeVars(vars) {
+  const out = {};
+  for (const [k, v] of Object.entries(vars)) out[k] = escapeHtmlText(v == null ? "" : String(v));
+  return out;
+}
+
+// Templates are authored as HTML (WYSIWYG). Detect rich markup vs. legacy plain.
+function htmlLooksRich(value) {
+  return /<(?:p|br|div|span|strong|b|i|em|u|a|ul|ol|li|h[1-3]|blockquote)\b/i.test(String(value || ""));
+}
+
+// Allowlist sanitizer for team-authored email HTML: keep basic formatting +
+// safe inline styles; drop scripts, handlers, and unknown tags/attributes.
+const EMAIL_ALLOWED_TAGS = new Set(["p", "br", "div", "span", "strong", "b", "i", "em", "u", "a", "ul", "ol", "li", "h1", "h2", "h3", "blockquote"]);
+function sanitizeEmailHtml(html) {
+  let s = String(html || "");
+  s = s.replace(/<!--[\s\S]*?-->/g, "");
+  s = s.replace(/<(script|style|iframe|object|embed|title|head)[^>]*>[\s\S]*?<\/\1>/gi, ""); // drop blocks + content
+  s = s.replace(/<\/?(?:script|style|iframe|object|embed|link|meta|head|html|body|title|form|input)[^>]*>/gi, "");
+  // Browsers' execCommand sometimes emits <font color>; normalize to <span style>
+  // so the allowlist (which keeps span + color) preserves the chosen color.
+  const FONT_SIZE_KEYWORDS = ["xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large"];
+  s = s.replace(/<font\b([^>]*)>/gi, (m, attrs) => {
+    const c = attrs.match(/color\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const color = c ? (c[2] ?? c[3] ?? c[4] ?? "").trim().replace(/["<>]/g, "") : "";
+    const z = attrs.match(/size\s*=\s*"?(\d)"?/i);
+    const size = z ? FONT_SIZE_KEYWORDS[Math.max(1, Math.min(7, Number(z[1]))) - 1] : "";
+    const styles = [color && `color:${color}`, size && `font-size:${size}`].filter(Boolean).join(";");
+    return styles ? `<span style="${styles}">` : "<span>";
+  });
+  s = s.replace(/<\/font>/gi, "</span>");
+  s = s.replace(/<(\/?)([a-z0-9]+)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (m, slash, rawTag, attrs) => {
+    const tag = rawTag.toLowerCase();
+    if (!EMAIL_ALLOWED_TAGS.has(tag)) return "";
+    if (slash) return `</${tag}>`;
+    let kept = "";
+    if (tag === "a") {
+      const href = attrs.match(/\shref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const url = href ? href[2] ?? href[3] ?? href[4] ?? "" : "";
+      if (/^(https?:|mailto:)/i.test(url.trim())) kept += ` href="${url.trim().replace(/"/g, "&quot;")}"`;
+      kept += ' target="_blank" rel="noreferrer"';
+    }
+    const style = attrs.match(/\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (style) {
+      const css = style[2] ?? style[3] ?? "";
+      const safe = css
+        .split(";")
+        .map((d) => d.trim())
+        .filter((d) => /^(color|background-color|font-weight|font-style|text-decoration|font-size)\s*:/i.test(d) && !/url\s*\(|expression|javascript:/i.test(d))
+        .join("; ");
+      if (safe) kept += ` style="${safe.replace(/"/g, "&quot;")}"`;
+    }
+    return `<${tag}${kept}>`;
+  });
+  return s;
+}
+
+// HTML → plain text (for the multipart text/plain part, mailto, and previews).
+function htmlToPlainText(html) {
+  let s = String(html || "");
+  s = s.replace(/<\s*br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/\s*(p|div|li|h[1-3]|blockquote)\s*>/gi, "\n");
+  s = s.replace(/<li[^>]*>/gi, "• ");
+  s = s.replace(/<[^>]+>/g, "");
+  s = s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, "&");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Plain text → minimal HTML (escape + line breaks) for legacy plain templates.
+function plainTextToHtml(text) {
+  return escapeHtmlText(text).replace(/\r?\n/g, "<br>");
+}
+
+function wrapEmailHtml(inner) {
+  return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">${inner}</body></html>`;
+}
+
+// Inner HTML for a LEGACY plain-text body: escape, keep line breaks, and bold
+// the Steam key so the recipient can spot it.
+function emailInnerHtmlFromPlain(body, keyValue = "") {
+  let safe = escapeHtmlText(body);
+  const key = String(keyValue || "").trim();
+  if (key) {
+    const escKey = escapeHtmlText(key);
+    safe = safe.split(escKey).join(`<strong style="background:#fff3bf;padding:1px 4px;border-radius:3px">${escKey}</strong>`);
+  }
+  return safe.replace(/\r?\n/g, "<br>");
+}
+
+function buildRawEmail({ from, to, replyTo, subject, body, html }) {
+  const headers = [`From: ${from}`, `To: ${to}`, `Subject: ${encodeHeader(subject)}`, "MIME-Version: 1.0"];
+  if (replyTo) headers.push(`Reply-To: ${replyTo}`);
+  const text = String(body || "").replace(/\r?\n/g, "\r\n");
+  if (!html) {
+    headers.push("Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: 8bit");
+    return `${headers.join("\r\n")}\r\n\r\n${text}`;
+  }
+  // multipart/alternative: text first (fallback), HTML second (preferred).
+  const boundary = `=_lp_alt_${Date.now().toString(36)}${randomBytes(6).toString("hex")}`;
+  headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+  const htmlText = String(html).replace(/\r?\n/g, "\r\n");
+  return [
+    headers.join("\r\n"),
+    "",
+    `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: 8bit",
-  ];
-  if (replyTo) headers.push(`Reply-To: ${replyTo}`);
-  return `${headers.join("\r\n")}\r\n\r\n${String(body || "").replace(/\r?\n/g, "\r\n")}`;
+    "",
+    text,
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    htmlText,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
 }
 
 function smtpConnect(config) {
@@ -1951,7 +2103,7 @@ async function upgradeStartTls(socket, config) {
   });
 }
 
-async function sendEmailViaSmtp(config, { to, subject, body }) {
+async function sendEmailViaSmtp(config, { to, subject, body, html }) {
   if (!emailConfigured(config)) {
     throw new Error("SMTP_HOST, SMTP_PORT, EMAIL_FROM 설정이 필요합니다.");
   }
@@ -1973,7 +2125,7 @@ async function sendEmailViaSmtp(config, { to, subject, body }) {
     await smtpCommand(socket, `MAIL FROM:<${addressOnly(config.emailFrom)}>`, [250]);
     await smtpCommand(socket, `RCPT TO:<${addressOnly(to)}>`, [250, 251]);
     await smtpCommand(socket, "DATA", [354]);
-    socket.write(`${dotStuff(buildRawEmail({ from: config.emailFrom, to, replyTo: config.emailReplyTo, subject, body }))}\r\n.\r\n`);
+    socket.write(`${dotStuff(buildRawEmail({ from: config.emailFrom, to, replyTo: config.emailReplyTo, subject, body, html }))}\r\n.\r\n`);
     const dataResponse = await readSmtpResponse(socket);
     if (![250].includes(dataResponse.code)) {
       throw new Error(`SMTP DATA failed: ${dataResponse.raw.trim()}`);
@@ -2015,7 +2167,7 @@ async function ensureGraphToken(data) {
 
 // Send via Graph `sendMail` from a fixed mailbox (Application Mail.Send permission,
 // scoped to that mailbox with an ApplicationAccessPolicy). 202 = accepted.
-async function sendEmailViaGraph(data, config, { to, subject, body }) {
+async function sendEmailViaGraph(data, config, { to, subject, body, html }) {
   const token = await ensureGraphToken(data);
   if (!token) throw new Error("Graph 발송 설정이 없습니다.");
   const mailbox = config.graphSendMailbox;
@@ -2023,7 +2175,7 @@ async function sendEmailViaGraph(data, config, { to, subject, body }) {
   const payload = {
     message: {
       subject: subject || "",
-      body: { contentType: "Text", content: body || "" },
+      body: html ? { contentType: "HTML", content: html } : { contentType: "Text", content: body || "" },
       toRecipients: [{ emailAddress: { address: addressOnly(to) } }],
       ...(config.emailReplyTo ? { replyTo: [{ emailAddress: { address: addressOnly(config.emailReplyTo) } }] } : {}),
     },
@@ -2119,7 +2271,22 @@ async function sendOutreachEmail(data, input = {}) {
     return { status: "blocked", log, message: log.message, emailStatus: buildEmailStatus(data) };
   }
   try {
-    const result = isGraph ? await sendEmailViaGraph(data, config, draft) : await sendEmailViaSmtp(config, draft);
+    // Send a multipart email whose HTML part bolds the Steam key. Resolve the
+    // key from the creator record (the body may be user-edited).
+    const creator =
+      (draft.creatorId ? data.creators.find((c) => c.id === draft.creatorId) : null) ||
+      (draft.creatorProfileId
+        ? data.creators.find((c) => c.creatorProfileId === draft.creatorProfileId && c.gameId === draft.gameId)
+        : null);
+    const keyValue = creatorKeyValue(data, creator);
+    const rich = htmlLooksRich(draft.body);
+    const innerHtml = rich ? sanitizeEmailHtml(draft.body) : emailInnerHtmlFromPlain(draft.body, keyValue);
+    const sendable = {
+      ...draft,
+      body: rich ? htmlToPlainText(draft.body) : draft.body, // text/plain part
+      html: wrapEmailHtml(innerHtml),
+    };
+    const result = isGraph ? await sendEmailViaGraph(data, config, sendable) : await sendEmailViaSmtp(config, sendable);
     const log = addOutreachLog(data, {
       ...draft,
       status: "sent",
@@ -5312,15 +5479,15 @@ async function handleApi(req, res, url) {
       id: input.id || makeId("tmpl", name),
       name,
       subjectEn: String(input.subjectEn || "").trim(),
-      bodyEn: String(input.bodyEn || ""),
+      bodyEn: sanitizeEmailHtml(input.bodyEn),
       subjectKo: String(input.subjectKo || "").trim(),
-      bodyKo: String(input.bodyKo || ""),
+      bodyKo: sanitizeEmailHtml(input.bodyKo),
       subjectJa: String(input.subjectJa || "").trim(),
-      bodyJa: String(input.bodyJa || ""),
+      bodyJa: sanitizeEmailHtml(input.bodyJa),
       subjectDe: String(input.subjectDe || "").trim(),
-      bodyDe: String(input.bodyDe || ""),
+      bodyDe: sanitizeEmailHtml(input.bodyDe),
       subjectZh: String(input.subjectZh || "").trim(),
-      bodyZh: String(input.bodyZh || ""),
+      bodyZh: sanitizeEmailHtml(input.bodyZh),
       builtin: false,
       createdAt: nowIso(),
       updatedAt: nowIso(),
@@ -5337,15 +5504,15 @@ async function handleApi(req, res, url) {
     const input = await readJson(req);
     if (input.name !== undefined) tmpl.name = String(input.name).trim() || tmpl.name;
     if (input.subjectEn !== undefined) tmpl.subjectEn = String(input.subjectEn);
-    if (input.bodyEn !== undefined) tmpl.bodyEn = String(input.bodyEn);
+    if (input.bodyEn !== undefined) tmpl.bodyEn = sanitizeEmailHtml(input.bodyEn);
     if (input.subjectKo !== undefined) tmpl.subjectKo = String(input.subjectKo);
-    if (input.bodyKo !== undefined) tmpl.bodyKo = String(input.bodyKo);
+    if (input.bodyKo !== undefined) tmpl.bodyKo = sanitizeEmailHtml(input.bodyKo);
     if (input.subjectJa !== undefined) tmpl.subjectJa = String(input.subjectJa);
-    if (input.bodyJa !== undefined) tmpl.bodyJa = String(input.bodyJa);
+    if (input.bodyJa !== undefined) tmpl.bodyJa = sanitizeEmailHtml(input.bodyJa);
     if (input.subjectDe !== undefined) tmpl.subjectDe = String(input.subjectDe);
-    if (input.bodyDe !== undefined) tmpl.bodyDe = String(input.bodyDe);
+    if (input.bodyDe !== undefined) tmpl.bodyDe = sanitizeEmailHtml(input.bodyDe);
     if (input.subjectZh !== undefined) tmpl.subjectZh = String(input.subjectZh);
-    if (input.bodyZh !== undefined) tmpl.bodyZh = String(input.bodyZh);
+    if (input.bodyZh !== undefined) tmpl.bodyZh = sanitizeEmailHtml(input.bodyZh);
     tmpl.updatedAt = nowIso();
     await writeData(data);
     return respondJson(res, 200, tmpl);

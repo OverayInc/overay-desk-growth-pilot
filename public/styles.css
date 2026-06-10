@@ -1454,6 +1454,23 @@ tbody tr:last-child td { border-bottom: 0; }
 .mail-key-row .secondary-button { flex: 0 0 auto; white-space: nowrap; }
 .mail-key-status { flex: 0 0 auto; }
 .mail-key-row .image-picker__hint { flex-basis: 100%; }
+/* HTML send preview (recipient's view; key bolded) */
+.mail-preview-panel summary { cursor: pointer; font-size: 12.5px; color: var(--text-secondary); padding: 4px 0; }
+.mail-preview { margin-top: 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; color: #1a1a1a; font-size: 14px; line-height: 1.6; max-height: 42vh; overflow: auto; }
+strong.mail-key-bold { font-weight: 800; background: #fff3bf; color: #1a1a1a; padding: 1px 5px; border-radius: 3px; }
+/* WYSIWYG rich editor (templates + mail composer) */
+.rich-field { border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.rich-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--surface-inset); }
+.rich-toolbar button { min-width: 28px; height: 26px; padding: 0 7px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text); font-size: 13px; font-weight: 700; cursor: pointer; line-height: 1; }
+.rich-toolbar button:hover { background: var(--surface-muted); border-color: var(--border); }
+.rich-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+.rich-editor { min-height: 180px; max-height: 50vh; overflow: auto; padding: 12px 14px; font-size: 14px; line-height: 1.6; color: var(--text); outline: none; word-break: break-word; }
+.rich-editor a { color: var(--brand); }
+.rich-editor:empty::before { content: attr(data-placeholder); color: var(--text-faint); }
+#templateModal .tmpl-col .rich-field { min-width: 0; }
+#templateModal .tmpl-col .rich-editor { min-height: 46vh; }
+#templateModal .tmpl-extra-langs .rich-editor { min-height: 30vh; }
+#mailModal .rich-editor { min-height: 44vh; }
 .pool-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 650; }
 .pool-badge.available { background: var(--success-soft); color: var(--success-text); }
 .pool-badge.exhausted { background: var(--surface-muted); color: var(--text-muted); }
