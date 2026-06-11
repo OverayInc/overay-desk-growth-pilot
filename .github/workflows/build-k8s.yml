@@ -1,4 +1,4 @@
-name: Build Game Launch Pilot (K8s)
+name: Build Overay Desk Launch Pilot (K8s)
 
 on:
   push:
@@ -9,9 +9,11 @@ env:
   PROJECT_ID: bold-proton-467706-f3
   REGION: asia-northeast3
   REPOSITORY: overay
-  IMAGE_NAME: overay-game-launch-pilot
+  IMAGE_NAME: overay-desk-launch-pilot
   GITOPS_REPO: OverayInc/overay-platform-gitops
-  GITOPS_PATH: app/overay/game-launch-pilot/overlays/dev
+  # NOTE: this overlay must exist in the gitops repo before the update step can
+  # work (copy app/overay/game-launch-pilot/overlays/dev as a starting point).
+  GITOPS_PATH: app/overay/overay-desk-launch-pilot/overlays/dev
 
 permissions:
   contents: read
