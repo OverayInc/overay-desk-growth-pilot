@@ -1347,7 +1347,7 @@ function creatorSlug(input) {
 
 // Game-platform tags: a creator covers PC games, VR games, or both. Constrained
 // to this fixed set (unlike the free-form `tags`) so they stay filterable.
-const GAME_PLATFORMS = ["PC", "VR"];
+const GAME_PLATFORMS = ["PC", "VR", "META"];
 function sanitizeGamePlatforms(value) {
   const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,\s]+/) : [];
   const upper = new Set(raw.map((v) => String(v).trim().toUpperCase()).filter(Boolean));

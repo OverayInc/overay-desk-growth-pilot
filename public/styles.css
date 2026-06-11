@@ -1444,6 +1444,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .plat-chip { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 5px; font-size: 10px; font-weight: 700; vertical-align: middle; line-height: 16px; }
 .plat-chip.plat-pc { background: var(--brand-soft); color: var(--brand); }
 .plat-chip.plat-vr { background: #ede9fe; color: #7c3aed; }
+.plat-chip.plat-meta { background: #e0f2fe; color: #0369a1; }
 .key-pool-row-game { display: inline-flex; align-items: center; gap: 7px; }
 .key-pool-row-game > span:last-child { white-space: nowrap; }
 /* Mail modal: in-modal key assignment (pool) */

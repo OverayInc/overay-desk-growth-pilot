@@ -316,6 +316,7 @@
                     <option value="all">전체</option>
                     <option value="PC">PC</option>
                     <option value="VR">VR</option>
+                    <option value="META">Meta</option>
                   </select>
                 </label>
                 <details class="matrix-filter">
@@ -423,6 +424,7 @@
                     <span class="muted">게임 플랫폼 태그 (찾은 크리에이터에 표시):</span>
                     <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="PC" /> PC</label>
                     <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="VR" /> VR</label>
+                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="META" /> Meta</label>
                   </div>
                   <div class="discovery-actions">
                     <button type="button" id="discoveryQuickRun" class="secondary-button">빠른 실행 (1회)</button>
@@ -1565,10 +1567,11 @@
               <input name="tags" placeholder="anomaly, backrooms" />
             </label>
             <label class="field-full">
-              게임 플랫폼 <span class="muted">(PC 게임 / VR 게임 — 둘 다 선택 가능)</span>
+              게임 플랫폼 <span class="muted">(복수 선택 가능)</span>
               <span class="platform-checks">
-                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="PC" /> PC</label>
-                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="VR" /> VR</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="PC" /> PC (Steam)</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="VR" /> VR (Steam)</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="META" /> Meta</label>
               </span>
             </label>
             <label>
