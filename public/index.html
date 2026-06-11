@@ -690,7 +690,7 @@
                   </label>
                   <label>
                     Base URL
-                    <input name="baseUrl" placeholder="비우면 선택한 게임의 스토어 URL 사용" />
+                    <input name="baseUrl" placeholder="비우면 선택한 스토어 리스팅의 URL 사용" />
                   </label>
                   <label>
                     Source
@@ -949,28 +949,6 @@
                 <div class="admin-main">
                   <div class="panel">
                     <div class="panel-title">
-                      <h3>제품</h3>
-                      <span>이 워크스페이스는 Overay Desk 단일 제품을 관리합니다</span>
-                    </div>
-                    <div class="table-wrap compact-admin">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>제품</th>
-                            <th>단계</th>
-                            <th>스토어</th>
-                            <th>담당</th>
-                            <th>출시일</th>
-                            <th>상태</th>
-                            <th>작업</th>
-                          </tr>
-                        </thead>
-                        <tbody id="gameAdminTable"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div class="panel">
-                    <div class="panel-title">
                       <h3>스토어 리스팅</h3>
                       <span>Meta Horizon (Quest) · Google Play (Galaxy XR) · Pico Store</span>
                     </div>
@@ -978,7 +956,6 @@
                       <table>
                         <thead>
                           <tr>
-                            <th>제품</th>
                             <th>스토어</th>
                             <th>ID / Slug</th>
                             <th>상태</th>
@@ -1045,9 +1022,10 @@
                   </details>
 
                   <details class="action-panel" open>
-                    <summary><span>제품 정보 수정</span><span class="summary-icon"></span></summary>
+                    <summary><span>Overay Desk 제품 정보</span><span class="summary-icon"></span></summary>
                     <form class="form-row integration-form admin-form" id="gameSettingsForm">
-                      <label>
+                      <!-- Single product: the picker is kept for the form bindings but hidden. -->
+                      <label hidden>
                         제품
                         <select name="gameId" id="settingsGameSelect"></select>
                       </label>
@@ -1103,7 +1081,8 @@
                   <details class="action-panel">
                     <summary><span>스토어 리스팅 추가</span><span class="summary-icon"></span></summary>
                     <form class="form-row store-form admin-form" id="storeListingForm">
-                      <label>
+                      <!-- Single product: the picker is kept for the form bindings but hidden. -->
+                      <label hidden>
                         제품
                         <select name="gameId" id="listingGameSelect"></select>
                       </label>
