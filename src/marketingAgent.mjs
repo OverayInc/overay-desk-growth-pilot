@@ -98,8 +98,9 @@ async function chatCompletion(messages, { maxTokens = 1600, temperature = 0.8, j
   return content;
 }
 
-const SYSTEM_PROMPT = `You are an expert bilingual (Korean + English) product-marketing copywriter for Overay Inc. / Overay Desk.
-You write influencer & press OUTREACH EMAIL TEMPLATES used to offer free keys to YouTubers, streamers, curators, and press.
+const SYSTEM_PROMPT = `You are an expert bilingual (Korean + English) product-marketing copywriter for Overay Inc. / OVERAY DESK.
+OVERAY DESK is an XR workspace app for Meta Quest, Galaxy XR (Google Play), and PICO: it syncs with the user's Windows PC and expands it into a customizable multi-monitor virtual workspace (up to 5 virtual monitors free) with XR Pen & Notes, layout presets, and passthrough mode.
+You write influencer & press OUTREACH EMAIL TEMPLATES used to offer free keys to YouTubers, streamers, and press.
 
 Output rules:
 - Return ONE JSON object only — no prose, no markdown fences — with EXACTLY these string keys: "name", "subjectEn", "bodyEn", "subjectKo", "bodyKo".
@@ -159,7 +160,7 @@ export function normalizeCreatorAnalysis(obj) {
   return out;
 }
 
-const ANALYSIS_SYSTEM_PROMPT = `You are a marketing researcher for Overay Inc. / Overay Desk.
+const ANALYSIS_SYSTEM_PROMPT = `You are a marketing researcher for Overay Inc. / OVERAY DESK (an XR workspace app for Quest / Galaxy XR / PICO).
 You receive RAW, messy text about ONE content creator/channel: profile metadata, the channel "About" description, recent video/stream titles, and text scraped from any sites the channel links to. Your job is to distill it into one structured record.
 
 Output rules:
@@ -168,18 +169,17 @@ Output rules:
   "languages" (string), "pitchAngle" (string), "tags" (array of short strings).
 - "email": the channel's BUSINESS/CONTACT email ONLY if it literally appears in the provided text. If no email is present, return "". NEVER guess, complete, or invent an address. Prefer a business/booking/press address over a personal one.
 - LANGUAGE: Write "channelType", "audience", "contentTone", "languages", and "pitchAngle" in natural KOREAN (한국어). The ONLY exception is "tags", which stays in short English lowercase. "email" is the raw address.
-- "channelType": 채널 유형, 예: "유튜브 공포게임 실황", "트위치 버라이어티 스트리머", "스팀 큐레이터".
+- "channelType": 채널 유형, 예: "유튜브 VR 기기 리뷰", "테크·생산성 유튜버", "트위치 VR 스트리머".
 - "audience": 시청자층(규모/지역/관심사)을 짧은 한 구절로 — 주어진 지표(구독자, 평균 조회수, 참여율)를 활용.
 - "contentTone": 톤/분위기, 예: "리액션 중심, 코믹", "차분한 해설", "공포·몰입형".
 - "languages": 주 콘텐츠 언어, 예: "영어", "한국어", "영어/한국어".
-- "pitchAngle": 이 크리에이터에 맞춘 구체적인 섭외 한 줄(무료 키 제안을 어떻게 어필할지). 한국어. 예: "느린 긴장감을 좋아하니 채팅 증정용 키를 강조". 정말 모르겠으면 빈 문자열.
-- "tags": 필터용 짧은 영어 소문자 키워드 몇 개 (예: "horror", "indie", "reaction").
+- "pitchAngle": 이 크리에이터에 맞춘 구체적인 섭외 한 줄(무료 키 제안을 어떻게 어필할지). 한국어. 예: "데스크 셋업 콘텐츠가 많으니 가상 멀티 모니터 워크플로를 강조". 정말 모르겠으면 빈 문자열.
+- "tags": 필터용 짧은 영어 소문자 키워드 몇 개 (예: "vr", "productivity", "review").
 - Base every field ONLY on the provided text/metrics. When unsure, use "" — do not speculate.`;
 
 // Analyze one creator from a text bundle. Returns the normalized analysis.
-// `gameContext` describes the product we're scoring fit against. The fallback is
-// deliberately thin — set the product context (Settings / LP_DISCOVERY_GAME_CONTEXT)
-// once Overay Desk positioning is decided.
+// `gameContext` describes the product we're scoring fit against; the default
+// is the real OVERAY DESK pitch (override via LP_DISCOVERY_GAME_CONTEXT).
 export async function analyzeCreatorChannel({
   channelName = "",
   platform = "",
@@ -189,7 +189,7 @@ export async function analyzeCreatorChannel({
   subscribers = 0,
   country = "",
   metrics = null,
-  gameContext = "Our product is Overay Desk by Overay Inc. No detailed product context was provided, so score fit conservatively based on the creator's own audience and content signals.",
+  gameContext = "Our product is OVERAY DESK by Overay Inc. — an XR workspace app for Meta Quest, Galaxy XR (Google Play), and PICO. It syncs with the user's Windows PC and expands it into a customizable multi-monitor virtual workspace (up to 5 virtual monitors free) with XR Pen & Notes, layout presets, and passthrough mode. Best-fit creators: VR/XR hardware & app reviewers, productivity / desk-setup channels, and tech YouTubers covering remote-work gear.",
   signal,
 } = {}) {
   const titles = Array.isArray(recentTitles) ? recentTitles.filter(Boolean) : [];
@@ -255,7 +255,7 @@ Return ONE JSON object only: {"seeds": ["query 1", "query 2", ...]}. Each query 
 // Ask gemma for extra seed queries given the product context and current seeds.
 export async function expandSeeds({ gameContext = "", existingSeeds = [], count = 8, signal } = {}) {
   const user = [
-    `Product: ${gameContext || "Overay Desk by Overay Inc. (no detailed product context provided)"}`,
+    `Product: ${gameContext || "OVERAY DESK by Overay Inc. — an XR workspace app (Quest / Galaxy XR / PICO) that syncs with a Windows PC and expands it into a multi-monitor virtual workspace with XR Pen & Notes and passthrough mode"}`,
     existingSeeds.length ? `Existing queries (do NOT repeat):\n- ${existingSeeds.join("\n- ")}` : "",
     `Propose about ${count} new search queries.`,
   ]

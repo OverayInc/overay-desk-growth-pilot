@@ -20,14 +20,21 @@ export function discoveryConfigFromEnv(env = process.env) {
   };
 }
 
-// Seed keywords: explicit arg list wins, else LP_DISCOVERY_SEEDS (|-separated).
-// No baked-in default: Overay Desk seed queries are set per campaign (the
-// discovery UI seed box or LP_DISCOVERY_SEEDS) once positioning is decided.
+// Seed keywords: explicit arg list wins, else LP_DISCOVERY_SEEDS (|-separated),
+// else a sensible default tuned for OVERAY DESK (XR workspace: VR productivity,
+// virtual monitors, desk setups).
 export function discoverySeeds(argSeeds, env = process.env) {
   if (argSeeds && argSeeds.length) return argSeeds;
   const fromEnv = String(env.LP_DISCOVERY_SEEDS || "").trim();
   if (fromEnv) return fromEnv.split("|").map((s) => s.trim()).filter(Boolean);
-  return [];
+  return [
+    "VR productivity apps",
+    "virtual desktop VR review",
+    "XR workspace",
+    "Quest 3 productivity",
+    "VR 멀티 모니터",
+    "가상 모니터 작업 환경",
+  ];
 }
 
 export function discoveryGameContext(env = process.env) {

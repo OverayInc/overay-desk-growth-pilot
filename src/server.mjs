@@ -321,11 +321,11 @@ function defaultGames() {
   return [
     {
       id: "game_overay_desk",
-      name: "Overay Desk",
+      name: "OVERAY DESK",
       shortName: "OD",
       steamAppId: "0",
-      stage: "prelaunch",
-      genre: "XR desktop utility",
+      stage: "launched",
+      genre: "XR workspace",
       launchDate: "",
       owner: "Growth",
       archived: false,
@@ -338,25 +338,45 @@ function defaultGames() {
   ];
 }
 
-// Launch stores for Overay Desk. Seeded as planned listings; URLs/IDs are
-// filled in via the admin UI.
+// Launch stores for OVERAY DESK, seeded with the live listings.
+const DEFAULT_STORE_LISTING_DATA = [
+  {
+    platform: "meta_horizon",
+    externalId: "7028370967196772",
+    storeUrl: "https://www.meta.com/experiences/overay-desk/7028370967196772/",
+    isPrimary: true,
+  },
+  {
+    platform: "play",
+    externalId: "com.overay.overaystudio",
+    storeUrl: "https://play.google.com/store/apps/details?id=com.overay.overaystudio",
+    isPrimary: false,
+  },
+  {
+    platform: "pico",
+    externalId: "7309718245060362245",
+    storeUrl: "https://store-global.picoxr.com/global/detail/1/7309718245060362245",
+    isPrimary: false,
+  },
+];
+
 function defaultStoreListings(gameId = "game_overay_desk") {
   const now = nowIso();
-  return ["meta_horizon", "play", "pico"].map((platform) => ({
-    id: makeId("listing", `${gameId}_${platform}`),
+  return DEFAULT_STORE_LISTING_DATA.map((entry) => ({
+    id: makeId("listing", `${gameId}_${entry.platform}`),
     gameId,
-    platform,
-    platformLabel: storePlatformLabel(platform),
-    externalId: "",
-    storeUrl: "",
+    platform: entry.platform,
+    platformLabel: storePlatformLabel(entry.platform),
+    externalId: entry.externalId,
+    storeUrl: entry.storeUrl,
     dashboardUrl: "",
-    status: "planned",
+    status: "live",
     launchDate: "",
     region: "global",
     price: "",
     currency: "",
     notes: "",
-    isPrimary: platform === "meta_horizon",
+    isPrimary: entry.isPrimary,
     createdAt: now,
     updatedAt: now,
   }));
@@ -383,73 +403,65 @@ function defaultEmailTemplates() {
       "tmpl_review_request",
       "기본 리뷰 요청",
       "{{game}} — free key for an honest review",
-      `Hi {{creator}},\n\nWe're the Overay Desk team at Overay Inc., reaching out about {{game}}.\n\nWe think it could be a great fit for your audience, and we'd love to send you a free key for an honest review or first-impressions video. To make it work for your channel we can also add:\n• Extra keys to give away to your viewers\n• Early access to upcoming builds\n\nNo obligation at all — just reply and we'll send everything over.\n\n{{utm}}\n\nThanks for taking a look!\n${sigEn}`,
+      `Hi {{creator}},\n\nWe're the OVERAY DESK team at Overay Inc., reaching out about {{game}} — an XR workspace that syncs with your Windows PC and expands it into a multi-monitor virtual workspace in headset (up to 5 virtual monitors free, with XR Pen & Notes and passthrough mode).\n\nIt demos really well on camera — desk-setup and VR-gear audiences love watching a full workspace come together in VR. We'd love to send you a free key for an honest review or first-impressions video. To make it work for your channel we can also add:\n• Extra keys to give away to your viewers\n• Early access to upcoming builds\n\nNo obligation at all — just reply and we'll send everything over.\n\n{{utm}}\n\nThanks for taking a look!\n${sigEn}`,
       "{{game}} — 솔직 리뷰용 무료 키 보내드려요",
-      `안녕하세요 {{creator}}님,\n\n오버레이(Overay Inc.) Overay Desk 팀입니다. {{game}} 관련해 연락드려요.\n\n{{creator}}님 채널과 잘 어울릴 것 같아서, 솔직한 리뷰나 첫인상 영상용으로 무료 키를 보내드리고 싶어요. 채널에 더 도움이 되도록 이런 것도 함께 드릴 수 있어요:\n• 시청자에게 나눠줄 증정용 키\n• 신규 빌드 선공개\n\n전혀 부담 갖지 않으셔도 돼요 — 회신만 주시면 전부 보내드릴게요.\n\n{{utm}}\n\n봐주셔서 감사합니다!\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n오버레이(Overay Inc.) OVERAY DESK 팀입니다. {{game}}은(는) Windows PC와 연동해 헤드셋 안에 멀티 모니터 워크스페이스를 펼치는 XR 워크스페이스 앱이에요 (가상 모니터 5개까지 무료 · XR 펜/노트 · 패스스루 지원).\n\n데스크 셋업·VR 기기 콘텐츠와 잘 어울려서 화면에 담는 맛이 좋아요. 솔직한 리뷰나 첫인상 영상용으로 무료 키를 보내드리고 싶어요. 채널에 더 도움이 되도록 이런 것도 함께 드릴 수 있어요:\n• 시청자에게 나눠줄 증정용 키\n• 신규 빌드 선공개\n\n전혀 부담 갖지 않으셔도 돼요 — 회신만 주시면 전부 보내드릴게요.\n\n{{utm}}\n\n봐주셔서 감사합니다!\n${sigKo}`,
     ),
     t(
       "tmpl_short_casual",
       "짧고 캐주얼",
       "Quick one — a free {{game}} key for {{creator}}?",
-      `Hey {{creator}},\n\nBig fan of your channel. We make {{game}} at Overay Inc. and think your audience would enjoy it.\n\nWant a free key? We can also throw in extra keys to give away to your audience, or an early build.\n\n{{utm}}\n\nJust say the word!\n${sigEn}`,
+      `Hey {{creator}},\n\nBig fan of your channel. We make {{game}} at Overay Inc. — an XR workspace that turns your PC into a multi-monitor setup inside your headset.\n\nWant a free key? We can also throw in extra keys to give away to your audience, or an early build.\n\n{{utm}}\n\nJust say the word!\n${sigEn}`,
       "간단히 — {{creator}}님께 {{game}} 무료 키",
-      `안녕하세요 {{creator}}님!\n\n채널 잘 보고 있어요. 저희 오버레이에서 만든 {{game}}, {{creator}}님 시청자분들이 좋아하실 것 같아요.\n\n무료 키 드릴까요? 원하시면 시청자 증정용 키나 선공개 빌드도 같이 챙겨드려요.\n\n{{utm}}\n\n편하게 한마디만 주세요!\n${sigKo}`,
+      `안녕하세요 {{creator}}님!\n\n채널 잘 보고 있어요. 저희 오버레이에서 만든 {{game}}, PC를 헤드셋 속 멀티 모니터 작업 공간으로 바꿔주는 XR 워크스페이스 앱이에요.\n\n무료 키 드릴까요? 원하시면 시청자 증정용 키나 선공개 빌드도 같이 챙겨드려요.\n\n{{utm}}\n\n편하게 한마디만 주세요!\n${sigKo}`,
     ),
     t(
       "tmpl_personalized",
       "채널 맞춤",
       "Loved [recent video] — {{game}} could be a fit",
-      `Hi {{creator}},\n\nI caught your recent [mention a specific video] and it made me think {{game}} could land really well with your audience.\n\nI'd be glad to send a free key, plus giveaway keys for your viewers (or an early build if the timing fits) — only if it feels right for your channel.\n\n{{utm}}\n\nHappy to answer anything.\n${sigEn}`,
+      `Hi {{creator}},\n\nI caught your recent [mention a specific video] and it made me think {{game}} could land really well with your audience — it's an XR workspace that syncs with a Windows PC and builds a multi-monitor virtual workspace in headset.\n\nI'd be glad to send a free key, plus giveaway keys for your viewers (or an early build if the timing fits) — only if it feels right for your channel.\n\n{{utm}}\n\nHappy to answer anything.\n${sigEn}`,
       "[최근 영상] 잘 봤어요 — {{game}}도 잘 맞을 것 같아요",
-      `안녕하세요 {{creator}}님,\n\n최근 [특정 영상 언급] 잘 봤는데, {{game}}이(가) {{creator}}님 시청자분들께도 잘 통할 것 같다는 생각이 들었어요.\n\n무료 키와 시청자 증정용 키(타이밍 맞으면 선공개 빌드까지) 기꺼이 보내드릴게요 — 채널과 어울린다고 느끼실 때만요.\n\n{{utm}}\n\n궁금한 점 있으면 언제든요.\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n최근 [특정 영상 언급] 잘 봤는데, {{game}}이(가) {{creator}}님 시청자분들께도 잘 통할 것 같다는 생각이 들었어요 — Windows PC와 연동해 헤드셋 안에 멀티 모니터 워크스페이스를 만드는 XR 앱이에요.\n\n무료 키와 시청자 증정용 키(타이밍 맞으면 선공개 빌드까지) 기꺼이 보내드릴게요 — 채널과 어울린다고 느끼실 때만요.\n\n{{utm}}\n\n궁금한 점 있으면 언제든요.\n${sigKo}`,
     ),
     t(
       "tmpl_streamer",
       "스트리머(라이브)",
       "{{game}} on stream — keys for you and your chat",
-      `Hi {{creator}},\n\nWe'd love to see {{game}} on your stream.\n\nWe can send a free key for the broadcast, plus extra keys to give away to your viewers live (always a chat-pleaser). Early / exclusive build available too. Embargo if any: {{embargo}}\n\n{{utm}}\n\n${sigEn}`,
+      `Hi {{creator}},\n\nWe'd love to see {{game}} on your stream — building out a full VR multi-monitor workspace live (passthrough on) makes a great segment, and your chat can weigh in on the layout.\n\nWe can send a free key for the broadcast, plus extra keys to give away to your viewers live (always a chat-pleaser). Early / exclusive build available too. Embargo if any: {{embargo}}\n\n{{utm}}\n\n${sigEn}`,
       "{{game}} 방송용 키 — 시청자 증정분까지",
-      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) {{creator}}님 방송에서 만나보고 싶어요.\n\n방송용 무료 키와 함께, 방송 중 시청자에게 나눠줄 증정용 키도 드릴 수 있어요(채팅 반응 최고). 선공개/독점 빌드도 가능합니다. 엠바고(있다면): {{embargo}}\n\n{{utm}}\n\n${sigKo}`,
-    ),
-    t(
-      "tmpl_curator",
-      "스팀 큐레이터",
-      "Curator key — {{game}}",
-      `Hello {{creator}},\n\nWe'd love to offer your Steam Curator page a key for {{game}} by Overay Inc.\n\nIf it's a fit, a recommendation would mean a lot, and we're happy to share keys for your community too.\n\nStore page: {{utm}}\n\nReply and we'll add the key to your curator queue.\n\nThank you!\n${sigEn}`,
-      "큐레이터 키 — {{game}}",
-      `안녕하세요 {{creator}}님,\n\n오버레이 Overay Desk 팀의 {{game}} 키를 큐레이터 페이지용으로 드리고 싶어요.\n\n잘 맞는다면 추천 한마디가 큰 힘이 되고, 커뮤니티용 키도 함께 나눠드릴 수 있어요.\n\n상점 페이지: {{utm}}\n\n회신 주시면 큐레이터 큐에 키를 추가해 드릴게요.\n\n감사합니다!\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) {{creator}}님 방송에서 만나보고 싶어요 — 패스스루 켜고 가상 멀티 모니터 작업 공간을 라이브로 꾸미는 그림이 잘 나오고, 채팅과 레이아웃을 같이 정하는 재미도 있어요.\n\n방송용 무료 키와 함께, 방송 중 시청자에게 나눠줄 증정용 키도 드릴 수 있어요(채팅 반응 최고). 선공개/독점 빌드도 가능합니다. 엠바고(있다면): {{embargo}}\n\n{{utm}}\n\n${sigKo}`,
     ),
     t(
       "tmpl_press",
       "매체·프레스",
-      "Press key & assets — {{game}}",
-      `Hello,\n\nI'm writing from Overay Inc. about {{game}}.\n\nHappy to provide a press key plus a press kit (trailer, screenshots, fact sheet) for coverage. Review embargo (if any): {{embargo}}\nStore page: {{utm}}\n\nGlad to set up an interview or a hands-on build.\n${sigEn}`,
-      "프레스 키 & 자료 — {{game}}",
-      `안녕하세요,\n\n오버레이(Overay Inc.) Overay Desk 팀에서 {{game}} 관련하여 연락드립니다.\n\n기사 검토용으로 프레스 키와 보도자료(트레일러·스크린샷·팩트시트)를 제공해 드릴 수 있어요. 리뷰 엠바고(있는 경우): {{embargo}}\n상점 페이지: {{utm}}\n\n인터뷰나 핸즈온 빌드도 준비해 드릴게요.\n${sigKo}`,
+      "Press key & assets — {{game}} (XR workspace)",
+      `Hello,\n\nI'm writing from Overay Inc. about {{game}} — an XR workspace app for Meta Quest, Galaxy XR, and PICO that syncs with a Windows PC and expands it into a multi-monitor virtual workspace.\n\nHappy to provide a press key plus a press kit (trailer, screenshots, fact sheet) for coverage. Review embargo (if any): {{embargo}}\nStore page: {{utm}}\n\nGlad to set up an interview or a hands-on build.\n${sigEn}`,
+      "프레스 키 & 자료 — {{game}} (XR 워크스페이스)",
+      `안녕하세요,\n\n오버레이(Overay Inc.) OVERAY DESK 팀에서 {{game}} 관련하여 연락드립니다 — Windows PC와 연동해 헤드셋 안에 멀티 모니터 워크스페이스를 펼치는 XR 워크스페이스 앱으로, Meta Quest·Galaxy XR·PICO를 지원합니다.\n\n기사 검토용으로 프레스 키와 보도자료(트레일러·스크린샷·팩트시트)를 제공해 드릴 수 있어요. 리뷰 엠바고(있는 경우): {{embargo}}\n상점 페이지: {{utm}}\n\n인터뷰나 핸즈온 빌드도 준비해 드릴게요.\n${sigKo}`,
     ),
     t(
       "tmpl_key_attached",
       "키 동봉(바로 전달)",
       "Your {{game}} key is inside 🔑",
-      `Hi {{creator}},\n\nThanks for the interest in {{game}}! Here's your key:\n\n{{key}}\n\nCoverage is optional, but if you do: tagging the store page helps a lot, and we're glad to send extra keys to give away to your viewers. {{utm}}\n\nEnjoy — ping us anytime!\n${sigEn}`,
+      `Hi {{creator}},\n\nThanks for the interest in {{game}}! Here's your key:\n\n{{key}}\n\nTip: it shines on camera when you build out the multi-monitor workspace with passthrough on.\n\nCoverage is optional, but if you do: tagging the store page helps a lot, and we're glad to send extra keys to give away to your viewers. {{utm}}\n\nEnjoy — ping us anytime!\n${sigEn}`,
       "{{game}} 키를 보내드려요 🔑",
-      `안녕하세요 {{creator}}님,\n\n{{game}}에 관심 가져 주셔서 감사합니다! 키 보내드려요:\n\n{{key}}\n\n콘텐츠 제작은 자유지만, 진행하신다면 상점 페이지 태그가 큰 도움이 되고, 시청자에게 나눠줄 증정용 키도 기꺼이 보내드려요. {{utm}}\n\n즐겨 주세요 — 언제든 연락 주시고요!\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n{{game}}에 관심 가져 주셔서 감사합니다! 키 보내드려요:\n\n{{key}}\n\n팁: 패스스루 켜고 멀티 모니터 워크스페이스를 꾸미는 장면이 영상에서 제일 잘 나와요.\n\n콘텐츠 제작은 자유지만, 진행하신다면 상점 페이지 태그가 큰 도움이 되고, 시청자에게 나눠줄 증정용 키도 기꺼이 보내드려요. {{utm}}\n\n즐겨 주세요 — 언제든 연락 주시고요!\n${sigKo}`,
     ),
     t(
       "tmpl_embargo",
       "엠바고·출시일",
       "Early / exclusive {{game}} build + key for {{creator}}",
-      `Hi {{creator}},\n\nWe'd love to get {{game}} in your hands before launch — here's a key for an early / exclusive build from Overay Inc.\n\nPlease hold coverage until: {{embargo}}\nKey: {{key}}\nStore page: {{utm}}\n\nBefore release we'll send assets, a changelog, and extra keys to give away to your viewers. Thanks for keeping the date!\n${sigEn}`,
+      `Hi {{creator}},\n\nWe'd love to get {{game}} in your hands early — here's a key for an early / exclusive build from Overay Inc. It's an XR workspace: your PC, expanded into a multi-monitor setup in headset.\n\nPlease hold coverage until: {{embargo}}\nKey: {{key}}\nStore page: {{utm}}\n\nBefore release we'll send assets, a changelog, and extra keys to give away to your viewers. Thanks for keeping the date!\n${sigEn}`,
       "선공개 / 독점 {{game}} 빌드 + {{creator}}님 키",
-      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) 출시 전에 먼저 전해드리고 싶어요 — 오버레이 Overay Desk 팀의 선공개 / 독점 빌드 키예요.\n\n공개는 다음 이후로 부탁드려요: {{embargo}}\n키: {{key}}\n상점 페이지: {{utm}}\n\n출시 전에 자료·변경사항과 시청자 증정용 키를 함께 보내드릴게요. 일정 지켜 주셔서 감사합니다!\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) 먼저 전해드리고 싶어요 — 오버레이 OVERAY DESK 팀의 선공개 / 독점 빌드 키예요. PC를 헤드셋 속 멀티 모니터 워크스페이스로 펼치는 XR 앱입니다.\n\n공개는 다음 이후로 부탁드려요: {{embargo}}\n키: {{key}}\n상점 페이지: {{utm}}\n\n공개 전에 자료·변경사항과 시청자 증정용 키를 함께 보내드릴게요. 일정 지켜 주셔서 감사합니다!\n${sigKo}`,
     ),
     t(
       "tmpl_followup",
       "팔로업·리마인더",
       "Following up — {{game}} key (no rush!)",
-      `Hi {{creator}},\n\nJust circling back on {{game}} — no worries if you've been busy.\n\nThe free key offer still stands, and we can include keys to give away to your viewers or an early build whenever it suits you.\n\n{{utm}}\n\nHappy to send it over anytime.\n${sigEn}`,
+      `Hi {{creator}},\n\nJust circling back on {{game}} — no worries if you've been busy.\n\nThe free key offer still stands, and we can include keys to give away to your viewers or an early build whenever it suits you. It's an XR workspace (your PC as a multi-monitor setup in headset), so it slots easily into a setup or gear video.\n\n{{utm}}\n\nHappy to send it over anytime.\n${sigEn}`,
       "다시 한번 — {{game}} 키 (천천히 보셔도 돼요!)",
-      `안녕하세요 {{creator}}님,\n\n{{game}} 관련해 가볍게 다시 연락드려요 — 바쁘셨다면 전혀 괜찮아요.\n\n무료 키 제안은 유효하고, 편하실 때 시청자 증정용 키나 선공개 빌드도 함께 드릴 수 있어요.\n\n{{utm}}\n\n원하시면 언제든 보내드릴게요.\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n{{game}} 관련해 가볍게 다시 연락드려요 — 바쁘셨다면 전혀 괜찮아요.\n\n무료 키 제안은 유효하고, 편하실 때 시청자 증정용 키나 선공개 빌드도 함께 드릴 수 있어요. PC를 헤드셋 속 멀티 모니터로 펼치는 XR 워크스페이스라 셋업·장비 영상에 가볍게 끼워 넣기 좋아요.\n\n{{utm}}\n\n원하시면 언제든 보내드릴게요.\n${sigKo}`,
     ),
   ];
 }

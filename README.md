@@ -4,7 +4,7 @@
 
 이 레포는 사내 게임 런치 툴(Launch Pilot)에서 분기했습니다(fork 관계는 해제됨). 분기점은 `game-launch-baseline` 태그로 남겨두었고, 원본과는 merge 없이 필요한 수정만 cherry-pick합니다. 데이터(DB)도 원본 툴과 공유하지 않고 이 인스턴스 전용으로 새로 시작합니다. 전환 작업의 결정 사항과 남은 일은 [전환 계획](docs/conversion-plan.md)을 보세요.
 
-**제품과 채널**: Overay Desk 단일 제품을 관리하며, 런칭 스토어는 Meta Horizon Store(Quest) · Google Play(Galaxy XR) · Pico Store 3곳입니다. 마케팅 채널은 Facebook 페이지 · YouTube · Reddit · Discord를 사용합니다.
+**제품과 채널**: 단일 제품 **OVERAY DESK**(Windows PC와 연동해 헤드셋 안에 멀티 모니터 가상 워크스페이스를 펼치는 XR 워크스페이스 앱)를 관리하며, 런칭 스토어는 Meta Horizon Store(Quest) · Google Play(Galaxy XR) · Pico Store 3곳입니다(실제 리스팅 URL이 기본 시드됨). 마케팅 채널은 Facebook 페이지 · YouTube · Reddit · Discord를 사용합니다.
 
 기능: 제품/스토어 리스팅 관리, 공용 Creator DB + 크리에이터 발굴(찾아봇), Campaign 관리, 스토어 키·프로모 코드 풀과 배포 기록, UTM 링크 생성, 이메일 템플릿(WYSIWYG)/SMTP 발송 로그, Reddit 마케팅 에이전트, YouTube 채널 통계, 웹 Settings 기반 API/SMTP 설정, 데이터 내보내기.
 

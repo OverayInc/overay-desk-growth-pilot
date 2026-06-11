@@ -725,50 +725,6 @@ function renderGameAdmin() {
     .join("");
 }
 
-function renderPortfolio() {
-  const portfolio = (state.dashboard.portfolio || state.games).filter((game) => !game.archived);
-  const maxWishlist = Math.max(...portfolio.map((game) => Number(game.wishlists || 0)), 1);
-  $("#portfolioSummary").textContent = `운영 게임 ${number(portfolio.length)}개`;
-  if (!portfolio.length) {
-    $("#portfolioGrid").innerHTML = `
-      <div class="empty-state">
-        <strong>아직 등록된 게임이 없습니다.</strong>
-        <span>첫 게임을 추가하면 캠페인, 크리에이터, CSV, Steam 동기화를 게임별로 묶어 볼 수 있습니다.</span>
-      </div>
-    `;
-    return;
-  }
-  $("#portfolioGrid").innerHTML = portfolio
-    .map(
-      (game) => {
-        const active = state.selectedGameId === game.id ? " active" : "";
-        const width = Math.max(4, Math.round((Number(game.wishlists || 0) / maxWishlist) * 100));
-        const listings = game.storeListings || listingsForGame(game.id);
-        return `
-        <button class="game-card${active}" type="button" data-game-id="${escapeHtml(game.id)}" aria-pressed="${state.selectedGameId === game.id ? "true" : "false"}">
-          <header>
-            ${gameThumb(game, "game-thumb--md")}
-            <div>
-              <h3>${escapeHtml(game.name)}</h3>
-              <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
-              ${renderPlatformChips(listings.filter((listing) => listing.status !== "archived"))}
-            </div>
-            <span class="stage ${escapeHtml(game.stage)}">${escapeHtml(game.stage)}</span>
-          </header>
-          <dl>
-            <div><dt>Wishlists</dt><dd>${number(game.wishlists)}</dd></div>
-            <div><dt>Purchases</dt><dd>${number(game.purchases)}</dd></div>
-            <div><dt>Revenue</dt><dd>${money(game.revenue)}</dd></div>
-            <div><dt>Creators</dt><dd>${number(game.creators)}</dd></div>
-            <div class="mini-bar"><span style="width:${width}%"></span></div>
-          </dl>
-        </button>
-      `;
-      },
-    )
-    .join("");
-}
-
 function renderReadiness() {
   const readiness = state.readiness;
   if (!readiness) return;
@@ -1397,7 +1353,6 @@ function renderDashboard() {
   const dateLabel = state.metrics.length ? dashboard.latestDate : "지표 없음";
   $("#latestDate").textContent = `기준일 ${dateLabel} / ${dashboard.selectedGameName}`;
   renderScope();
-  renderPortfolio();
   renderMetricGrid(dashboard);
   renderTrendChart(dashboard.trend);
   renderConversionFunnel(dashboard.funnel);
@@ -3472,12 +3427,6 @@ function initForms() {
     }
   });
 
-  $("#portfolioGrid").addEventListener("click", async (event) => {
-    const card = event.target.closest("[data-game-id]");
-    if (!card) return;
-    await setGameScope(card.dataset.gameId);
-  });
-
   $("#youtubeConfigPanel")?.addEventListener("toggle", (event) => {
     event.currentTarget.dataset.touched = "1";
   });
@@ -4260,7 +4209,6 @@ const VIEWS = ["overview", "campaigns", "creators", "discovery", "youtube", "red
 
 const VIEW_OF_SECTION = {
   today: "overview",
-  portfolio: "overview",
   readiness: "overview",
   campaigns: "campaigns",
   "creator-db": "creators",

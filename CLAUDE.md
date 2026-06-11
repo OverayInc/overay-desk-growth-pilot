@@ -4,8 +4,9 @@ Overay Inc.의 제품 **Overay Desk**의 마케팅 관리 내부 웹툴. 사내 
 
 ## 제품 사실 (코드 작업 시 전제)
 
-- **단일 제품**: Overay Desk 하나만 관리한다. 제품 `game_overay_desk`가 기본 시드되고 UI에 "제품 추가" 워크플로는 없다(백엔드 games CRUD는 테스트 호환용으로 유지).
-- **런칭 스토어 3곳**: `meta_horizon`(Meta Horizon Store/Quest), `play`(Google Play/Galaxy XR), `pico`(Pico Store). Steam은 런칭 채널이 아니다 — Steam UI는 제거됐고 백엔드 Steam 코드는 정리 대기 상태다.
+- **제품**: OVERAY DESK — Windows PC와 자동 연동해 헤드셋 안에 멀티 모니터 가상 워크스페이스(무료 가상 모니터 5개)를 펼치는 XR 워크스페이스 앱. XR 펜/노트, 레이아웃 프리셋, 패스스루 지원. 타깃 크리에이터: VR/XR 기기·앱 리뷰어, 생산성/데스크 셋업 채널, 테크 유튜버.
+- **단일 제품**: 제품 `game_overay_desk`가 기본 시드되고 UI에 "제품 추가" 워크플로는 없다(백엔드 games CRUD는 테스트 호환용으로 유지).
+- **런칭 스토어 3곳** (실제 리스팅이 시드됨): `meta_horizon` Meta Quest ID `7028370967196772` · `play` Google Play `com.overay.overaystudio` · `pico` Pico Store `7309718245060362245`. Steam은 런칭 채널이 아니다 — Steam UI는 제거됐고 백엔드 Steam 코드는 정리 대기 상태다.
 - **마케팅 채널 4개**: Facebook 페이지 · YouTube · Reddit · Discord.
 - **크리에이터 플랫폼 태그**: `QUEST` / `GALAXY_XR` / `PICO` (server.mjs `GAME_PLATFORMS`).
 
