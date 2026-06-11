@@ -210,9 +210,13 @@ function normalizeCreatorStatus(value, fallback = "uncontacted") {
   return CREATOR_STATUS_ALIASES[raw] || CREATOR_STATUS_ALIASES[compact] || CREATOR_STATUS_ALIASES[lower] || fallback;
 }
 
+// Overay Desk launches on three stores: Meta Horizon (Quest), Google Play
+// (Galaxy XR), and Pico Store. Legacy platforms stay accepted for old data.
 const STORE_PLATFORM_LABELS = {
-  steam: "Steam",
   meta_horizon: "Meta Horizon Store",
+  play: "Google Play (Galaxy XR)",
+  pico: "Pico Store",
+  steam: "Steam",
   itch: "itch.io",
   epic: "Epic Games Store",
   playstation: "PlayStation Store",
@@ -275,6 +279,10 @@ function normalizeStorePlatform(value = "steam") {
   if (raw === "meta" || raw === "meta_store" || raw === "horizon" || raw === "horizon_store" || raw === "quest_store") {
     return "meta_horizon";
   }
+  if (raw === "google_play" || raw === "googleplay" || raw === "play_store" || raw === "android" || raw === "galaxy_xr") {
+    return "play";
+  }
+  if (raw === "pico_store" || raw === "picostore") return "pico";
   if (raw === "epic_games") return "epic";
   if (raw === "itchio" || raw === "itch_io") return "itch";
   return Object.hasOwn(STORE_PLATFORM_LABELS, raw) ? raw : "other";
@@ -305,8 +313,53 @@ function sanitizeGameImage(value) {
   return str;
 }
 
+// Single-product tool: Overay Desk is the one (and only) product, seeded so a
+// fresh instance starts ready to use. The UI has no "create product" workflow;
+// the CRUD API stays for tests and emergencies.
 function defaultGames() {
-  return [];
+  const now = nowIso();
+  return [
+    {
+      id: "game_overay_desk",
+      name: "Overay Desk",
+      shortName: "OD",
+      steamAppId: "0",
+      stage: "prelaunch",
+      genre: "XR desktop utility",
+      launchDate: "",
+      owner: "Growth",
+      archived: false,
+      status: "active",
+      imageUrl: "",
+      steamStoreUrl: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+// Launch stores for Overay Desk. Seeded as planned listings; URLs/IDs are
+// filled in via the admin UI.
+function defaultStoreListings(gameId = "game_overay_desk") {
+  const now = nowIso();
+  return ["meta_horizon", "play", "pico"].map((platform) => ({
+    id: makeId("listing", `${gameId}_${platform}`),
+    gameId,
+    platform,
+    platformLabel: storePlatformLabel(platform),
+    externalId: "",
+    storeUrl: "",
+    dashboardUrl: "",
+    status: "planned",
+    launchDate: "",
+    region: "global",
+    price: "",
+    currency: "",
+    notes: "",
+    isPrimary: platform === "meta_horizon",
+    createdAt: now,
+    updatedAt: now,
+  }));
 }
 
 // Built-in outreach email templates (EN + KO). Placeholders: {{creator}} {{game}}
@@ -406,11 +459,11 @@ function defaultData() {
   return {
     meta: {
       portfolioName: "Overay Desk Marketing Dashboard",
-      primaryGameId: "",
+      primaryGameId: games[0]?.id || "",
       createdAt: nowIso(),
     },
     games,
-    storeListings: [],
+    storeListings: defaultStoreListings(games[0]?.id),
     campaigns: [],
     creatorProfiles: [],
     creators: [],
@@ -517,10 +570,15 @@ function normalizeData(data) {
   data.meta ||= seeded.meta;
   data.meta.portfolioName ||= "Overay Desk Marketing Dashboard";
   data.games ||= [];
+  if (!data.games.length) data.games = defaultGames();
   data.storeListings ||= [];
+  if (!data.storeListings.length && data.games.some((game) => game.id === "game_overay_desk")) {
+    data.storeListings = defaultStoreListings();
+  }
   if (data.meta.primaryGameId && !data.games.some((game) => game.id === data.meta.primaryGameId)) {
     data.meta.primaryGameId = data.games[0]?.id || "";
   }
+  if (!data.meta.primaryGameId) data.meta.primaryGameId = data.games[0]?.id || "";
   data.campaigns ||= [];
   data.creatorProfiles ||= [];
   data.creators ||= [];
@@ -1337,9 +1395,10 @@ function creatorSlug(input) {
   return slugify(input.handle || input.channelName || input.name || input.email || "creator", "creator");
 }
 
-// Game-platform tags: a creator covers PC games, VR games, or both. Constrained
-// to this fixed set (unlike the free-form `tags`) so they stay filterable.
-const GAME_PLATFORMS = ["PC", "VR", "META"];
+// Platform tags: which XR ecosystems a creator's audience covers, matching the
+// Overay Desk launch stores (Quest / Galaxy XR / PICO). Constrained to this
+// fixed set (unlike the free-form `tags`) so they stay filterable.
+const GAME_PLATFORMS = ["QUEST", "GALAXY_XR", "PICO"];
 function sanitizeGamePlatforms(value) {
   const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,\s]+/) : [];
   const upper = new Set(raw.map((v) => String(v).trim().toUpperCase()).filter(Boolean));

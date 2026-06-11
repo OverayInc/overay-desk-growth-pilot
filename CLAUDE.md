@@ -2,6 +2,13 @@
 
 Overay Inc.의 제품 **Overay Desk**의 마케팅 관리 내부 웹툴. 사내 게임 런치 툴(Launch Pilot)에서 분기한 레포이며, GitHub fork 관계는 해제되어 독립 레포로 운영한다.
 
+## 제품 사실 (코드 작업 시 전제)
+
+- **단일 제품**: Overay Desk 하나만 관리한다. 제품 `game_overay_desk`가 기본 시드되고 UI에 "제품 추가" 워크플로는 없다(백엔드 games CRUD는 테스트 호환용으로 유지).
+- **런칭 스토어 3곳**: `meta_horizon`(Meta Horizon Store/Quest), `play`(Google Play/Galaxy XR), `pico`(Pico Store). Steam은 런칭 채널이 아니다 — Steam UI는 제거됐고 백엔드 Steam 코드는 정리 대기 상태다.
+- **마케팅 채널 4개**: Facebook 페이지 · YouTube · Reddit · Discord.
+- **크리에이터 플랫폼 태그**: `QUEST` / `GALAXY_XR` / `PICO` (server.mjs `GAME_PLATFORMS`).
+
 ## 레포 관리 정책
 
 - 분기점은 `game-launch-baseline` 태그. 원본 게임 런치 레포와는 **merge하지 않는다** — 필요한 픽스만 cherry-pick.

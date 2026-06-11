@@ -214,8 +214,10 @@ function initImagePicker(form) {
 
 function platformLabel(platform) {
   const labels = {
-    steam: "Steam",
     meta_horizon: "Meta Horizon Store",
+    play: "Google Play (Galaxy XR)",
+    pico: "Pico Store",
+    steam: "Steam",
     itch: "itch.io",
     epic: "Epic Games Store",
     playstation: "PlayStation Store",
@@ -529,9 +531,9 @@ function renderMetricGrid(dashboard) {
       icon: ICONS.key,
     },
     {
-      label: "운영 게임",
-      value: number(dashboard.summary.games),
-      sub: `캠페인 ${number(dashboard.summary.campaigns)}개`,
+      label: "운영 캠페인",
+      value: number(dashboard.summary.campaigns),
+      sub: `크리에이터 발송 누적 ${number(dashboard.summary.keysSent)}건`,
       tone: "green",
       icon: ICONS.games,
     },
@@ -1503,7 +1505,7 @@ function matrixCellContent(record, profileId, gameId) {
   const usedCls = usedState === "used" ? " is-used" : usedState === "unused" ? " is-unused" : "";
   const usedTip = usedState === "used" ? "\n✅ 사용됨" : usedState === "unused" ? "\n⛔ 미사용" : "";
   const keyChip = code
-    ? `<span class="matrix-chip${usedCls}" data-copy="${escapeHtml(code)}" data-tip="🔑 ${escapeHtml(code)}${usedTip}\n클릭하여 복사" aria-label="Steam 키">🔑</span>`
+    ? `<span class="matrix-chip${usedCls}" data-copy="${escapeHtml(code)}" data-tip="🔑 ${escapeHtml(code)}${usedTip}\n클릭하여 복사" aria-label="스토어 키">🔑</span>`
     : "";
   const noteChip = record?.note
     ? `<span class="matrix-chip" data-matrix-note data-tip="📝 ${escapeHtml(record.note)}\n클릭하여 수정" aria-label="메모 수정">📝</span>`
@@ -1612,7 +1614,7 @@ function renderCreatorMatrix() {
         ? `<span class="cell-sub cell-copy" data-copy="${escapeHtml(p.email)}" title="클릭하여 이메일 복사">${escapeHtml(p.email)}</span>`
         : `<span class="cell-sub">${escapeHtml(p.country || "")}</span>`;
       const platforms = (p.gamePlatforms || [])
-        .map((pf) => `<span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+        .map((pf) => `<span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf.replace(/_/g, " "))}</span>`)
         .join("");
       const nameCell = `<td class="matrix-name-col"><span class="cell-title-line"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${platforms}</span>${sub}</td>`;
       const chanCell = `<td class="matrix-chan-col"><div class="channel-links">${icons || '<span class="cell-sub">-</span>'}</div></td>`;
@@ -4142,7 +4144,7 @@ function discoveryRowHtml(c) {
   const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
   const lead = c.leadDepth ? ` <span class="tag-pill" title="그래프 탐색으로 발견">🔗d${c.leadDepth}</span>` : "";
   const plat = (c.gamePlatforms || [])
-    .map((pf) => ` <span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+    .map((pf) => ` <span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf.replace(/_/g, " "))}</span>`)
     .join("");
   const email = c.email
     ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
@@ -4347,7 +4349,9 @@ function initDiscovery() {
   });
 }
 
-const VIEWS = ["overview", "campaigns", "creators", "discovery", "youtube", "reddit", "distribution", "datasync", "admin"];
+// "datasync" (Steam metrics & sync) removed from the nav: Overay Desk does not
+// launch on Steam. The view markup/backend stay until the Steam code purge.
+const VIEWS = ["overview", "campaigns", "creators", "discovery", "youtube", "reddit", "distribution", "admin"];
 
 const VIEW_OF_SECTION = {
   today: "overview",
@@ -4363,8 +4367,6 @@ const VIEW_OF_SECTION = {
   reddit: "reddit",
   keys: "distribution",
   utm: "distribution",
-  steam: "datasync",
-  sync: "datasync",
   games: "admin",
   settings: "admin",
   data: "admin",
@@ -4378,8 +4380,7 @@ const VIEW_META = {
   youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
   reddit: { eyebrow: "Reddit Log", title: "레딧 글 기록" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },
-  datasync: { eyebrow: "Data Pipeline", title: "Steam 데이터 & 동기화" },
-  admin: { eyebrow: "Workspace Admin", title: "게임 · 연동 · 설정" },
+  admin: { eyebrow: "Workspace Admin", title: "제품 · 연동 · 설정" },
 };
 
 function showView(view, sectionId) {

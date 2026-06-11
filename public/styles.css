@@ -305,7 +305,10 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--brand-ring); }
   background: #ffffff; /* white plate so the white-bg logo reads in light AND dark */
   box-shadow: var(--shadow-xs);
 }
-.brand-logo { display: block; width: 44px; height: 44px; }
+.brand-logo { display: block; width: 100%; max-width: 168px; height: auto; }
+/* Wordmark PNG is black-on-transparent ("positive"); flip it for dark theme. */
+[data-theme="dark"] .brand-logo,
+[data-theme="dark"] .auth-logo { filter: invert(1) hue-rotate(180deg); }
 .brand-caption {
   color: var(--text-muted);
   font-size: 11px;
@@ -1442,9 +1445,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .platform-check input { width: auto; }
 .discovery-platforms { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 8px 0; }
 .plat-chip { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 5px; font-size: 10px; font-weight: 700; vertical-align: middle; line-height: 16px; }
-.plat-chip.plat-pc { background: var(--brand-soft); color: var(--brand); }
-.plat-chip.plat-vr { background: #ede9fe; color: #7c3aed; }
-.plat-chip.plat-meta { background: #e0f2fe; color: #0369a1; }
+.plat-chip.plat-quest { background: #e0f2fe; color: #0369a1; }
+.plat-chip.plat-galaxy_xr { background: var(--brand-soft); color: var(--brand); }
+.plat-chip.plat-pico { background: #ede9fe; color: #7c3aed; }
 .key-pool-row-game { display: inline-flex; align-items: center; gap: 7px; }
 .key-pool-row-game > span:last-child { white-space: nowrap; }
 /* Mail modal: in-modal key assignment (pool) */
@@ -1827,7 +1830,7 @@ strong.mail-key-bold { font-weight: 800; background: #fff3bf; color: #1a1a1a; pa
     padding: 14px clamp(16px, 2.5vw, 28px);
   }
   .brand { flex-direction: row; gap: 10px; padding: 8px 12px; align-self: flex-start; }
-  .brand-logo { width: 36px; height: 36px; }
+  .brand-logo { max-width: 132px; }
   .brand-caption { display: none; }
   .nav { flex-direction: row; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
   .nav-group { grid-auto-flow: column; gap: 6px; }
