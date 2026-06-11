@@ -11,9 +11,7 @@ env:
   REPOSITORY: overay
   IMAGE_NAME: overay-desk-launch-pilot
   GITOPS_REPO: OverayInc/overay-platform-gitops
-  # NOTE: this overlay must exist in the gitops repo before the update step can
-  # work (copy app/overay/game-launch-pilot/overlays/dev as a starting point).
-  GITOPS_PATH: app/overay/overay-desk-launch-pilot/overlays/dev
+  GITOPS_PATH: app/overay/desk-launch-pilot/overlays/dev
 
 permissions:
   contents: read
