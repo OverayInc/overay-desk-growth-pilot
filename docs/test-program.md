@@ -1,3 +1,5 @@
+> ⚠️ 이 문서는 분기 전 게임 런치 툴(`game-launch-baseline` 태그) 기준입니다. Overay Desk 전환 방향은 [conversion-plan.md](conversion-plan.md)를 보세요.
+
 # Growth Dashboard MVP 테스트 프로그램
 
 ## 목적과 범위

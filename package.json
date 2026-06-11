@@ -1,9 +1,9 @@
 {
-  "name": "launch-pilot-growth-dashboard",
+  "name": "overay-desk-launch-pilot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Steam game portfolio outreach, UTM, key distribution, CSV import, and API sync dashboard.",
+  "description": "Overay Desk marketing management dashboard: creator outreach, campaigns, key distribution, email, UTM links, and store sync.",
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",

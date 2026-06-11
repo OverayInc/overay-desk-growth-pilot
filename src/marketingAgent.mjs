@@ -98,16 +98,16 @@ async function chatCompletion(messages, { maxTokens = 1600, temperature = 0.8, j
   return content;
 }
 
-const SYSTEM_PROMPT = `You are an expert bilingual (Korean + English) game-marketing copywriter for Overay Inc. / Immersed Player.
-You write influencer & press OUTREACH EMAIL TEMPLATES used to offer free Steam keys to YouTubers, streamers, Steam curators, and press.
+const SYSTEM_PROMPT = `You are an expert bilingual (Korean + English) product-marketing copywriter for Overay Inc. / Overay Desk.
+You write influencer & press OUTREACH EMAIL TEMPLATES used to offer free keys to YouTubers, streamers, curators, and press.
 
 Output rules:
 - Return ONE JSON object only — no prose, no markdown fences — with EXACTLY these string keys: "name", "subjectEn", "bodyEn", "subjectKo", "bodyKo".
 - "name": a short Korean label for the template (e.g. "스트리머 라이브용").
 - subject/body are provided in both English (…En) and Korean (…Ko). The two languages must convey the same offer but each read naturally to a native speaker — not a word-for-word translation.
-- Use these placeholders verbatim where they fit naturally: {{creator}} {{game}} {{key}} {{utm}} {{embargo}} {{genre}}. Always address the recipient as {{creator}} and refer to the game as {{game}}.
+- Use these placeholders verbatim where they fit naturally: {{creator}} {{game}} {{key}} {{utm}} {{embargo}} {{genre}}. Always address the recipient as {{creator}} and refer to the product as {{game}}.
 - Tone: warm, concise, no-pressure, easy to say yes to.
-- End each body with a signature line — English: "— Immersed Player, Overay Inc." / Korean: "— 오버레이(Overay Inc.) · Immersed Player 팀".
+- End each body with a signature line — English: "— The Overay Desk Team, Overay Inc." / Korean: "— 오버레이(Overay Inc.) · Overay Desk 팀".
 - Use \\n for line breaks inside JSON string values.`;
 
 // Generate a bilingual outreach email template from a short brief.
@@ -137,7 +137,7 @@ export async function generateEmailTemplate({ brief, gameName = "", genre = "" }
 // gemma4 is the reasoning layer for the discovery bot. Given raw channel
 // metadata + scraped About/link-page text, it extracts a business email (if
 // present in the text — we never invent one) and classifies the channel's
-// "성격" (type, audience, tone, languages), then scores fit for our game.
+// "성격" (type, audience, tone, languages), then scores fit for our product.
 // The retrieval layer (YouTube/Twitch/web search + page fetch) lives in
 // src/discovery/*; this function only turns a text bundle into structured JSON.
 
@@ -159,7 +159,7 @@ export function normalizeCreatorAnalysis(obj) {
   return out;
 }
 
-const ANALYSIS_SYSTEM_PROMPT = `You are a games-marketing researcher for Overay Inc. / Immersed Player.
+const ANALYSIS_SYSTEM_PROMPT = `You are a marketing researcher for Overay Inc. / Overay Desk.
 You receive RAW, messy text about ONE content creator/channel: profile metadata, the channel "About" description, recent video/stream titles, and text scraped from any sites the channel links to. Your job is to distill it into one structured record.
 
 Output rules:
@@ -177,7 +177,9 @@ Output rules:
 - Base every field ONLY on the provided text/metrics. When unsure, use "" — do not speculate.`;
 
 // Analyze one creator from a text bundle. Returns the normalized analysis.
-// `gameContext` describes the game we're scoring fit against (defaults to ours).
+// `gameContext` describes the product we're scoring fit against. The fallback is
+// deliberately thin — set the product context (Settings / LP_DISCOVERY_GAME_CONTEXT)
+// once Overay Desk positioning is decided.
 export async function analyzeCreatorChannel({
   channelName = "",
   platform = "",
@@ -187,7 +189,7 @@ export async function analyzeCreatorChannel({
   subscribers = 0,
   country = "",
   metrics = null,
-  gameContext = "Our game is a first-person observation / 'spot the anomaly' game (Exit 8-like): the player reads a space and catches the one thing that's subtly off. It is very clippable and audience-participatory (chat/comments hunt the anomaly).",
+  gameContext = "Our product is Overay Desk by Overay Inc. No detailed product context was provided, so score fit conservatively based on the creator's own audience and content signals.",
   signal,
 } = {}) {
   const titles = Array.isArray(recentTitles) ? recentTitles.filter(Boolean) : [];
@@ -201,7 +203,7 @@ export async function analyzeCreatorChannel({
   if (country) metricLines.push(`Country: ${country}`);
 
   const bundle = [
-    `GAME WE ARE SCORING FIT AGAINST:\n${gameContext}`,
+    `PRODUCT WE ARE SCORING FIT AGAINST:\n${gameContext}`,
     channelName ? `Channel name: ${channelName}` : "",
     platform ? `Platform: ${platform}` : "",
     metricLines.length ? `CHANNEL METRICS:\n- ${metricLines.join("\n- ")}` : "",
@@ -246,14 +248,14 @@ export function normalizeSeedList(value, { max = 12 } = {}) {
   return out;
 }
 
-const SEED_SYSTEM_PROMPT = `You generate SEARCH QUERIES for finding game content creators (YouTubers, Twitch streamers, Steam curators) to offer free keys to.
-Given a game description and some existing queries, propose ADDITIONAL, DIVERSE queries that would surface NEW relevant creators — different genres-adjacent terms, comparable games, formats ("reaction", "no commentary", "playthrough"), and languages (include some Korean and English).
+const SEED_SYSTEM_PROMPT = `You generate SEARCH QUERIES for finding content creators (YouTubers, Twitch streamers, curators) to offer free keys to.
+Given a product description and some existing queries, propose ADDITIONAL, DIVERSE queries that would surface NEW relevant creators — adjacent topic terms, comparable products, formats ("reaction", "review", "tutorial"), and languages (include some Korean and English).
 Return ONE JSON object only: {"seeds": ["query 1", "query 2", ...]}. Each query is what you'd type into YouTube/Google search — short, no quotes. Do not repeat the existing queries.`;
 
-// Ask gemma for extra seed queries given the game context and current seeds.
+// Ask gemma for extra seed queries given the product context and current seeds.
 export async function expandSeeds({ gameContext = "", existingSeeds = [], count = 8, signal } = {}) {
   const user = [
-    `Game: ${gameContext || "a first-person observation / 'spot the anomaly' indie game (Exit 8-like)"}`,
+    `Product: ${gameContext || "Overay Desk by Overay Inc. (no detailed product context provided)"}`,
     existingSeeds.length ? `Existing queries (do NOT repeat):\n- ${existingSeeds.join("\n- ")}` : "",
     `Propose about ${count} new search queries.`,
   ]

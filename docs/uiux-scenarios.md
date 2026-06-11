@@ -1,3 +1,5 @@
+> ⚠️ 이 문서는 분기 전 게임 런치 툴(`game-launch-baseline` 태그) 기준입니다. Overay Desk 전환 방향은 [conversion-plan.md](conversion-plan.md)를 보세요.
+
 # UIUX 사용 시나리오와 개선 항목
 
 ## 시나리오 1. 아침에 전체 게임 포트폴리오 상태를 본다

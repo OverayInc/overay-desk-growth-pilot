@@ -67,7 +67,7 @@ const STEAM_FINANCIAL_API_KEY = process.env.STEAM_FINANCIAL_API_KEY || process.e
 const STEAM_API_BASE = "https://partner.steam-api.com/IPartnerFinancialsService";
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
 const REDDIT_USER_AGENT =
-  process.env.REDDIT_USER_AGENT || "web:launch-pilot-growth-console:1.0 (internal marketing dashboard)";
+  process.env.REDDIT_USER_AGENT || "web:overay-desk-growth-console:1.0 (internal marketing dashboard)";
 // How often the background scheduler re-checks registered Reddit posts' stats.
 const REDDIT_REFRESH_HOURS = Math.max(1, Number(process.env.REDDIT_REFRESH_HOURS || 6));
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
@@ -323,88 +323,80 @@ function defaultEmailTemplates() {
     createdAt: "2026-06-05T00:00:00.000Z",
     updatedAt: "2026-06-05T00:00:00.000Z",
   });
-  const sigEn = "— Immersed Player, Overay Inc.";
-  const sigKo = "— 오버레이(Overay Inc.) · Immersed Player 팀";
+  const sigEn = "— The Overay Desk Team, Overay Inc.";
+  const sigKo = "— 오버레이(Overay Inc.) · Overay Desk 팀";
   return [
     t(
       "tmpl_review_request",
       "기본 리뷰 요청",
-      "{{game}} — a 'spot the anomaly' game your viewers can play along with",
-      `Hi {{creator}},\n\nWe're Immersed Player at Overay Inc., the team behind {{game}}.\n\n{{game}} is an observation game: you read a space and catch the one thing that's subtly "off." On camera that's the hook — viewers lean in and hunt the anomaly with you in the comments and chat, so it tends to drive strong engagement.\n\nWe'd love to send you a free Steam key for an honest playthrough. To make it work for your audience we can also add:\n• Extra keys to give away to your viewers\n• An early / exclusive build before launch\n\nNo obligation at all — just reply and we'll send everything over.\n\n{{utm}}\n\nThanks for taking a look!\n${sigEn}`,
-      "{{game}} — 시청자와 '이상현상 찾기'를 함께 즐기는 게임",
-      `안녕하세요 {{creator}}님,\n\n저희는 {{game}}을(를) 만든 오버레이(Overay Inc.) Immersed Player 팀이에요.\n\n{{game}}은(는) '관찰' 게임이에요. 공간을 살피다가 미묘하게 '이상한 점' 하나를 찾아내죠. 이게 화면에서 특히 잘 통해요 — 시청자들이 댓글·채팅에서 같이 이상현상을 찾으며 몰입하거든요. 그래서 참여 반응이 좋은 편이에요.\n\n솔직한 플레이 영상용으로 무료 Steam 키를 보내드리고 싶어요. 채널에 더 도움이 되도록 이런 것도 함께 드릴 수 있어요:\n• 시청자에게 나눠줄 증정용 키\n• 출시 전 선공개 / 독점 빌드\n\n전혀 부담 갖지 않으셔도 돼요 — 회신만 주시면 전부 보내드릴게요.\n\n{{utm}}\n\n봐주셔서 감사합니다!\n${sigKo}`,
+      "{{game}} — free key for an honest review",
+      `Hi {{creator}},\n\nWe're the Overay Desk team at Overay Inc., reaching out about {{game}}.\n\nWe think it could be a great fit for your audience, and we'd love to send you a free key for an honest review or first-impressions video. To make it work for your channel we can also add:\n• Extra keys to give away to your viewers\n• Early access to upcoming builds\n\nNo obligation at all — just reply and we'll send everything over.\n\n{{utm}}\n\nThanks for taking a look!\n${sigEn}`,
+      "{{game}} — 솔직 리뷰용 무료 키 보내드려요",
+      `안녕하세요 {{creator}}님,\n\n오버레이(Overay Inc.) Overay Desk 팀입니다. {{game}} 관련해 연락드려요.\n\n{{creator}}님 채널과 잘 어울릴 것 같아서, 솔직한 리뷰나 첫인상 영상용으로 무료 키를 보내드리고 싶어요. 채널에 더 도움이 되도록 이런 것도 함께 드릴 수 있어요:\n• 시청자에게 나눠줄 증정용 키\n• 신규 빌드 선공개\n\n전혀 부담 갖지 않으셔도 돼요 — 회신만 주시면 전부 보내드릴게요.\n\n{{utm}}\n\n봐주셔서 감사합니다!\n${sigKo}`,
     ),
     t(
       "tmpl_short_casual",
       "짧고 캐주얼",
-      "Quick one — a 'find the anomaly' game for {{creator}}?",
-      `Hey {{creator}},\n\nBig fan of your channel. We made {{game}} — an observation game where viewers help you spot what's "off" in a space (great for comments/chat).\n\nWant a free Steam key? We can also throw in extra keys to give away to your audience, or an early build.\n\n{{utm}}\n\nJust say the word!\n${sigEn}`,
-      "간단히 — {{creator}}님께 '이상현상 찾기' 게임",
-      `안녕하세요 {{creator}}님!\n\n채널 잘 보고 있어요. 저희가 만든 {{game}}은(는) 공간 속 '이상한 점'을 시청자와 함께 찾는 관찰 게임이에요 (댓글·채팅 반응이 좋아요).\n\n무료 Steam 키 드릴까요? 원하시면 시청자 증정용 키나 선공개 빌드도 같이 챙겨드려요.\n\n{{utm}}\n\n편하게 한마디만 주세요!\n${sigKo}`,
+      "Quick one — a free {{game}} key for {{creator}}?",
+      `Hey {{creator}},\n\nBig fan of your channel. We make {{game}} at Overay Inc. and think your audience would enjoy it.\n\nWant a free key? We can also throw in extra keys to give away to your audience, or an early build.\n\n{{utm}}\n\nJust say the word!\n${sigEn}`,
+      "간단히 — {{creator}}님께 {{game}} 무료 키",
+      `안녕하세요 {{creator}}님!\n\n채널 잘 보고 있어요. 저희 오버레이에서 만든 {{game}}, {{creator}}님 시청자분들이 좋아하실 것 같아요.\n\n무료 키 드릴까요? 원하시면 시청자 증정용 키나 선공개 빌드도 같이 챙겨드려요.\n\n{{utm}}\n\n편하게 한마디만 주세요!\n${sigKo}`,
     ),
     t(
       "tmpl_personalized",
       "채널 맞춤",
-      "Loved [recent video] — {{game}} could land the same way",
-      `Hi {{creator}},\n\nI caught your recent [mention a specific video] and the way your audience reacts in the comments is exactly what {{game}} is built for.\n\nIt's an observation game — players catch the one thing that's "off" in a space, and viewers love hunting it alongside you, which keeps the comments/chat busy.\n\nI'd be glad to send a Steam key, plus giveaway keys for your viewers (or an early build if the timing fits) — only if it feels right for your channel.\n\n{{utm}}\n\nHappy to answer anything.\n${sigEn}`,
-      "[최근 영상] 잘 봤어요 — {{game}}도 비슷하게 통할 것 같아요",
-      `안녕하세요 {{creator}}님,\n\n최근 [특정 영상 언급] 잘 봤는데, 댓글에서 시청자분들이 반응하시는 방식이 {{game}}이(가) 노리는 지점과 정확히 맞더라고요.\n\n{{game}}은(는) 공간 속 '이상한 점' 하나를 찾는 관찰 게임이라, 시청자가 함께 찾는 재미가 커서 댓글·채팅이 계속 살아 있어요.\n\nSteam 키와 시청자 증정용 키(타이밍 맞으면 선공개 빌드까지) 기꺼이 보내드릴게요 — 채널과 어울린다고 느끼실 때만요.\n\n{{utm}}\n\n궁금한 점 있으면 언제든요.\n${sigKo}`,
-    ),
-    t(
-      "tmpl_horror",
-      "이상현상·몰입형 (Exit 8 류)",
-      "An immersive 'spot the anomaly' experience — {{game}}",
-      `Hi {{creator}},\n\n{{game}} is a first-person observation experience: you read a space, and when something is subtly "off," you have to notice it. Tense and eerie, but easy to pick up — no twitch skills required.\n\nIt plays great on camera because the audience plays too: everyone's calling out the anomaly in chat and comments, so it drives real engagement (and very clippable misses).\n\nHappy to send a Steam key for a playthrough or first-impressions. We can also include keys to give away to your viewers, or an early / exclusive build.\n\n{{utm}}\n\n${sigEn}`,
-      "몰입형 '이상현상 찾기' 경험 — {{game}}",
-      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 1인칭 관찰 경험이에요. 공간을 읽다가 뭔가 미묘하게 '이상해지면' 그걸 알아채야 하죠. 오싹하고 긴장감 있지만 조작이 쉬워서 누구나 바로 즐길 수 있어요.\n\n화면에서 특히 잘 통하는 이유는 시청자도 함께 플레이하기 때문이에요 — 채팅·댓글에서 다 같이 이상현상을 외치니 참여 반응이 크고, 놓쳤을 때의 클립도 잘 나와요.\n\n플레이/첫인상 영상용 Steam 키 보내드릴게요. 시청자 증정용 키나 선공개·독점 빌드도 함께 가능해요.\n\n{{utm}}\n\n${sigKo}`,
+      "Loved [recent video] — {{game}} could be a fit",
+      `Hi {{creator}},\n\nI caught your recent [mention a specific video] and it made me think {{game}} could land really well with your audience.\n\nI'd be glad to send a free key, plus giveaway keys for your viewers (or an early build if the timing fits) — only if it feels right for your channel.\n\n{{utm}}\n\nHappy to answer anything.\n${sigEn}`,
+      "[최근 영상] 잘 봤어요 — {{game}}도 잘 맞을 것 같아요",
+      `안녕하세요 {{creator}}님,\n\n최근 [특정 영상 언급] 잘 봤는데, {{game}}이(가) {{creator}}님 시청자분들께도 잘 통할 것 같다는 생각이 들었어요.\n\n무료 키와 시청자 증정용 키(타이밍 맞으면 선공개 빌드까지) 기꺼이 보내드릴게요 — 채널과 어울린다고 느끼실 때만요.\n\n{{utm}}\n\n궁금한 점 있으면 언제든요.\n${sigKo}`,
     ),
     t(
       "tmpl_streamer",
       "스트리머(라이브)",
-      "{{game}} streams great — your chat hunts the anomaly with you",
-      `Hi {{creator}},\n\n{{game}} is made for live: it's an observation game where your chat spots the "off" detail with you — constant call-outs, instant reactions, clip-worthy misses.\n\nWe can send a Steam key for stream, plus extra keys to give away to your viewers live (always a chat-pleaser). Early / exclusive build available too. Embargo if any: {{embargo}}\n\n{{utm}}\n\n${sigEn}`,
-      "{{game}}은 방송에 딱 — 채팅이 같이 이상현상을 찾아요",
-      `안녕하세요 {{creator}}님,\n\n{{game}}은(는) 라이브에 잘 맞아요. 채팅이 같이 '이상한 점'을 찾는 관찰 게임이라 외침·즉각 반응·놓쳤을 때의 클립이 계속 나와요.\n\n방송용 Steam 키와 함께, 방송 중 시청자에게 나눠줄 증정용 키도 드릴 수 있어요(채팅 반응 최고). 선공개/독점 빌드도 가능합니다. 엠바고(있다면): {{embargo}}\n\n{{utm}}\n\n${sigKo}`,
+      "{{game}} on stream — keys for you and your chat",
+      `Hi {{creator}},\n\nWe'd love to see {{game}} on your stream.\n\nWe can send a free key for the broadcast, plus extra keys to give away to your viewers live (always a chat-pleaser). Early / exclusive build available too. Embargo if any: {{embargo}}\n\n{{utm}}\n\n${sigEn}`,
+      "{{game}} 방송용 키 — 시청자 증정분까지",
+      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) {{creator}}님 방송에서 만나보고 싶어요.\n\n방송용 무료 키와 함께, 방송 중 시청자에게 나눠줄 증정용 키도 드릴 수 있어요(채팅 반응 최고). 선공개/독점 빌드도 가능합니다. 엠바고(있다면): {{embargo}}\n\n{{utm}}\n\n${sigKo}`,
     ),
     t(
       "tmpl_curator",
       "스팀 큐레이터",
-      "Curator key — {{game}} (an observation / anomaly game)",
-      `Hello {{creator}},\n\nWe'd love to offer your Steam Curator page a key for {{game}} from Immersed Player by Overay Inc. — an observation game about catching the one thing that's "off" in a space.\n\nIf it's a fit, a recommendation would mean a lot, and we're happy to share keys for your community too.\n\nStore page: {{utm}}\n\nReply and we'll add the key to your curator queue.\n\nThank you!\n${sigEn}`,
-      "큐레이터 키 — {{game}} (관찰·이상현상 게임)",
-      `안녕하세요 {{creator}}님,\n\n오버레이 Immersed Player 팀의 {{game}} 키를 큐레이터 페이지용으로 드리고 싶어요 — 공간 속 '이상한 점'을 찾는 관찰 게임이에요.\n\n잘 맞는다면 추천 한마디가 큰 힘이 되고, 커뮤니티용 키도 함께 나눠드릴 수 있어요.\n\n상점 페이지: {{utm}}\n\n회신 주시면 큐레이터 큐에 키를 추가해 드릴게요.\n\n감사합니다!\n${sigKo}`,
+      "Curator key — {{game}}",
+      `Hello {{creator}},\n\nWe'd love to offer your Steam Curator page a key for {{game}} by Overay Inc.\n\nIf it's a fit, a recommendation would mean a lot, and we're happy to share keys for your community too.\n\nStore page: {{utm}}\n\nReply and we'll add the key to your curator queue.\n\nThank you!\n${sigEn}`,
+      "큐레이터 키 — {{game}}",
+      `안녕하세요 {{creator}}님,\n\n오버레이 Overay Desk 팀의 {{game}} 키를 큐레이터 페이지용으로 드리고 싶어요.\n\n잘 맞는다면 추천 한마디가 큰 힘이 되고, 커뮤니티용 키도 함께 나눠드릴 수 있어요.\n\n상점 페이지: {{utm}}\n\n회신 주시면 큐레이터 큐에 키를 추가해 드릴게요.\n\n감사합니다!\n${sigKo}`,
     ),
     t(
       "tmpl_press",
       "매체·프레스",
-      "Press key & assets — {{game}} (observation / anomaly game)",
-      `Hello,\n\nI'm writing from Immersed Player by Overay Inc. about {{game}} — a first-person observation game about spotting the anomaly in a space.\n\nHappy to provide a Steam press key plus a press kit (trailer, screenshots, fact sheet) for coverage. Review embargo (if any): {{embargo}}\nStore page: {{utm}}\n\nGlad to set up an interview or a hands-on build.\n${sigEn}`,
-      "프레스 키 & 자료 — {{game}} (관찰·이상현상 게임)",
-      `안녕하세요,\n\n오버레이 Immersed Player 팀에서 {{game}} 관련하여 연락드립니다 — 공간 속 이상현상을 찾는 1인칭 관찰 게임이에요.\n\n기사 검토용으로 Steam 프레스 키와 보도자료(트레일러·스크린샷·팩트시트)를 제공해 드릴 수 있어요. 리뷰 엠바고(있는 경우): {{embargo}}\n상점 페이지: {{utm}}\n\n인터뷰나 핸즈온 빌드도 준비해 드릴게요.\n${sigKo}`,
+      "Press key & assets — {{game}}",
+      `Hello,\n\nI'm writing from Overay Inc. about {{game}}.\n\nHappy to provide a press key plus a press kit (trailer, screenshots, fact sheet) for coverage. Review embargo (if any): {{embargo}}\nStore page: {{utm}}\n\nGlad to set up an interview or a hands-on build.\n${sigEn}`,
+      "프레스 키 & 자료 — {{game}}",
+      `안녕하세요,\n\n오버레이(Overay Inc.) Overay Desk 팀에서 {{game}} 관련하여 연락드립니다.\n\n기사 검토용으로 프레스 키와 보도자료(트레일러·스크린샷·팩트시트)를 제공해 드릴 수 있어요. 리뷰 엠바고(있는 경우): {{embargo}}\n상점 페이지: {{utm}}\n\n인터뷰나 핸즈온 빌드도 준비해 드릴게요.\n${sigKo}`,
     ),
     t(
       "tmpl_key_attached",
       "키 동봉(바로 전달)",
-      "Your {{game}} Steam key is inside 🔑",
-      `Hi {{creator}},\n\nThanks for the interest in {{game}}! Here's your Steam key:\n\n{{key}}\n\nActivate via Steam → Games → Activate a Product. It's an observation game (catch the "off" detail) — short sessions, very clippable.\n\nCoverage is optional, but if you do: tagging the store page helps a lot, and we're glad to send extra keys to give away to your viewers. {{utm}}\n\nEnjoy — ping us anytime!\n${sigEn}`,
-      "{{game}} Steam 키를 보내드려요 🔑",
-      `안녕하세요 {{creator}}님,\n\n{{game}}에 관심 가져 주셔서 감사합니다! Steam 키 보내드려요:\n\n{{key}}\n\nSteam → 게임 → 제품 활성화에서 등록하시면 돼요. '이상한 점'을 찾는 관찰 게임이라 세션이 짧고 클립이 잘 나와요.\n\n콘텐츠 제작은 자유지만, 진행하신다면 상점 페이지 태그가 큰 도움이 되고, 시청자에게 나눠줄 증정용 키도 기꺼이 보내드려요. {{utm}}\n\n즐겨 주세요 — 언제든 연락 주시고요!\n${sigKo}`,
+      "Your {{game}} key is inside 🔑",
+      `Hi {{creator}},\n\nThanks for the interest in {{game}}! Here's your key:\n\n{{key}}\n\nCoverage is optional, but if you do: tagging the store page helps a lot, and we're glad to send extra keys to give away to your viewers. {{utm}}\n\nEnjoy — ping us anytime!\n${sigEn}`,
+      "{{game}} 키를 보내드려요 🔑",
+      `안녕하세요 {{creator}}님,\n\n{{game}}에 관심 가져 주셔서 감사합니다! 키 보내드려요:\n\n{{key}}\n\n콘텐츠 제작은 자유지만, 진행하신다면 상점 페이지 태그가 큰 도움이 되고, 시청자에게 나눠줄 증정용 키도 기꺼이 보내드려요. {{utm}}\n\n즐겨 주세요 — 언제든 연락 주시고요!\n${sigKo}`,
     ),
     t(
       "tmpl_embargo",
       "엠바고·출시일",
       "Early / exclusive {{game}} build + key for {{creator}}",
-      `Hi {{creator}},\n\nWe'd love to get {{game}} in your hands before launch — here's a Steam key for an early / exclusive build from Immersed Player by Overay Inc.\n\nPlease hold coverage until: {{embargo}}\nKey: {{key}}\nStore page: {{utm}}\n\nIt's an observation game (catch the anomaly in a space). Before release we'll send assets, a changelog, and extra keys to give away to your viewers. Thanks for keeping the date!\n${sigEn}`,
+      `Hi {{creator}},\n\nWe'd love to get {{game}} in your hands before launch — here's a key for an early / exclusive build from Overay Inc.\n\nPlease hold coverage until: {{embargo}}\nKey: {{key}}\nStore page: {{utm}}\n\nBefore release we'll send assets, a changelog, and extra keys to give away to your viewers. Thanks for keeping the date!\n${sigEn}`,
       "선공개 / 독점 {{game}} 빌드 + {{creator}}님 키",
-      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) 출시 전에 먼저 전해드리고 싶어요 — 오버레이 Immersed Player 팀의 선공개 / 독점 빌드 Steam 키예요.\n\n공개는 다음 이후로 부탁드려요: {{embargo}}\n키: {{key}}\n상점 페이지: {{utm}}\n\n공간 속 이상현상을 찾는 관찰 게임이에요. 출시 전에 자료·변경사항과 시청자 증정용 키를 함께 보내드릴게요. 일정 지켜 주셔서 감사합니다!\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n{{game}}을(를) 출시 전에 먼저 전해드리고 싶어요 — 오버레이 Overay Desk 팀의 선공개 / 독점 빌드 키예요.\n\n공개는 다음 이후로 부탁드려요: {{embargo}}\n키: {{key}}\n상점 페이지: {{utm}}\n\n출시 전에 자료·변경사항과 시청자 증정용 키를 함께 보내드릴게요. 일정 지켜 주셔서 감사합니다!\n${sigKo}`,
     ),
     t(
       "tmpl_followup",
       "팔로업·리마인더",
       "Following up — {{game}} key (no rush!)",
-      `Hi {{creator}},\n\nJust circling back on {{game}} — no worries if you've been busy.\n\nThe free Steam key offer still stands, and we can include keys to give away to your viewers or an early build whenever it suits you. It's a quick, clip-friendly observation game (spot the anomaly), so it's an easy one to slot in.\n\n{{utm}}\n\nHappy to send it over anytime.\n${sigEn}`,
+      `Hi {{creator}},\n\nJust circling back on {{game}} — no worries if you've been busy.\n\nThe free key offer still stands, and we can include keys to give away to your viewers or an early build whenever it suits you.\n\n{{utm}}\n\nHappy to send it over anytime.\n${sigEn}`,
       "다시 한번 — {{game}} 키 (천천히 보셔도 돼요!)",
-      `안녕하세요 {{creator}}님,\n\n{{game}} 관련해 가볍게 다시 연락드려요 — 바쁘셨다면 전혀 괜찮아요.\n\n무료 Steam 키 제안은 유효하고, 편하실 때 시청자 증정용 키나 선공개 빌드도 함께 드릴 수 있어요. 짧고 클립 잘 나오는 관찰 게임(이상현상 찾기)이라 가볍게 끼워 넣기 좋아요.\n\n{{utm}}\n\n원하시면 언제든 보내드릴게요.\n${sigKo}`,
+      `안녕하세요 {{creator}}님,\n\n{{game}} 관련해 가볍게 다시 연락드려요 — 바쁘셨다면 전혀 괜찮아요.\n\n무료 키 제안은 유효하고, 편하실 때 시청자 증정용 키나 선공개 빌드도 함께 드릴 수 있어요.\n\n{{utm}}\n\n원하시면 언제든 보내드릴게요.\n${sigKo}`,
     ),
   ];
 }
@@ -413,7 +405,7 @@ function defaultData() {
   const games = defaultGames();
   return {
     meta: {
-      portfolioName: "Launch Pilot Growth Dashboard",
+      portfolioName: "Overay Desk Marketing Dashboard",
       primaryGameId: "",
       createdAt: nowIso(),
     },
@@ -523,7 +515,7 @@ async function readData() {
 function normalizeData(data) {
   const seeded = defaultData();
   data.meta ||= seeded.meta;
-  data.meta.portfolioName ||= "Launch Pilot Growth Dashboard";
+  data.meta.portfolioName ||= "Overay Desk Marketing Dashboard";
   data.games ||= [];
   data.storeListings ||= [];
   if (data.meta.primaryGameId && !data.games.some((game) => game.id === data.meta.primaryGameId)) {
@@ -1673,7 +1665,7 @@ async function buildEmailDraft(data, input = {}) {
         "No pressure either way. If it looks relevant to your audience, I would be happy to send over the key and a small press note.",
         "",
         "Thanks,",
-        "Immersed Player, Overay Inc.",
+        "The Overay Desk Team, Overay Inc.",
       ].join("\n");
     body = input.body !== undefined ? input.body : plainTextToHtml(plain);
   }
@@ -2110,12 +2102,12 @@ async function sendEmailViaSmtp(config, { to, subject, body, html }) {
   let socket = await smtpConnect(config);
   try {
     await readSmtpResponse(socket);
-    const ehlo = await smtpCommand(socket, "EHLO launch-pilot.local", [250]);
+    const ehlo = await smtpCommand(socket, "EHLO overay-desk.local", [250]);
     const supportsStartTls = ehlo.raw.toUpperCase().includes("STARTTLS");
     if (!config.smtpSecure && config.smtpStarttls && supportsStartTls) {
       await smtpCommand(socket, "STARTTLS", [220]);
       socket = await upgradeStartTls(socket, config);
-      await smtpCommand(socket, "EHLO launch-pilot.local", [250]);
+      await smtpCommand(socket, "EHLO overay-desk.local", [250]);
     }
     if (config.smtpUser && config.smtpPass) {
       await smtpCommand(socket, "AUTH LOGIN", [334]);
@@ -4324,7 +4316,7 @@ async function handleApi(req, res, url) {
   const data = await readData();
 
   if (route === "GET /api/health") {
-    return respondJson(res, 200, { ok: true, service: "launch-pilot-growth-dashboard", version: "0.1.0" });
+    return respondJson(res, 200, { ok: true, service: "overay-desk-launch-pilot", version: "0.1.0" });
   }
 
   if (route === "GET /api/meta") {
@@ -5723,7 +5715,7 @@ const seededSession = ensureRedditSessionSeeded();
 if (seededSession.length) console.log(`[reddit] seeded session into volume: ${seededSession.join(", ")}`);
 
 createServer(handleRequest).listen(PORT, HOST, () => {
-  console.log(`Launch Pilot Growth Dashboard running at http://${HOST}:${PORT}`);
+  console.log(`Overay Desk Marketing Dashboard running at http://${HOST}:${PORT}`);
   const auth = authConfigSummary();
   if (auth.enabled) {
     const scope =

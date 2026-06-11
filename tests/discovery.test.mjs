@@ -126,10 +126,10 @@ test("normalizeCreatorAnalysis drops a malformed email", () => {
 });
 
 // --- config -----------------------------------------------------------------
-test("discoverySeeds honors an explicit list, then env, then default", () => {
+test("discoverySeeds honors an explicit list, then env, with no baked-in default", () => {
   assert.deepEqual(discoverySeeds(["a", "b"]), ["a", "b"]);
   assert.deepEqual(discoverySeeds([], { LP_DISCOVERY_SEEDS: "x | y |  " }), ["x", "y"]);
-  assert.ok(discoverySeeds([], {}).length > 0);
+  assert.deepEqual(discoverySeeds([], {}), []);
 });
 
 test("discoveryConfigFromEnv maps env into source configs", () => {

@@ -20,19 +20,14 @@ export function discoveryConfigFromEnv(env = process.env) {
   };
 }
 
-// Seed keywords: explicit arg list wins, else LP_DISCOVERY_SEEDS (|-separated),
-// else a sensible default tuned for our anomaly/observation game.
+// Seed keywords: explicit arg list wins, else LP_DISCOVERY_SEEDS (|-separated).
+// No baked-in default: Overay Desk seed queries are set per campaign (the
+// discovery UI seed box or LP_DISCOVERY_SEEDS) once positioning is decided.
 export function discoverySeeds(argSeeds, env = process.env) {
   if (argSeeds && argSeeds.length) return argSeeds;
   const fromEnv = String(env.LP_DISCOVERY_SEEDS || "").trim();
   if (fromEnv) return fromEnv.split("|").map((s) => s.trim()).filter(Boolean);
-  return [
-    "spot the anomaly game",
-    "Exit 8 gameplay",
-    "observation horror indie game",
-    "관찰 공포 게임 실황",
-    "이상현상 찾기 게임",
-  ];
+  return [];
 }
 
 export function discoveryGameContext(env = process.env) {

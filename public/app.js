@@ -3555,7 +3555,7 @@ function initForms() {
       const type = button.dataset.exportType;
       const data = await api(`/api/export?type=${encodeURIComponent(type)}`);
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      downloadJson(`launch-pilot-${type}-${stamp}.json`, data);
+      downloadJson(`overay-desk-${type}-${stamp}.json`, data);
       $("#exportResult").textContent = `${type} export 생성 완료`;
       showToast("내보내기를 만들었습니다.");
     } catch (error) {
