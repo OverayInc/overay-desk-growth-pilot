@@ -4375,7 +4375,7 @@ async function handleApi(req, res, url) {
   const data = await readData();
 
   if (route === "GET /api/health") {
-    return respondJson(res, 200, { ok: true, service: "overay-desk-launch-pilot", version: "0.1.0" });
+    return respondJson(res, 200, { ok: true, service: "overay-desk-growth-pilot", version: "0.1.0" });
   }
 
   if (route === "GET /api/meta") {
