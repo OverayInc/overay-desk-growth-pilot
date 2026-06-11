@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Immersed Player — Growth Console</title>
+    <title>Overay Desk — Marketing Console</title>
     <meta name="theme-color" content="#0e1b2e" />
-    <link rel="icon" href="/immersed-player-logo.png?v=20260529-ip" type="image/png" />
-    <link rel="apple-touch-icon" href="/immersed-player-logo.png?v=20260529-ip" />
+    <link rel="icon" href="/favicon.svg?v=20260611-od" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/favicon.svg?v=20260611-od" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -49,8 +49,8 @@
          before auth.js decides; hidden once an allow-listed account is in. -->
     <div class="auth-gate" id="authGate">
       <div class="auth-card">
-        <img class="auth-logo" src="/immersed-player-logo.png?v=20260529-ip" alt="" width="52" height="52" />
-        <h1 class="auth-title">Growth Console</h1>
+        <img class="auth-logo" src="/overay-desk-logo.png?v=20260611-od2" alt="OVERAY DESK" width="220" height="29" />
+        <h1 class="auth-title">Marketing Console</h1>
         <p class="auth-sub" id="authSub">회사 Microsoft 계정으로 로그인하세요</p>
         <div class="auth-error" id="authError" role="alert" hidden></div>
         <button class="auth-ms-btn" id="authLoginBtn" type="button">
@@ -68,8 +68,8 @@
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <img class="brand-logo" src="/immersed-player-logo.png?v=20260529-ip" alt="Immersed Player by OVERAY" />
-          <span class="brand-caption">Growth Console</span>
+          <img class="brand-logo" src="/overay-desk-logo.png?v=20260611-od2" alt="OVERAY DESK" />
+          <span class="brand-caption">Marketing Console</span>
         </div>
 
         <nav class="nav" aria-label="Workspaces">
@@ -110,13 +110,9 @@
           </div>
           <div class="nav-group">
             <span class="nav-group-title">Operations</span>
-            <a class="nav-item" data-view="datasync" href="#datasync">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-              <span>데이터 · 동기화</span>
-            </a>
             <a class="nav-item" data-view="admin" href="#admin">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>
-              <span>게임 · 설정</span>
+              <span>제품 · 설정</span>
             </a>
           </div>
         </nav>
@@ -242,7 +238,7 @@
                 <summary><span>새 캠페인</span><span class="summary-icon"></span></summary>
                 <form class="form-row" id="campaignForm">
                   <label>
-                    게임
+                    제품
                     <select name="gameId" data-game-select></select>
                   </label>
                   <label>
@@ -255,7 +251,13 @@
                   </label>
                   <label>
                     채널
-                    <input name="channels" placeholder="YouTube, Reddit" />
+                    <input name="channels" placeholder="Facebook, YouTube, Reddit, Discord" list="channelOptions" />
+                    <datalist id="channelOptions">
+                      <option value="Facebook"></option>
+                      <option value="YouTube"></option>
+                      <option value="Reddit"></option>
+                      <option value="Discord"></option>
+                    </datalist>
                   </label>
                   <label>
                     목표
@@ -269,7 +271,7 @@
                   <thead>
                     <tr>
                       <th>캠페인</th>
-                      <th>게임</th>
+                      <th>제품</th>
                       <th>채널</th>
                       <th>이메일</th>
                       <th>키</th>
@@ -314,17 +316,17 @@
                   <span>플랫폼</span>
                   <select id="matrixPlatformFilter">
                     <option value="all">전체</option>
-                    <option value="PC">PC</option>
-                    <option value="VR">VR</option>
-                    <option value="META">Meta</option>
+                    <option value="QUEST">Quest</option>
+                    <option value="GALAXY_XR">Galaxy XR</option>
+                    <option value="PICO">PICO</option>
                   </select>
                 </label>
                 <details class="matrix-filter">
-                  <summary class="secondary-button"><span id="matrixGameFilterSummary">게임 필터</span></summary>
+                  <summary class="secondary-button"><span id="matrixGameFilterSummary">제품 필터</span></summary>
                   <div class="matrix-filter-panel" id="matrixGameFilter"></div>
                 </details>
               </div>
-              <p class="muted matrix-legend">행=크리에이터, 열=게임. 게임 칸 클릭 = 상태/키/사용여부/메일 편집 · ✉ 메일 보내기 · 🔑 키(초록=사용됨·빨강=미사용, 클릭 복사) · 📝 메모(클릭 수정). 이름 옆 아이콘 = 채널 바로가기.</p>
+              <p class="muted matrix-legend">행=크리에이터, 열=제품. 제품 칸 클릭 = 상태/키/사용여부/메일 편집 · ✉ 메일 보내기 · 🔑 키(초록=사용됨·빨강=미사용, 클릭 복사) · 📝 메모(클릭 수정). 이름 옆 아이콘 = 채널 바로가기.</p>
               <div class="table-wrap scroll-y" id="creatorMatrixWrap"></div>
             </section>
 
@@ -418,13 +420,13 @@
                       <span>시드 키워드 <span class="muted">(줄바꿈/쉼표로 구분, 비우면 기본값)</span></span>
                       <button type="button" id="discoverySeedAi" class="chip-button">✨ AI 시드 추천</button>
                     </span>
-                    <textarea id="discoverySeeds" rows="3" placeholder="spot the anomaly game&#10;Exit 8 gameplay&#10;이상현상 찾기 게임"></textarea>
+                    <textarea id="discoverySeeds" rows="3" placeholder="제품 관련 검색어를 한 줄에 하나씩&#10;예: overay desk review&#10;예: VR 데스크탑 추천"></textarea>
                   </label>
                   <div class="discovery-platforms">
-                    <span class="muted">게임 플랫폼 태그 (찾은 크리에이터에 표시):</span>
-                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="PC" /> PC</label>
-                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="VR" /> VR</label>
-                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="META" /> Meta</label>
+                    <span class="muted">플랫폼 태그 (찾은 크리에이터에 표시):</span>
+                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="QUEST" /> Quest</label>
+                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="GALAXY_XR" /> Galaxy XR</label>
+                    <label class="platform-check"><input type="checkbox" name="discoveryPlatform" value="PICO" /> PICO</label>
                   </div>
                   <div class="discovery-actions">
                     <button type="button" id="discoveryQuickRun" class="secondary-button">빠른 실행 (1회)</button>
@@ -674,22 +676,21 @@
               <div class="panel">
                 <form class="form-row utm-form" id="utmForm" style="padding: 0;">
                   <label>
-                    게임
+                    제품
                     <select name="gameId" data-game-select></select>
                   </label>
                   <label>
                     스토어
                     <select name="platform">
-                      <option value="steam">Steam</option>
-                      <option value="meta_horizon">Meta Horizon Store</option>
-                      <option value="itch">itch.io</option>
-                      <option value="epic">Epic Games Store</option>
-                      <option value="other">Other Store</option>
+                      <option value="meta_horizon">Meta Horizon Store (Quest)</option>
+                      <option value="play">Google Play (Galaxy XR)</option>
+                      <option value="pico">Pico Store</option>
+                      <option value="other">기타</option>
                     </select>
                   </label>
                   <label>
                     Base URL
-                    <input name="baseUrl" placeholder="비우면 선택한 게임의 스토어 URL 사용" />
+                    <input name="baseUrl" placeholder="비우면 선택한 스토어 리스팅의 URL 사용" />
                   </label>
                   <label>
                     Source
@@ -717,7 +718,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Key Pool</p>
-                  <h2>게임별 키 풀</h2>
+                  <h2>스토어 키 · 프로모 코드 풀</h2>
                 </div>
                 <div class="key-pool-tools">
                   <span id="keyPoolGameThumb" class="key-pool-game-thumb" aria-hidden="true"></span>
@@ -760,7 +761,7 @@
                 <summary><span>키 일괄 붙여넣기 (1회용)</span><span class="summary-icon"></span></summary>
                 <form class="stack-form" id="keyPoolBulkForm">
                   <label class="field-wide">
-                    <span>스팀 키 목록 <span class="muted">(한 줄에 하나씩 · 각 키는 자동으로 1회용으로 등록)</span></span>
+                    <span>키 · 프로모 코드 목록 <span class="muted">(한 줄에 하나씩 · 각 키는 자동으로 1회용으로 등록)</span></span>
                     <textarea name="keys" rows="8" placeholder="C8C2H-L7ZA4-WXA74&#10;2XP0R-BB6RR-YPLLI&#10;LDLDL-VZD7Z-M89D5&#10;..." style="font-family:ui-monospace,Menlo,Consolas,monospace"></textarea>
                   </label>
                   <div class="button-row">
@@ -939,8 +940,8 @@
             <section class="band" id="games">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Game Management</p>
-                  <h2>게임 · 스토어 리스팅</h2>
+                  <p class="eyebrow">Product Management</p>
+                  <h2>제품 · 스토어 리스팅</h2>
                 </div>
                 <span class="muted" id="gameAdminSummary">-</span>
               </div>
@@ -948,36 +949,13 @@
                 <div class="admin-main">
                   <div class="panel">
                     <div class="panel-title">
-                      <h3>게임 목록</h3>
-                      <span>archive는 지표를 보존한 채 숨김 처리</span>
-                    </div>
-                    <div class="table-wrap compact-admin">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>게임</th>
-                            <th>단계</th>
-                            <th>스토어</th>
-                            <th>담당</th>
-                            <th>출시일</th>
-                            <th>상태</th>
-                            <th>작업</th>
-                          </tr>
-                        </thead>
-                        <tbody id="gameAdminTable"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div class="panel">
-                    <div class="panel-title">
                       <h3>스토어 리스팅</h3>
-                      <span>Steam, Meta Horizon, 기타 스토어를 게임에 연결</span>
+                      <span>Meta Horizon (Quest) · Google Play (Galaxy XR) · Pico Store</span>
                     </div>
                     <div class="table-wrap compact-admin">
                       <table>
                         <thead>
                           <tr>
-                            <th>게임</th>
                             <th>스토어</th>
                             <th>ID / Slug</th>
                             <th>상태</th>
@@ -992,7 +970,9 @@
                   </div>
                 </div>
                 <div class="admin-side">
-                  <details class="action-panel" open>
+                  <!-- Single-product workspace: creating more products is intentionally
+                       hidden (the backend CRUD API still exists). -->
+                  <details class="action-panel" hidden>
                     <summary><span>게임 추가</span><span class="summary-icon"></span></summary>
                     <form class="form-row game-form admin-form" id="gameForm">
                       <label>
@@ -1041,16 +1021,17 @@
                     </form>
                   </details>
 
-                  <details class="action-panel">
-                    <summary><span>게임 정보 수정</span><span class="summary-icon"></span></summary>
+                  <details class="action-panel" open>
+                    <summary><span>Overay Desk 제품 정보</span><span class="summary-icon"></span></summary>
                     <form class="form-row integration-form admin-form" id="gameSettingsForm">
-                      <label>
-                        게임
+                      <!-- Single product: the picker is kept for the form bindings but hidden. -->
+                      <label hidden>
+                        제품
                         <select name="gameId" id="settingsGameSelect"></select>
                       </label>
                       <label>
-                        게임명
-                        <input name="name" placeholder="Game name" required />
+                        제품명
+                        <input name="name" placeholder="Overay Desk" required />
                       </label>
                       <label>
                         단계
@@ -1063,7 +1044,7 @@
                       </label>
                       <label>
                         장르
-                        <input name="genre" placeholder="Anomaly exploration" />
+                        <input name="genre" placeholder="XR desktop utility" />
                       </label>
                       <label>
                         출시일
@@ -1093,30 +1074,30 @@
                           <input type="hidden" name="imageUrl" />
                         </div>
                       </div>
-                      <button type="submit">게임 저장</button>
+                      <button type="submit">제품 저장</button>
                     </form>
                   </details>
 
                   <details class="action-panel">
                     <summary><span>스토어 리스팅 추가</span><span class="summary-icon"></span></summary>
                     <form class="form-row store-form admin-form" id="storeListingForm">
-                      <label>
-                        게임
+                      <!-- Single product: the picker is kept for the form bindings but hidden. -->
+                      <label hidden>
+                        제품
                         <select name="gameId" id="listingGameSelect"></select>
                       </label>
                       <label>
                         스토어
                         <select name="platform">
-                          <option value="steam">Steam</option>
-                          <option value="meta_horizon">Meta Horizon Store</option>
-                          <option value="itch">itch.io</option>
-                          <option value="epic">Epic Games Store</option>
-                          <option value="other">Other Store</option>
+                          <option value="meta_horizon">Meta Horizon Store (Quest)</option>
+                          <option value="play">Google Play (Galaxy XR)</option>
+                          <option value="pico">Pico Store</option>
+                          <option value="other">기타</option>
                         </select>
                       </label>
                       <label>
                         ID / Slug
-                        <input name="externalId" placeholder="Steam App ID 또는 Meta slug" />
+                        <input name="externalId" placeholder="앱 ID / 패키지명 / slug" />
                       </label>
                       <label>
                         상태
@@ -1130,7 +1111,7 @@
                       </label>
                       <label class="field-wide">
                         Store URL
-                        <input name="storeUrl" placeholder="https://store.steampowered.com/app/... 또는 Meta Horizon URL" />
+                        <input name="storeUrl" placeholder="https://www.meta.com/experiences/... · Play/Pico 스토어 URL" />
                       </label>
                       <label class="field-wide">
                         Dashboard URL
@@ -1160,7 +1141,9 @@
                 <span class="muted" id="settingsSummary">-</span>
               </div>
               <div class="settings-grid">
-                <form class="settings-panel" id="steamSettingsForm">
+                <!-- Steam settings hidden: Overay Desk does not launch on Steam.
+                     Kept in the DOM (backend + bindings intact) until Steam code removal. -->
+                <form class="settings-panel" id="steamSettingsForm" hidden>
                   <div class="settings-panel-head">
                     <div>
                       <p class="eyebrow">Steamworks</p>
@@ -1307,7 +1290,6 @@
                 <div class="action-row">
                   <button type="button" data-export-type="all">전체 JSON</button>
                   <button class="secondary-button" type="button" data-export-type="creators">Creator DB</button>
-                  <button class="secondary-button" type="button" data-export-type="metrics">Steam Metrics</button>
                   <button class="secondary-button" type="button" data-export-type="keys">Key Records</button>
                 </div>
                 <div class="result-line" id="exportResult"></div>
@@ -1375,7 +1357,7 @@
             <span class="image-picker__hint" id="matrixPoolRemaining"></span>
           </label>
           <label>
-            Steam Key / 프로모 코드 <span class="muted" style="font-weight:500">(풀 미사용 시 직접 입력)</span> <button type="button" class="secondary-button mini" id="matrixKeyCopy" hidden>복사</button>
+            스토어 키 / 프로모 코드 <span class="muted" style="font-weight:500">(풀 미사용 시 직접 입력)</span> <button type="button" class="secondary-button mini" id="matrixKeyCopy" hidden>복사</button>
             <input id="matrixKey" placeholder="XXXXX-XXXXX-XXXXX 또는 프로모 코드" />
           </label>
           <label>
@@ -1564,14 +1546,14 @@
             </label>
             <label>
               태그
-              <input name="tags" placeholder="anomaly, backrooms" />
+              <input name="tags" placeholder="review, tutorial" />
             </label>
             <label class="field-full">
               게임 플랫폼 <span class="muted">(복수 선택 가능)</span>
               <span class="platform-checks">
-                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="PC" /> PC (Steam)</label>
-                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="VR" /> VR (Steam)</label>
-                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="META" /> Meta</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="QUEST" /> Quest</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="GALAXY_XR" /> Galaxy XR</label>
+                <label class="platform-check"><input type="checkbox" name="gamePlatforms" value="PICO" /> PICO</label>
               </span>
             </label>
             <label>

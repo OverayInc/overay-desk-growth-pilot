@@ -43,7 +43,7 @@ export async function makeRenderer({ timeoutMs = 15000 } = {}) {
     try {
       const browser = await getBrowser();
       context = await browser.newContext({
-        userAgent: "launch-pilot-discovery/1.0 (+marketing research bot)",
+        userAgent: "overay-desk-discovery/1.0 (+marketing research bot)",
         javaScriptEnabled: true,
       });
       const page = await context.newPage();

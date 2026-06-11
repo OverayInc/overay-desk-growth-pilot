@@ -5,8 +5,10 @@ npm-debug.log*
 *.log
 data/app-data.json
 data/*.local.json
-# data/reddit-state.json  ← intentionally committed (private internal repo). It's
-# a Reddit login session for author-only data; re-commit it when it expires.
+# data/reddit-state.json + reddit-session-meta.json are intentionally committed
+# when present (private internal repo) — Docker seeds the session from the repo.
+# The old game-launch session was removed; create a new one for this tool's own
+# Reddit account with `npm run reddit:login`, then commit it.
 data/reddit-chrome-profile/
 data/*.db
 data/*.db-shm

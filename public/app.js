@@ -214,8 +214,10 @@ function initImagePicker(form) {
 
 function platformLabel(platform) {
   const labels = {
-    steam: "Steam",
     meta_horizon: "Meta Horizon Store",
+    play: "Google Play (Galaxy XR)",
+    pico: "Pico Store",
+    steam: "Steam",
     itch: "itch.io",
     epic: "Epic Games Store",
     playstation: "PlayStation Store",
@@ -342,19 +344,24 @@ function getRich(editor) {
 }
 
 function renderGameSelectors() {
+  // Single-product workspace: with one product there is nothing to choose —
+  // product pickers auto-select it and hide themselves.
+  const singleGame = state.games.length === 1;
   const filter = $("#gameFilter");
   const current = state.selectedGameId;
   filter.innerHTML = [
-    '<option value="all">전체 게임</option>',
+    '<option value="all">전체 제품</option>',
     ...state.games.map((game) => `<option value="${escapeHtml(game.id)}">${escapeHtml(game.name)}</option>`),
   ].join("");
   filter.value = current === "all" || state.games.some((game) => game.id === current) ? current : "all";
+  (filter.closest("label") || filter).hidden = singleGame;
 
   for (const select of document.querySelectorAll("[data-game-select]")) {
     // The key-pool game selector must be chosen explicitly — registering keys to
     // the wrong game is painful to undo — so it gets a blank placeholder and is
-    // never auto-defaulted, unlike the other game selects.
-    const requireExplicit = select.id === "keyPoolGame";
+    // never auto-defaulted, unlike the other game selects. (Moot with a single
+    // product: there is only one place keys can go.)
+    const requireExplicit = select.id === "keyPoolGame" && !singleGame;
     const previous = requireExplicit
       ? select.value
       : state.selectedGameId === "all"
@@ -367,6 +374,10 @@ function renderGameSelectors() {
     select.innerHTML =
       requireExplicit && state.games.length ? `<option value="">— 게임을 선택하세요 —</option>${gameOptions}` : gameOptions;
     select.value = state.games.some((game) => game.id === previous) ? previous : requireExplicit ? "" : selectedGameForForms();
+    if (singleGame) select.value = state.games[0].id;
+    if (select.tagName === "SELECT") {
+      (select.closest("label") || select).hidden = singleGame;
+    }
   }
 
   const syncSelect = document.querySelector("#syncForm select[name='gameId']");
@@ -529,9 +540,9 @@ function renderMetricGrid(dashboard) {
       icon: ICONS.key,
     },
     {
-      label: "운영 게임",
-      value: number(dashboard.summary.games),
-      sub: `캠페인 ${number(dashboard.summary.campaigns)}개`,
+      label: "운영 캠페인",
+      value: number(dashboard.summary.campaigns),
+      sub: `크리에이터 발송 누적 ${number(dashboard.summary.keysSent)}건`,
       tone: "green",
       icon: ICONS.games,
     },
@@ -678,61 +689,22 @@ function renderPlatformChips(listings) {
   `;
 }
 
+// Single-product workspace: the admin screen is centered on the store listings;
+// the product itself is edited via the always-visible product form.
 function renderGameAdmin() {
-  const activeGames = state.games.filter((game) => !game.archived);
+  const product = state.games.find((game) => !game.archived) || state.games[0];
   const activeListings = state.storeListings.filter((listing) => listing.status !== "archived");
-  $("#gameAdminSummary").textContent = `운영 게임 ${number(activeGames.length)}개 · 스토어 리스팅 ${number(activeListings.length)}개`;
+  $("#gameAdminSummary").textContent = `${product ? product.name : "제품 없음"} · 스토어 리스팅 ${number(activeListings.length)}개`;
 
-  if (!state.games.length) {
-    $("#gameAdminTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">관리할 게임이 없습니다.</span></td></tr>';
-  } else {
-    $("#gameAdminTable").innerHTML = state.games
-      .map((game) => {
-        const listings = listingsForGame(game.id);
-        return `
-          <tr>
-            <td data-label="게임">
-              <div class="cell-with-thumb">
-                ${gameThumb(game, "game-thumb--sm")}
-                <div>
-                  <span class="cell-title">${escapeHtml(game.name)}</span>
-                  <span class="cell-sub">${escapeHtml(game.genre || "No genre")}</span>
-                </div>
-              </div>
-            </td>
-            <td data-label="단계"><span class="status ${escapeHtml(game.stage || "concept")}">${escapeHtml(game.stage || "concept")}</span></td>
-            <td data-label="스토어">${renderPlatformChips(listings)}</td>
-            <td data-label="담당">${escapeHtml(game.owner || "Growth")}</td>
-            <td data-label="출시일">${escapeHtml(game.launchDate || "-")}</td>
-            <td data-label="상태"><span class="status ${game.archived ? "archived" : "active"}">${game.archived ? "archived" : "active"}</span></td>
-            <td data-label="작업">
-              <div class="action-row">
-                <button class="table-button secondary-button" type="button" data-edit-game-id="${escapeHtml(game.id)}">수정</button>
-                ${
-                  game.archived
-                    ? `<button class="table-button secondary-button" type="button" data-restore-game-id="${escapeHtml(game.id)}">복구</button>`
-                    : `<button class="table-button secondary-button" type="button" data-archive-game-id="${escapeHtml(game.id)}">보관</button>`
-                }
-                <button class="table-button secondary-button danger-button" type="button" data-purge-game-id="${escapeHtml(game.id)}" data-game-name="${escapeHtml(game.name)}">삭제</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      })
-      .join("");
-  }
-
-  const visibleListings = state.storeListings.filter((listing) => listing.status !== "archived");
-  if (!visibleListings.length) {
-    $("#storeListingTable").innerHTML = '<tr><td data-label="상태" colspan="7"><span class="empty">연결된 스토어 리스팅이 없습니다.</span></td></tr>';
+  if (!activeListings.length) {
+    $("#storeListingTable").innerHTML = '<tr><td data-label="상태" colspan="6"><span class="empty">연결된 스토어 리스팅이 없습니다.</span></td></tr>';
     return;
   }
 
-  $("#storeListingTable").innerHTML = visibleListings
+  $("#storeListingTable").innerHTML = activeListings
     .map(
       (listing) => `
         <tr>
-          <td data-label="게임"><span class="cell-title">${escapeHtml(listing.gameName || gameName(listing.gameId))}</span></td>
           <td data-label="스토어"><span class="platform-chip ${escapeHtml(listing.platform)}">${escapeHtml(listing.platformLabel || platformLabel(listing.platform))}</span></td>
           <td data-label="ID / Slug">${escapeHtml(listing.externalId || "-")}</td>
           <td data-label="상태"><span class="status ${escapeHtml(listing.status || "draft")}">${escapeHtml(listing.status || "draft")}</span></td>
@@ -1503,7 +1475,7 @@ function matrixCellContent(record, profileId, gameId) {
   const usedCls = usedState === "used" ? " is-used" : usedState === "unused" ? " is-unused" : "";
   const usedTip = usedState === "used" ? "\n✅ 사용됨" : usedState === "unused" ? "\n⛔ 미사용" : "";
   const keyChip = code
-    ? `<span class="matrix-chip${usedCls}" data-copy="${escapeHtml(code)}" data-tip="🔑 ${escapeHtml(code)}${usedTip}\n클릭하여 복사" aria-label="Steam 키">🔑</span>`
+    ? `<span class="matrix-chip${usedCls}" data-copy="${escapeHtml(code)}" data-tip="🔑 ${escapeHtml(code)}${usedTip}\n클릭하여 복사" aria-label="스토어 키">🔑</span>`
     : "";
   const noteChip = record?.note
     ? `<span class="matrix-chip" data-matrix-note data-tip="📝 ${escapeHtml(record.note)}\n클릭하여 수정" aria-label="메모 수정">📝</span>`
@@ -1612,7 +1584,7 @@ function renderCreatorMatrix() {
         ? `<span class="cell-sub cell-copy" data-copy="${escapeHtml(p.email)}" title="클릭하여 이메일 복사">${escapeHtml(p.email)}</span>`
         : `<span class="cell-sub">${escapeHtml(p.country || "")}</span>`;
       const platforms = (p.gamePlatforms || [])
-        .map((pf) => `<span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+        .map((pf) => `<span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf.replace(/_/g, " "))}</span>`)
         .join("");
       const nameCell = `<td class="matrix-name-col"><span class="cell-title-line"><span class="cell-title" title="${escapeHtml(p.channelName)}">${escapeHtml(p.channelName)}</span>${platforms}</span>${sub}</td>`;
       const chanCell = `<td class="matrix-chan-col"><div class="channel-links">${icons || '<span class="cell-sub">-</span>'}</div></td>`;
@@ -1626,12 +1598,15 @@ function renderCreatorMatrix() {
   wrap.innerHTML = `<table class="matrix-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 
-// Game-column visibility filter (helps when many games make the matrix too wide).
+// Product-column visibility filter (only useful when several products exist —
+// hidden entirely in the single-product workspace).
 function renderGameFilter(allGames) {
   const panel = $("#matrixGameFilter");
   if (!panel) return;
+  const details = panel.closest("details");
+  if (details) details.hidden = allGames.length <= 1;
   const shown = allGames.filter((g) => !state.hiddenGames.has(g.id)).length;
-  $("#matrixGameFilterSummary").textContent = `게임 ${shown}/${allGames.length}`;
+  $("#matrixGameFilterSummary").textContent = `제품 ${shown}/${allGames.length}`;
   panel.innerHTML =
     allGames
       .map(
@@ -3427,74 +3402,6 @@ function initForms() {
     populateGameSettingsForm(event.currentTarget.value);
   });
 
-  $("#gameAdminTable").addEventListener("click", async (event) => {
-    const editButton = event.target.closest("[data-edit-game-id]");
-    const archiveButton = event.target.closest("[data-archive-game-id]");
-    const restoreButton = event.target.closest("[data-restore-game-id]");
-    const purgeButton = event.target.closest("[data-purge-game-id]");
-    if (editButton) {
-      const select = $("#settingsGameSelect");
-      select.value = editButton.dataset.editGameId;
-      populateGameSettingsForm(select.value);
-      $("#gameSettingsForm").closest("details")?.setAttribute("open", "");
-      location.hash = "#games";
-      return;
-    }
-    if (restoreButton) {
-      restoreButton.disabled = true;
-      try {
-        await api(`/api/games/${encodeURIComponent(restoreButton.dataset.restoreGameId)}`, {
-          method: "PUT",
-          body: { archived: false },
-        });
-        await loadAll();
-        renderGameSelectors();
-        showToast("게임을 복구했습니다.");
-      } catch (error) {
-        showToast(error.message);
-      } finally {
-        restoreButton.disabled = false;
-      }
-      return;
-    }
-    if (purgeButton) {
-      const name = purgeButton.dataset.gameName || "이 게임";
-      if (!window.confirm(`'${name}' 게임과 연결된 모든 캠페인·크리에이터·키·지표·스토어 리스팅이 영구 삭제됩니다. 되돌릴 수 없습니다. 삭제할까요?`)) {
-        return;
-      }
-      purgeButton.disabled = true;
-      try {
-        await api(`/api/games/${encodeURIComponent(purgeButton.dataset.purgeGameId)}?purge=true`, {
-          method: "DELETE",
-        });
-        if (state.selectedGameId === purgeButton.dataset.purgeGameId) {
-          state.selectedGameId = "all";
-        }
-        await loadAll();
-        renderGameSelectors();
-        showToast("게임을 영구 삭제했습니다.");
-      } catch (error) {
-        showToast(error.message);
-      } finally {
-        purgeButton.disabled = false;
-      }
-      return;
-    }
-    if (!archiveButton) return;
-    archiveButton.disabled = true;
-    try {
-      await api(`/api/games/${encodeURIComponent(archiveButton.dataset.archiveGameId)}`, {
-        method: "DELETE",
-      });
-      await loadAll();
-      showToast("게임을 보관 처리했습니다.");
-    } catch (error) {
-      showToast(error.message);
-    } finally {
-      archiveButton.disabled = false;
-    }
-  });
-
   $("#storeListingTable").addEventListener("click", async (event) => {
     const button = event.target.closest("[data-archive-listing-id]");
     if (!button) return;
@@ -3555,7 +3462,7 @@ function initForms() {
       const type = button.dataset.exportType;
       const data = await api(`/api/export?type=${encodeURIComponent(type)}`);
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      downloadJson(`launch-pilot-${type}-${stamp}.json`, data);
+      downloadJson(`overay-desk-${type}-${stamp}.json`, data);
       $("#exportResult").textContent = `${type} export 생성 완료`;
       showToast("내보내기를 만들었습니다.");
     } catch (error) {
@@ -4142,7 +4049,7 @@ function discoveryRowHtml(c) {
   const known = c.isKnown ? ' <span class="tag-pill">기존</span>' : "";
   const lead = c.leadDepth ? ` <span class="tag-pill" title="그래프 탐색으로 발견">🔗d${c.leadDepth}</span>` : "";
   const plat = (c.gamePlatforms || [])
-    .map((pf) => ` <span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf)}</span>`)
+    .map((pf) => ` <span class="plat-chip plat-${escapeHtml(pf.toLowerCase())}">${escapeHtml(pf.replace(/_/g, " "))}</span>`)
     .join("");
   const email = c.email
     ? `<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`
@@ -4347,7 +4254,9 @@ function initDiscovery() {
   });
 }
 
-const VIEWS = ["overview", "campaigns", "creators", "discovery", "youtube", "reddit", "distribution", "datasync", "admin"];
+// "datasync" (Steam metrics & sync) removed from the nav: Overay Desk does not
+// launch on Steam. The view markup/backend stay until the Steam code purge.
+const VIEWS = ["overview", "campaigns", "creators", "discovery", "youtube", "reddit", "distribution", "admin"];
 
 const VIEW_OF_SECTION = {
   today: "overview",
@@ -4363,8 +4272,6 @@ const VIEW_OF_SECTION = {
   reddit: "reddit",
   keys: "distribution",
   utm: "distribution",
-  steam: "datasync",
-  sync: "datasync",
   games: "admin",
   settings: "admin",
   data: "admin",
@@ -4378,8 +4285,7 @@ const VIEW_META = {
   youtube: { eyebrow: "YouTube Analytics", title: "유튜브 채널 통계" },
   reddit: { eyebrow: "Reddit Log", title: "레딧 글 기록" },
   distribution: { eyebrow: "Distribution", title: "키 배포 & 링크" },
-  datasync: { eyebrow: "Data Pipeline", title: "Steam 데이터 & 동기화" },
-  admin: { eyebrow: "Workspace Admin", title: "게임 · 연동 · 설정" },
+  admin: { eyebrow: "Workspace Admin", title: "제품 · 연동 · 설정" },
 };
 
 function showView(view, sectionId) {

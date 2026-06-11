@@ -2,7 +2,7 @@ services:
   growth-dashboard:
     build:
       context: .
-    container_name: launch-pilot-growth-dashboard
+    container_name: overay-desk-growth-pilot
     ports:
       - "4173:4173"
     environment:

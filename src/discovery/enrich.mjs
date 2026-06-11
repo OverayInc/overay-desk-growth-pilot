@@ -133,7 +133,7 @@ export async function fetchPageText(url, { fetchImpl = fetch, timeoutMs = 12000,
     const res = await fetchImpl(url, {
       signal: controller.signal,
       redirect: "follow",
-      headers: { "User-Agent": "launch-pilot-discovery/1.0 (+marketing research bot)", Accept: "text/html,*/*" },
+      headers: { "User-Agent": "overay-desk-discovery/1.0 (+marketing research bot)", Accept: "text/html,*/*" },
     });
     if (!res.ok) return "";
     const ct = res.headers?.get?.("content-type") || "";

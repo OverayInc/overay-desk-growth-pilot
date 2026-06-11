@@ -2,10 +2,10 @@
 //
 // Exercises the whole pipeline without the web server:
 //
-//   node src/discovery/run.mjs "spot the anomaly game" "Exit 8 gameplay"
-//   node src/discovery/run.mjs --dry "관찰 공포 게임"          # retrieval only (no gemma)
-//   node src/discovery/run.mjs --expand 8 --leads 2 "이상현상 찾기"  # hybrid: gemma seeds + lead-following
-//   node src/discovery/run.mjs --minutes 30 "spot the anomaly"  # time-boxed: run for 30 min
+//   node src/discovery/run.mjs "seed query 1" "seed query 2"
+//   node src/discovery/run.mjs --dry "시드 검색어"              # retrieval only (no gemma)
+//   node src/discovery/run.mjs --expand 8 --leads 2 "시드 검색어"  # hybrid: gemma seeds + lead-following
+//   node src/discovery/run.mjs --minutes 30 "seed query"        # time-boxed: run for 30 min
 //   node src/discovery/run.mjs --render --minutes 60 "..."      # + Playwright email harvesting
 //   node src/discovery/run.mjs --json "이상현상 찾기" > out.json
 //
